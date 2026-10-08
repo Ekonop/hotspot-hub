@@ -114,6 +114,11 @@ def sta_name():
     return ""
 
 
+def vpn_bypass_on():
+    """True if hotspot subnet bypasses VPN policy tables into main."""
+    return "from 10.42.0.0/24" in run(["ip", "rule", "show"])
+
+
 def hotspot_state():
     """Return (sta_text, ap_text, n_clients); safe with missing interfaces."""
     cons = active_cons()
@@ -254,17 +259,21 @@ class SystemSection(PanelSection):
         self.info = QLabel("…")
         self.body.addWidget(self.info)
         self.btn_sync = QPushButton("Restart channel-sync")
+        self.btn_route = QPushButton("Fix client routing")
         self.btn_docs = QPushButton("Docs")
         self.btn_sync.clicked.connect(self.controller.sync_restart)
+        self.btn_route.clicked.connect(self.controller.fix_routing)
         self.btn_docs.clicked.connect(lambda: run(["xdg-open", DOC_PATH]))
-        self.row(self.btn_sync, self.btn_docs)
+        self.row(self.btn_sync, self.btn_route)
+        self.row(self.btn_docs)
 
     def refresh(self):
         _, out = run_rc(["systemctl", "is-active",
                          "hotspot-channelsync.service"], timeout=10)
         state = out.strip().splitlines()[0] if out else "unknown"
         sta, ap = iface_info(STA_IF), iface_info(AP_IF)
-        self.info.setText(f"channel-sync: {state}\n"
+        bypass = "on" if vpn_bypass_on() else "OFF"
+        self.info.setText(f"channel-sync: {state} | VPN bypass: {bypass}\n"
                           f"wlan0 ch{sta.get('channel', '?')} | "
                           f"ap0 ch{ap.get('channel', '?')}")
 
@@ -457,6 +466,14 @@ class HotspotPanel:
                         "hotspot-channelsync.service"])
         self.notify("Channel-sync", "Service restarted." if rc == 0
                     else (out[-300:] or "restart failed (sudoers?)"))
+
+    def fix_routing(self):
+        if vpn_bypass_on():
+            return self.notify("Client routing", "VPN bypass already on.")
+        rc, out = priv(["ip", "rule", "add", "from", "10.42.0.0/24",
+                        "table", "main", "priority", "1000"])
+        self.notify("Client routing", "VPN bypass applied." if rc == 0
+                    else (out[-300:] or "failed (sudoers?)"))
 
     def run(self):
         sys.exit(self.app.exec())

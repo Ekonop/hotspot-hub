@@ -8,3 +8,5 @@
 %wheel ALL=(root) NOPASSWD: /usr/bin/systemctl is-active hotspot-channelsync.service
 %wheel ALL=(root) NOPASSWD: /usr/bin/cat /var/lib/NetworkManager/dnsmasq-ap0.leases
 %wheel ALL=(root) NOPASSWD: /usr/bin/nft list *
+%wheel ALL=(root) NOPASSWD: /usr/bin/ip rule add from 10.42.0.0/24 table main priority 1000
+%wheel ALL=(root) NOPASSWD: /usr/bin/ip rule del from 10.42.0.0/24 table main priority 1000
