@@ -1,0 +1,8 @@
+post_install() {
+  echo "Hotspot Hub installed. Next steps:"
+  echo "  1. Create the Wi-Fi profile: /usr/share/hotspot-hub/setup-profile.sh"
+  echo "  2. Allow firewall: ufw allow in on ap0; ufw route allow in on ap0 out on wlan0"
+  echo "  3. Enable sync: systemctl enable --now hotspot-channelsync.service"
+  echo "  4. Launch: hotspot-hub &"
+}
+post_upgrade() { post_install; }

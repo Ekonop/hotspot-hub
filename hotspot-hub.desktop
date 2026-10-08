@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Hotspot Hub
+Comment=Tray control for concurrent Wi-Fi hotspot, WARP and channel-sync
+Exec=hotspot-hub
+Icon=hotspot-hub
+Terminal=false
+Categories=Network;
+StartupNotify=false
+X-GNOME-Autostart-enabled=true

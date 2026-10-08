@@ -1,0 +1,39 @@
+# Maintainer: vansh
+pkgname=hotspot-hub
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="KDE tray control for concurrent Wi-Fi hotspot, WARP and channel-sync"
+arch=('any')
+url="https://example.local/hotspot-hub"
+license=('MIT')
+install=hotspot-hub.install
+depends=('python-pyqt6' 'networkmanager' 'iw' 'iproute2' 'polkit')
+optdepends=('warp-cli: Cloudflare WARP status/toggle in tray'
+            'ufw: firewall rules for hotspot DHCP/NAT')
+source=('hotspot-hub.py'
+        'hotspot-on.sh'
+        'hotspot-off.sh'
+        'hotspot-channelsync.sh'
+        '90-hotspot-channelsync'
+        'hotspot-channelsync.service'
+        '99-hotspot.conf'
+        'hotspot-hub.sudoers'
+        'hotspot-hub.svg'
+        'hotspot-hub.desktop'
+        'setup-profile.sh')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+package() {
+  cd "$srcdir"
+  install -Dm755 hotspot-hub.py "$pkgdir/usr/bin/hotspot-hub"
+  install -Dm755 hotspot-on.sh "$pkgdir/usr/share/hotspot-hub/helpers/hotspot-on.sh"
+  install -Dm755 hotspot-off.sh "$pkgdir/usr/share/hotspot-hub/helpers/hotspot-off.sh"
+  install -Dm755 hotspot-channelsync.sh "$pkgdir/usr/local/bin/hotspot-channelsync.sh"
+  install -Dm755 90-hotspot-channelsync "$pkgdir/etc/NetworkManager/dispatcher.d/90-hotspot-channelsync"
+  install -Dm644 hotspot-channelsync.service "$pkgdir/etc/systemd/system/hotspot-channelsync.service"
+  install -Dm644 99-hotspot.conf "$pkgdir/etc/sysctl.d/99-hotspot.conf"
+  install -Dm440 hotspot-hub.sudoers "$pkgdir/etc/sudoers.d/hotspot-hub"
+  install -Dm644 hotspot-hub.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/hotspot-hub.svg"
+  install -Dm644 hotspot-hub.desktop "$pkgdir/usr/share/applications/hotspot-hub.desktop"
+  install -Dm755 setup-profile.sh "$pkgdir/usr/share/hotspot-hub/setup-profile.sh"
+}

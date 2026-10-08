@@ -1,0 +1,13 @@
+[Unit]
+Description=Keep Hotspot AP channel in sync with STA (single-radio STA+AP)
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=simple
+ExecStart=/bin/bash -c 'while true; do /usr/local/bin/hotspot-channelsync.sh; sleep 10; done'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

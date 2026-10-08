@@ -1,0 +1,10 @@
+# Passwordless privileged actions for Hotspot Hub (wheel group).
+# Scoped to exact binaries/args only - no blanket NOPASSWD.
+%wheel ALL=(root) NOPASSWD: /usr/bin/iw phy phy0 interface add ap0 type __ap
+%wheel ALL=(root) NOPASSWD: /usr/bin/ip link set ap0 *
+%wheel ALL=(root) NOPASSWD: /usr/bin/iw dev ap0 station del *
+%wheel ALL=(root) NOPASSWD: /usr/bin/systemctl restart hotspot-channelsync.service
+%wheel ALL=(root) NOPASSWD: /usr/bin/systemctl status hotspot-channelsync.service
+%wheel ALL=(root) NOPASSWD: /usr/bin/systemctl is-active hotspot-channelsync.service
+%wheel ALL=(root) NOPASSWD: /usr/bin/cat /var/lib/NetworkManager/dnsmasq-ap0.leases
+%wheel ALL=(root) NOPASSWD: /usr/bin/nft list *

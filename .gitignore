@@ -1,0 +1,23 @@
+__pycache__/
+*.pyc
+# makepkg staging + artifacts (see scripts/stage-and-build.sh)
+packaging/arch/hotspot-hub.py
+packaging/arch/hotspot-on.sh
+packaging/arch/hotspot-off.sh
+packaging/arch/hotspot-channelsync.sh
+packaging/arch/90-hotspot-channelsync
+packaging/arch/hotspot-channelsync.service
+packaging/arch/99-hotspot.conf
+packaging/arch/hotspot-hub.sudoers
+packaging/arch/hotspot-hub.svg
+packaging/arch/hotspot-hub.desktop
+packaging/arch/setup-profile.sh
+packaging/arch/pkg/
+packaging/arch/src/
+packaging/arch/*.pkg.tar.*
+packaging/arch/*.src.tar.*
+packaging/arch/*.log
+.DS_Store
+*~
+.vscode/
+.idea/

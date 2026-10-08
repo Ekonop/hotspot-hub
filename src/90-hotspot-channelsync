@@ -1,0 +1,12 @@
+#!/bin/bash
+# NM dispatcher: keep concurrent AP on same channel as STA
+# $1=iface $2=action
+IFACE="$1"
+ACTION="$2"
+if [ "$IFACE" != "wlan0" ] && [ "$IFACE" != "ap0" ]; then exit 0; fi
+case "$ACTION" in
+  up|reapply|connectivity-change|dhcp4-change|dhcp6-change)
+    /usr/local/bin/hotspot-channelsync.sh &
+    ;;
+esac
+exit 0
