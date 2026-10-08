@@ -36,7 +36,10 @@ rejects SAE AP init under `wpa_supplicant` (`WPA initialization failed`).
   `rx >> tx`).
 - VPN/WARP bypass: VPN clients (e.g. WARP table `65743`) capture most public
   space, including NATed hotspot flows. `hotspot-channelsync.sh` therefore
-  keeps `ip rule add from 10.42.0.0/24 table main priority 1000`, so hotspot
-  clients always use the main table (direct uplink) while the host itself
-  stays on VPN. Verify with:
-  `ip route get 8.8.8.8 from 10.42.0.10 iif ap0` (expect `dev <uplink>`).
+  enforces a bypass **at pref 50** — both `from <ap-subnet> lookup main` and
+  `from all iif <ap-if> lookup main`. The pref-50 value matters: WARP changes
+  its capture-rule priority between runs (seen 32765 / 999 / 99), so any
+  hardcoded lower-priority bypass gets silently outranked and clients lose
+  internet. The script deletes stale duplicates and re-adds every run
+  (10 s poll + NM events), so it is self-repairing. Verify with:
+  `ip route get 8.8.8.8 from <client-ip> iif ap0` (expect `dev <uplink>`).

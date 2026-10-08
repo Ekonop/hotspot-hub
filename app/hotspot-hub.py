@@ -115,8 +115,9 @@ def sta_name():
 
 
 def vpn_bypass_on():
-    """True if hotspot subnet bypasses VPN policy tables into main."""
-    return "from 10.42.0.0/24" in run(["ip", "rule", "show"])
+    """True if hotspot traffic bypasses VPN policy tables into main."""
+    out = run(["ip", "rule", "show"])
+    return "iif ap0 lookup main" in out or "from 10.42.0.0/24 lookup main" in out
 
 
 def hotspot_state():
@@ -468,12 +469,13 @@ class HotspotPanel:
                     else (out[-300:] or "restart failed (sudoers?)"))
 
     def fix_routing(self):
-        if vpn_bypass_on():
-            return self.notify("Client routing", "VPN bypass already on.")
-        rc, out = priv(["ip", "rule", "add", "from", "10.42.0.0/24",
-                        "table", "main", "priority", "1000"])
-        self.notify("Client routing", "VPN bypass applied." if rc == 0
-                    else (out[-300:] or "failed (sudoers?)"))
+        rc, out = priv(["/usr/local/bin/hotspot-channelsync.sh"])
+        if rc == 0:
+            self.notify("Client routing",
+                        "VPN bypass enforced (pref 50) + channel synced."
+                        if vpn_bypass_on() else "Sync ran; verify bypass below.")
+        else:
+            self.notify("Client routing", (out[-300:] or "sync failed"))
 
     def run(self):
         sys.exit(self.app.exec())

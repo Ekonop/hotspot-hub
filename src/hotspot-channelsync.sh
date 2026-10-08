@@ -9,13 +9,33 @@ LOG_TAG="hotspot-channelsync"
 log() { logger -t "$LOG_TAG" "$*"; echo "$(date -Is) $*" >&2; }
 sta_up() { nmcli -t -f NAME,DEVICE connection show --active 2>/dev/null | grep -E ":${STA_IF}$" | grep -vq "^${HOTSPOT_CON}:"; }
 
-# 0. keep hotspot clients out of VPN/WARP policy tables (bypass to main).
-# WARP routes most public space via table 65743; without this, NATed ap0
-# clients enter the tunnel (UFW has no ap0->tun forward allow, and the
-# consumer tunnel drops foreign sources) and show "no internet".
-if ! ip rule show 2>/dev/null | grep -q "from 10.42.0.0/24 lookup main"; then
-  ip rule add from 10.42.0.0/24 table main priority 1000 2>/dev/null \
-    && log "added policy bypass for 10.42.0.0/24 -> main"
+# 0. Keep hotspot clients out of VPN/WARP policy tables.
+# WARP installs a capture rule (fwmark 0x100cf -> table 65743) and CHANGES its
+# priority between runs (seen: 32765, 999, 99). Any hardcoded priority gets
+# outranked, which is why client internet kept dying whenever WARP (re)connects.
+# Fix: enforce our bypass at pref 50 (below 0/local and below any VPN rule) and
+# re-add it every run, so it is always evaluated first. Both rules are needed:
+#  - from <ap-subnet> : policy-routes NATed client traffic into the main table
+#  - iif <ap-if>      : covers forwarded frames before any CONNMARK is set
+AP_SUBNET="${AP_SUBNET:-10.42.0.0/24}"
+BYPASS_PREF="${BYPASS_PREF:-50}"
+
+bypass_ok() {
+  ip rule show 2>/dev/null | grep -q "^${BYPASS_PREF}:	from ${AP_SUBNET} lookup main" &&
+  ip rule show 2>/dev/null | grep -q "^${BYPASS_PREF}:	from all iif ${AP_IF} lookup main"
+}
+
+if command -v ip >/dev/null 2>&1; then
+  # drop stale duplicates (any priority) before re-adding
+  while ip rule del from "$AP_SUBNET" table main 2>/dev/null; do :; done
+  while ip rule del from all iif "$AP_IF" table main 2>/dev/null; do :; done
+  ip rule add from "$AP_SUBNET" lookup main pref "$BYPASS_PREF" 2>/dev/null
+  ip rule add from all iif "$AP_IF" lookup main pref "$BYPASS_PREF" 2>/dev/null
+  if bypass_ok; then
+    log "vpn bypass enforced at pref $BYPASS_PREF ($AP_SUBNET + iif $AP_IF -> main)"
+  else
+    log "WARN: vpn bypass could not be enforced; client traffic may enter a VPN tunnel"
+  fi
 fi
 
 # 1. ensure ap0 exists
