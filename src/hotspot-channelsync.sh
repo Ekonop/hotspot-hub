@@ -9,6 +9,15 @@ LOG_TAG="hotspot-channelsync"
 log() { logger -t "$LOG_TAG" "$*"; echo "$(date -Is) $*" >&2; }
 sta_up() { nmcli -t -f NAME,DEVICE connection show --active 2>/dev/null | grep -E ":${STA_IF}$" | grep -vq "^${HOTSPOT_CON}:"; }
 
+# 0. keep hotspot clients out of VPN/WARP policy tables (bypass to main).
+# WARP routes most public space via table 65743; without this, NATed ap0
+# clients enter the tunnel (UFW has no ap0->tun forward allow, and the
+# consumer tunnel drops foreign sources) and show "no internet".
+if ! ip rule show 2>/dev/null | grep -q "from 10.42.0.0/24 lookup main"; then
+  ip rule add from 10.42.0.0/24 table main priority 1000 2>/dev/null \
+    && log "added policy bypass for 10.42.0.0/24 -> main"
+fi
+
 # 1. ensure ap0 exists
 if ! iw dev "$AP_IF" info >/dev/null 2>&1; then
   log "$AP_IF missing, creating"

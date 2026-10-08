@@ -27,10 +27,16 @@ Security applied: WPA2-Personal, `proto rsn` (WPA2-only), `pairwise/group ccmp`
 WPA3-SAE AP is intentionally not offered: MediaTek MT7921e/MT7922 firmware
 rejects SAE AP init under `wpa_supplicant` (`WPA initialization failed`).
 
-## Firewall / forwarding
+## Firewall / forwarding / VPN coexistence
 
 - `net.ipv4.ip_forward=1` via `src/99-hotspot.conf`.
 - UFW (if present): `ufw allow in on ap0` and
   `ufw route allow in on ap0 out on wlan0`. Without these, DHCP from
   `dnsmasq` never reaches clients (empty leases, `authorized yes` but
   `rx >> tx`).
+- VPN/WARP bypass: VPN clients (e.g. WARP table `65743`) capture most public
+  space, including NATed hotspot flows. `hotspot-channelsync.sh` therefore
+  keeps `ip rule add from 10.42.0.0/24 table main priority 1000`, so hotspot
+  clients always use the main table (direct uplink) while the host itself
+  stays on VPN. Verify with:
+  `ip route get 8.8.8.8 from 10.42.0.10 iif ap0` (expect `dev <uplink>`).
