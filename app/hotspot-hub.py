@@ -3,25 +3,30 @@
 Dropdown canvas is extensible: add a PanelSection subclass + register in
 DropdownPanel._build_sections(). Privileged ops use passwordless sudo
 (/etc/sudoers.d/hotspot-hub), pkexec fallback. No plaintext passwords."""
+from __future__ import annotations
+
 import os
 import re
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Any
 
 from PyQt6.QtCore import QTimer, Qt
-from PyQt6.QtGui import QAction, QIcon, QCursor
-from PyQt6.QtWidgets import (QApplication, QMessageBox, QSystemTrayIcon, QMenu,
-                             QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                             QPushButton, QFrame)
+from PyQt6.QtGui import QAction, QCursor, QFocusEvent, QIcon
+from PyQt6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QMenu,
+                             QMessageBox, QPushButton, QSystemTrayIcon,
+                             QVBoxLayout, QWidget)
 
 AP_IF = os.environ.get("HOTSPOT_HUB_AP_IF", "ap0")
 STA_IF = os.environ.get("HOTSPOT_HUB_STA_IF", "wlan0")
 HOTSPOT_CON = os.environ.get("HOTSPOT_HUB_CON", "Hotspot-Shared")
 
 
-def _default_doc():
+def _default_doc() -> str:
+    """Return default documentation path from environment or filesystem."""
     env = os.environ.get("HOTSPOT_HUB_DOCS")
     if env:
         return env
@@ -35,7 +40,7 @@ DOC_PATH = _default_doc()
 LEASE_FILE = "/var/lib/NetworkManager/dnsmasq-ap0.leases"
 
 
-def run(cmd, timeout=5):
+def run(cmd: Sequence[str], timeout: int | float = 5) -> str:
     """Run cmd, return stdout. Never raises ('' on error)."""
     try:
         return subprocess.run(cmd, capture_output=True, text=True,
@@ -44,7 +49,7 @@ def run(cmd, timeout=5):
         return ""
 
 
-def run_rc(cmd, timeout=15):
+def run_rc(cmd: Sequence[str], timeout: int | float = 15) -> tuple[int, str]:
     """Run cmd, return (rc, output). Never raises."""
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
@@ -53,7 +58,7 @@ def run_rc(cmd, timeout=15):
         return 1, str(e)
 
 
-def active_cons():
+def active_cons() -> dict[str, str]:
     """Parse `nmcli -t -f NAME,DEVICE con show --active` -> {name: device}."""
     m = {}
     for line in run(["nmcli", "-t", "-f", "NAME,DEVICE",
@@ -64,7 +69,7 @@ def active_cons():
     return m
 
 
-def iface_info(dev):
+def iface_info(dev: str) -> dict[str, str]:
     """Parse `iw dev <dev> info` -> {ssid, channel} or {} if missing."""
     out = run(["iw", "dev", dev, "info"])
     if not out or "No such device" in out:
@@ -75,7 +80,7 @@ def iface_info(dev):
             "channel": c.group(1) if c else ""}
 
 
-def station_dump():
+def station_dump() -> list[tuple[str, str]]:
     """Parse `iw dev ap0 station dump` -> [(mac, signal)]. [] if AP down."""
     stations, mac, sig = [], "", ""
     for line in run(["iw", "dev", AP_IF, "station", "dump"]).splitlines():
@@ -92,7 +97,7 @@ def station_dump():
     return stations
 
 
-def warp_status():
+def warp_status() -> str:
     """One-line `warp-cli --accept-tos status`. Never raises."""
     if not shutil.which("warp-cli"):
         return "not installed"
@@ -103,7 +108,7 @@ def warp_status():
     return m.group(1).strip().splitlines()[0] if m else out.splitlines()[0][:60]
 
 
-def sta_name():
+def sta_name() -> str:
     """Active wifi connection on STA_IF excluding the hotspot itself, or ''."""
     for line in run(["nmcli", "-t", "-f", "NAME,DEVICE",
                      "con", "show", "--active"]).splitlines():
@@ -114,13 +119,13 @@ def sta_name():
     return ""
 
 
-def vpn_bypass_on():
+def vpn_bypass_on() -> bool:
     """True if hotspot traffic bypasses VPN policy tables into main."""
     out = run(["ip", "rule", "show"])
     return "iif ap0 lookup main" in out or "from 10.42.0.0/24 lookup main" in out
 
 
-def hotspot_state():
+def hotspot_state() -> tuple[str, str, int]:
     """Return (sta_text, ap_text, n_clients); safe with missing interfaces."""
     cons = active_cons()
     sta, ap = iface_info(STA_IF), iface_info(AP_IF)
@@ -137,7 +142,7 @@ def hotspot_state():
     return sta_t, ap_t, n
 
 
-def priv(cmd, timeout=30):
+def priv(cmd: list[str], timeout: int | float = 30) -> tuple[int, str]:
     """Run privileged cmd without prompt: sudo -n first (sudoers), pkexec fallback."""
     rc, out = run_rc(["sudo", "-n"] + cmd, timeout=timeout)
     if rc == 0:
@@ -148,7 +153,7 @@ def priv(cmd, timeout=30):
     return rc, out
 
 
-def ensure_ap0():
+def ensure_ap0() -> tuple[bool, str]:
     """Create ap0 passwordless (sudoers) if missing. Returns (ok, msg)."""
     if iface_info(AP_IF):
         return True, "ap0 exists"
@@ -160,7 +165,7 @@ def ensure_ap0():
     return True, "ap0 created"
 
 
-def lease_count():
+def lease_count() -> str:
     """DHCP lease count; sudo -n cat (sudoers). Returns str."""
     try:
         with open(LEASE_FILE) as f:
@@ -182,7 +187,8 @@ class PanelSection(QFrame):
     """Base card for the dropdown canvas. Subclass + override refresh()."""
     title = "Section"
 
-    def __init__(self, controller, parent=None):
+    def __init__(self, controller: HotspotPanel, parent: QWidget | None = None) -> None:
+        """Initialize the panel section with controller reference and setup layout."""
         super().__init__(parent)
         self.controller = controller
         self.setFrameShape(QFrame.Shape.StyledPanel)
@@ -196,13 +202,14 @@ class PanelSection(QFrame):
         self.layout.addLayout(self.body)
         self.build_body()
 
-    def build_body(self):
+    def build_body(self) -> None:
         """Create widgets. Override in subclass."""
 
-    def refresh(self):
+    def refresh(self) -> None:
         """Update widgets from live state. Override in subclass."""
 
-    def row(self, *widgets):
+    def row(self, *widgets: QWidget) -> QHBoxLayout:
+        """Add a horizontal row of widgets to the section layout."""
         h = QHBoxLayout()
         h.setSpacing(6)
         for w in widgets:
@@ -214,7 +221,8 @@ class PanelSection(QFrame):
 class HotspotSection(PanelSection):
     title = "Hotspot"
 
-    def build_body(self):
+    def build_body(self) -> None:
+        """Build Hotspot section widgets and connect button handlers."""
         self.info = QLabel("…")
         self.info.setWordWrap(True)
         self.body.addWidget(self.info)
@@ -229,7 +237,8 @@ class HotspotSection(PanelSection):
         self.row(self.btn_on, self.btn_off, self.btn_restart)
         self.row(self.btn_clients)
 
-    def refresh(self):
+    def refresh(self) -> None:
+        """Update hotspot and station status labels from live system state."""
         try:
             sta, ap, n = hotspot_state()
             self.info.setText(f"{sta}\n{ap} | clients {n} | leases {lease_count()}")
@@ -240,7 +249,8 @@ class HotspotSection(PanelSection):
 class WarpSection(PanelSection):
     title = "WARP"
 
-    def build_body(self):
+    def build_body(self) -> None:
+        """Build Cloudflare WARP section widgets and connect button handlers."""
         self.info = QLabel("…")
         self.body.addWidget(self.info)
         self.btn_on = QPushButton("Connect")
@@ -249,14 +259,16 @@ class WarpSection(PanelSection):
         self.btn_off.clicked.connect(lambda: self.controller.warp("disconnect"))
         self.row(self.btn_on, self.btn_off)
 
-    def refresh(self):
+    def refresh(self) -> None:
+        """Update Cloudflare WARP connection status label."""
         self.info.setText(f"Status: {warp_status()}")
 
 
 class SystemSection(PanelSection):
     title = "System"
 
-    def build_body(self):
+    def build_body(self) -> None:
+        """Build System section widgets and connect action buttons."""
         self.info = QLabel("…")
         self.body.addWidget(self.info)
         self.btn_sync = QPushButton("Restart channel-sync")
@@ -268,7 +280,8 @@ class SystemSection(PanelSection):
         self.row(self.btn_sync, self.btn_route)
         self.row(self.btn_docs)
 
-    def refresh(self):
+    def refresh(self) -> None:
+        """Update channel-sync service status, VPN bypass state, and channels."""
         _, out = run_rc(["systemctl", "is-active",
                          "hotspot-channelsync.service"], timeout=10)
         state = out.strip().splitlines()[0] if out else "unknown"
@@ -286,7 +299,8 @@ class DropdownPanel(QWidget):
     transient parent, so this uses Qt.Tool (no grab) + hide-on-focus-out.
     """
 
-    def __init__(self, controller):
+    def __init__(self, controller: HotspotPanel) -> None:
+        """Initialize frameless dropdown window and add section components."""
         super().__init__(
             None,
             Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint |
@@ -306,7 +320,7 @@ class DropdownPanel(QWidget):
         top.addWidget(header, 1)
         top.addWidget(close_btn)
         root.addLayout(top)
-        self.sections = []
+        self.sections: list[PanelSection] = []
         self._build_sections(root)
         hint = QLabel("Right-click tray for menu • Quit there. "
                       "Add future mods as new PanelSection.")
@@ -314,21 +328,24 @@ class DropdownPanel(QWidget):
         hint.setEnabled(False)
         root.addWidget(hint)
 
-    def _build_sections(self, root):
+    def _build_sections(self, root: QVBoxLayout) -> None:
+        """Instantiate and register panel section cards into the layout."""
         # EXTENSION POINT: append future PanelSection instances here.
         for cls in (HotspotSection, WarpSection, SystemSection):
             sec = cls(self.controller, self)
             self.sections.append(sec)
             root.addWidget(sec)
 
-    def refresh_all(self):
+    def refresh_all(self) -> None:
+        """Refresh all registered panel sections."""
         for s in self.sections:
             try:
                 s.refresh()
             except Exception:
                 pass
 
-    def focusOutEvent(self, event):
+    def focusOutEvent(self, event: QFocusEvent) -> None:
+        """Hide panel when focus is lost and cursor is outside the window."""
         # Wayland-safe auto-hide: Popup grab unavailable, so hide when
         # focus leaves the canvas (clicking outside moves focus away).
         if not self.underMouse():
@@ -337,7 +354,8 @@ class DropdownPanel(QWidget):
 
 
 class HotspotPanel:
-    def __init__(self):
+    def __init__(self) -> None:
+        """Initialize Qt application, tray icon, context menu, and refresh timer."""
         self.app = QApplication(sys.argv)
         self.app.setQuitOnLastWindowClosed(False)
         try:  # silence "Icon theme gnome not found" on KDE; prefer breeze
@@ -362,14 +380,16 @@ class HotspotPanel:
         self.refresh()
         self.tray.show()
 
-    def _act(self, label, slot, disabled=False):
+    def _act(self, label: str, slot: Callable[..., Any], disabled: bool = False) -> QAction:
+        """Add an action item to the context menu and return it."""
         a = QAction(label, self.menu)
         a.setEnabled(not disabled)
         a.triggered.connect(slot)
         self.menu.addAction(a)
         return a
 
-    def _build_menu(self):
+    def _build_menu(self) -> None:
+        """Build actions and separators for tray context menu."""
         self.status_action = self._act("Status…", lambda: None, disabled=True)
         self.menu.addSeparator()
         self._act("Open panel", self.toggle_panel)
@@ -378,11 +398,13 @@ class HotspotPanel:
         self.menu.addSeparator()
         self._act("Quit", self.app.quit)
 
-    def _on_tray_activated(self, reason):
+    def _on_tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
+        """Handle tray icon trigger events to toggle dropdown panel."""
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
             self.toggle_panel()
 
-    def toggle_panel(self):
+    def toggle_panel(self) -> None:
+        """Toggle panel visibility and position near the current mouse cursor."""
         if self.panel.isVisible():
             self.panel.hide()
             return
@@ -394,7 +416,8 @@ class HotspotPanel:
         self.panel.raise_()
         self.panel.activateWindow()
 
-    def refresh(self):
+    def refresh(self) -> None:
+        """Refresh tray tooltip, status action text, and visible panel sections."""
         try:
             sta, ap, n = hotspot_state()
             text = f"{sta} | {ap} | clients {n} | WARP {warp_status()}"
@@ -405,7 +428,8 @@ class HotspotPanel:
         if self.panel.isVisible():
             self.panel.refresh_all()
 
-    def notify(self, title, msg):
+    def notify(self, title: str, msg: str) -> None:
+        """Show a tray notification popup and refresh panel."""
         try:
             self.tray.showMessage(title, msg,
                                   QSystemTrayIcon.MessageIcon.Information, 5000)
@@ -414,10 +438,12 @@ class HotspotPanel:
         if self.panel.isVisible():
             self.panel.refresh_all()
 
-    def _nm_up(self):
+    def _nm_up(self) -> tuple[int, str]:
+        """Activate the NetworkManager connection profile."""
         return run_rc(["nmcli", "con", "up", HOTSPOT_CON], timeout=30)
 
-    def hotspot_on(self):
+    def hotspot_on(self) -> None:
+        """Ensure ap0 exists and activate hotspot connection."""
         ok, msg = ensure_ap0()
         if not ok:
             return self.notify("Hotspot On failed", msg)
@@ -426,13 +452,15 @@ class HotspotPanel:
                     else f"Hotspot On failed: {(out[-300:] or 'nmcli failed')}")
         self.refresh()
 
-    def hotspot_off(self):
+    def hotspot_off(self) -> None:
+        """Deactivate hotspot connection."""
         rc, out = run_rc(["nmcli", "con", "down", HOTSPOT_CON], timeout=30)
         self.notify("Hotspot Off", "Hotspot-Shared deactivated." if rc == 0
                     else (out[-300:] or "nmcli down failed"))
         self.refresh()
 
-    def hotspot_restart(self):
+    def hotspot_restart(self) -> None:
+        """Cycle hotspot connection off and on."""
         ok, msg = ensure_ap0()
         if not ok:
             return self.notify("Hotspot Restart failed", msg)
@@ -442,7 +470,8 @@ class HotspotPanel:
                     else f"Restart failed: {(out[-300:] or 'nmcli failed')}")
         self.refresh()
 
-    def show_clients(self):
+    def show_clients(self) -> None:
+        """Display dialog showing connected clients and DHCP lease count."""
         try:
             stations = station_dump()
             err = ""
@@ -456,19 +485,22 @@ class HotspotPanel:
         QMessageBox.information(self.panel if self.panel.isVisible() else None,
                                 "Connected clients (ap0)", body)
 
-    def warp(self, op):
+    def warp(self, op: str) -> None:
+        """Run warp-cli connect or disconnect command."""
         rc, out = run_rc(["warp-cli", "--accept-tos", op], timeout=30)
         self.notify(f"WARP {op}", (out[-300:] or "done") if rc == 0
                     else (out[-300:] or "warp-cli failed"))
         self.refresh()
 
-    def sync_restart(self):
+    def sync_restart(self) -> None:
+        """Restart hotspot-channelsync systemd service."""
         rc, out = priv(["systemctl", "restart",
                         "hotspot-channelsync.service"])
         self.notify("Channel-sync", "Service restarted." if rc == 0
                     else (out[-300:] or "restart failed (sudoers?)"))
 
-    def fix_routing(self):
+    def fix_routing(self) -> None:
+        """Run hotspot-channelsync script to enforce VPN bypass routing."""
         rc, out = priv(["/usr/local/bin/hotspot-channelsync.sh"])
         if rc == 0:
             self.notify("Client routing",
@@ -477,7 +509,8 @@ class HotspotPanel:
         else:
             self.notify("Client routing", (out[-300:] or "sync failed"))
 
-    def run(self):
+    def run(self) -> None:
+        """Run the Qt application event loop."""
         sys.exit(self.app.exec())
 
 
