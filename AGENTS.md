@@ -35,6 +35,7 @@ Channel-sync keeps AP on STA's channel. VPN/WARP bypass at pref 50.
 
 Full setup/ops/troubleshooting: `~/doc/hotspot-system/` (README, SETUP,
 OPERATIONS, TROUBLESHOOTING, FILES). Also `docs/` in repo.
+Roadmap: `docs/ROADMAP.md`.
 
 ## Git
 
