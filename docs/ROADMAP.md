@@ -39,8 +39,8 @@
 - [x] **Auto-start on boot** — optional, configurable via checkbox and `--no-autostart` installer flag. ✅
 
 ### D. Monitoring/Logging
-- [ ] **Persistent logs** — structured logging to file with rotation.
-- [ ] **Health check** — periodic self-test (AP reachable, DHCP working, internet via AP).
+- [x] **Persistent logs** — structured logging to file with rotation.
+- [x] **Health check** — periodic self-test (AP reachable, DHCP working, internet via AP).
 - [ ] **Metrics export** — Prometheus/node_exporter compatible metrics.
 
 ---
@@ -48,14 +48,14 @@
 ## 2. Optimizations
 
 ### A. Performance
-- [ ] **Reduce poll frequency** — 10s poll is aggressive; use NM events + 30s fallback.
-- [ ] **Lazy refresh** — only refresh UI when visible or on event, not every 5s.
-- [ ] **Cache nmcli/iw output** — avoid redundant subprocess calls.
+- [x] **Reduce poll frequency** — 10s poll is aggressive; use NM events + 30s fallback.
+- [x] **Lazy refresh** — only refresh UI when visible or on event, not every 5s.
+- [x] **Cache nmcli/iw output** — avoid redundant subprocess calls.
 - [ ] **Async subprocess** — use QProcess or asyncio instead of blocking subprocess.run.
 
 ### B. Reliability
-- [ ] **Retry logic** — retry failed nmcli/iw commands with backoff.
-- [ ] **Graceful degradation** — if ap0 can't be created, show helpful error instead of crashing.
+- [x] **Retry logic** — retry failed nmcli/iw commands with backoff.
+- [x] **Graceful degradation** — if ap0 can't be created, show helpful error instead of crashing.
 - [ ] **Config validation** — validate env vars and profile at startup.
 - [ ] **Atomic profile updates** — backup profile before modifying, restore on failure.
 
