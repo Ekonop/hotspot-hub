@@ -8,19 +8,18 @@ Reuses helper functions from app/hotspot-hub.py.
 from __future__ import annotations
 
 import argparse
-import os
-import re
-import shutil
-import subprocess
-import sys
-from pathlib import Path
-from typing import Sequence
 
 # ---------------------------------------------------------------------------
 # Dynamic import of app/hotspot-hub.py
 # ---------------------------------------------------------------------------
 import importlib.machinery
 import importlib.util
+import re
+import shutil
+import subprocess
+import sys
+from collections.abc import Sequence
+from pathlib import Path
 
 _repo_hub = Path(__file__).resolve().parent.parent / "app" / "hotspot-hub.py"
 _share_hub = Path("/usr/share/hotspot-hub/app/hotspot-hub.py")
@@ -45,7 +44,6 @@ loader.exec_module(hub)
 def cmd_status(args: argparse.Namespace) -> int:
     """Display comprehensive status of hotspot, uplink, clients, security, and routing."""
     sta_text, ap_text, client_count = hub.hotspot_state()
-    sta = hub.iface_info(hub.STA_IF)
     ap = hub.iface_info(hub.AP_IF)
     cons = hub.active_cons()
     hotspot_active = cons.get(hub.HOTSPOT_CON) == hub.AP_IF

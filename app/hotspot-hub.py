@@ -19,16 +19,47 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
-from PyQt6.QtCore import QEvent, QRectF, QSettings, QTime, QTimer, Qt
-from PyQt6.QtGui import (QAction, QBrush, QColor, QCursor, QFocusEvent,
-                         QFont, QIcon, QKeySequence, QPainter, QPalette, QPen,
-                         QPixmap, QShortcut)
-from PyQt6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox,
-                             QDialog, QFrame, QGroupBox, QHBoxLayout, QLabel,
-                             QLineEdit, QListWidget, QMenu, QMessageBox,
-                             QPushButton, QRadioButton, QScrollArea, QSizeGrip,
-                             QSizePolicy, QSpinBox, QSystemTrayIcon,
-                             QTabWidget, QTimeEdit, QVBoxLayout, QWidget)
+from PyQt6.QtCore import QEvent, QRectF, QSettings, Qt, QTime, QTimer
+from PyQt6.QtGui import (
+    QAction,
+    QBrush,
+    QColor,
+    QCursor,
+    QFocusEvent,
+    QFont,
+    QIcon,
+    QKeySequence,
+    QPainter,
+    QPalette,
+    QPen,
+    QPixmap,
+    QShortcut,
+)
+from PyQt6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QFrame,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QMenu,
+    QMessageBox,
+    QPushButton,
+    QRadioButton,
+    QScrollArea,
+    QSizeGrip,
+    QSizePolicy,
+    QSpinBox,
+    QSystemTrayIcon,
+    QTabWidget,
+    QTimeEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 # Optional KColorScheme support (PyKF6 / PyKF5)
 try:
@@ -227,7 +258,7 @@ def load_mac_file(path: Path) -> set[str]:
         return set()
     macs: set[str] = set()
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line or line.startswith("#"):
@@ -321,7 +352,7 @@ def load_app_config() -> dict[str, Any]:
     cfg = dict(DEFAULT_CONFIG)
     if CONFIG_FILE.is_file():
         try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            with open(CONFIG_FILE, encoding="utf-8") as f:
                 data = json.load(f)
                 if isinstance(data, dict):
                     cfg.update(data)
@@ -850,7 +881,7 @@ def read_net_dev_bytes() -> dict[str, tuple[int, int]]:
     """Read /proc/net/dev and return {interface: (rx_bytes, tx_bytes)}."""
     stats: dict[str, tuple[int, int]] = {}
     try:
-        with open("/proc/net/dev", "r", encoding="utf-8") as f:
+        with open("/proc/net/dev", encoding="utf-8") as f:
             for line in f:
                 if ":" not in line:
                     continue

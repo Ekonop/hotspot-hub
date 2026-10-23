@@ -67,9 +67,9 @@
 
 ### D. Code quality
 - [ ] **Type hints** — add Python type annotations. ✅ (done via agy)
-- [ ] **Unit tests** — test parsing functions (iface_info, station_dump, etc.) with mock data.
-- [ ] **Linting** — ruff/flake8 + black formatting.
-- [ ] **CI/CD** — GitHub Actions for lint + package build.
+- [x] **Unit tests** — test parsing functions (iface_info, station_dump, etc.) with mock data.
+- [x] **Linting** — ruff/flake8 + black formatting.
+- [x] **CI/CD** — GitHub Actions for lint + package build.
 - [ ] **Error handling** — replace bare `except Exception` with specific exceptions.
 
 ---

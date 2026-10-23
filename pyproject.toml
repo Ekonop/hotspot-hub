@@ -1,0 +1,26 @@
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+extend-exclude = [".git", "__pycache__", "packaging"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "W",   # pycodestyle warnings
+    "I",   # isort (import sorting)
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+]
+ignore = [
+    "E501",   # line length handled by formatter
+    "B008",   # function call in default arg (common in Qt signals)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402"]  # module-level import not at top (sys.path setup)
+"app/*" = ["B008"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

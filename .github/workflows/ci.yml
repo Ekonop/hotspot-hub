@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Ruff lint
+        run: ruff check app/ cli/ tests/
+
+      - name: Syntax check
+        run: |
+          python3 -c "import ast; ast.parse(open('app/hotspot-hub.py').read())"
+          python3 -c "import ast; ast.parse(open('cli/hotspot-hub-cli.py').read())"
+
+      - name: Unit tests
+        run: python3 -m unittest discover -s tests -v
+
+  validate-shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate shell scripts
+        run: |
+          bash -n install.sh
+          bash -n uninstall.sh
+          for f in helpers/*.sh src/*.sh scripts/*.sh; do
+            if [ -f "$f" ]; then
+              echo "Checking $f"
+              bash -n "$f"
+            fi
+          done
