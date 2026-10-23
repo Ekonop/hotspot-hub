@@ -15,10 +15,10 @@ from pathlib import Path
 from typing import Any
 
 from PyQt6.QtCore import QTimer, Qt
-from PyQt6.QtGui import QAction, QCursor, QFocusEvent, QIcon
-from PyQt6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QMenu,
-                             QMessageBox, QPushButton, QSystemTrayIcon,
-                             QVBoxLayout, QWidget)
+from PyQt6.QtGui import QAction, QCursor, QFocusEvent, QIcon, QPixmap
+from PyQt6.QtWidgets import (QApplication, QDialog, QFrame, QHBoxLayout, QLabel,
+                             QMenu, QMessageBox, QPushButton, QScrollArea,
+                             QSystemTrayIcon, QVBoxLayout, QWidget)
 
 AP_IF = os.environ.get("HOTSPOT_HUB_AP_IF", "ap0")
 STA_IF = os.environ.get("HOTSPOT_HUB_STA_IF", "wlan0")
@@ -95,6 +95,21 @@ def station_dump() -> list[tuple[str, str]]:
     if mac:
         stations.append((mac, sig))
     return stations
+
+
+def qr_code_png(ssid: str, psk: str) -> bytes | None:
+    """Generate WiFi QR code PNG bytes using qrencode CLI. Return None on error."""
+    if not shutil.which("qrencode"):
+        return None
+    payload = f"WIFI:T:WPA;S:{ssid};P:{psk};;"
+    try:
+        p = subprocess.run(["qrencode", "-s", "6", "-o", "-", payload],
+                           capture_output=True, timeout=10)
+        if p.returncode == 0 and p.stdout:
+            return p.stdout
+    except Exception:
+        pass
+    return None
 
 
 def warp_status() -> str:
@@ -230,12 +245,14 @@ class HotspotSection(PanelSection):
         self.btn_off = QPushButton("Off")
         self.btn_restart = QPushButton("Restart")
         self.btn_clients = QPushButton("Clients…")
+        self.btn_qr = QPushButton("QR Code")
         self.btn_on.clicked.connect(self.controller.hotspot_on)
         self.btn_off.clicked.connect(self.controller.hotspot_off)
         self.btn_restart.clicked.connect(self.controller.hotspot_restart)
         self.btn_clients.clicked.connect(self.controller.show_clients)
+        self.btn_qr.clicked.connect(self.controller.show_qr_code)
         self.row(self.btn_on, self.btn_off, self.btn_restart)
-        self.row(self.btn_clients)
+        self.row(self.btn_clients, self.btn_qr)
 
     def refresh(self) -> None:
         """Update hotspot and station status labels from live system state."""
@@ -290,6 +307,92 @@ class SystemSection(PanelSection):
         self.info.setText(f"channel-sync: {state} | VPN bypass: {bypass}\n"
                           f"wlan0 ch{sta.get('channel', '?')} | "
                           f"ap0 ch{ap.get('channel', '?')}")
+
+
+class ClientsDialog(QDialog):
+    """Dialog displaying connected Wi-Fi clients with kick capability."""
+
+    def __init__(self, controller: HotspotPanel, parent: QWidget | None = None) -> None:
+        """Initialize the client list dialog."""
+        super().__init__(parent)
+        self.controller = controller
+        self.setWindowTitle(f"Connected Clients ({AP_IF})")
+        self.setMinimumWidth(380)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+        layout.setContentsMargins(12, 12, 12, 12)
+
+        self.summary_label = QLabel("…")
+        layout.addWidget(self.summary_label)
+
+        self.clients_container = QWidget()
+        self.clients_layout = QVBoxLayout(self.clients_container)
+        self.clients_layout.setContentsMargins(0, 0, 0, 0)
+        self.clients_layout.setSpacing(6)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(self.clients_container)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        layout.addWidget(scroll, 1)
+
+        bottom = QHBoxLayout()
+        self.btn_refresh = QPushButton("Refresh")
+        self.btn_refresh.clicked.connect(self.refresh_clients)
+        self.btn_close = QPushButton("Close")
+        self.btn_close.clicked.connect(self.accept)
+        bottom.addWidget(self.btn_refresh)
+        bottom.addStretch()
+        bottom.addWidget(self.btn_close)
+        layout.addLayout(bottom)
+
+        self.refresh_clients()
+
+    def refresh_clients(self) -> None:
+        """Refresh station list and rebuild client rows."""
+        while self.clients_layout.count():
+            item = self.clients_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        try:
+            stations = station_dump()
+            err = ""
+        except Exception as e:
+            stations, err = [], str(e)
+
+        summary = f"Stations: {len(stations)} | DHCP leases: {lease_count()}"
+        if err:
+            summary += f"\nNote: {err}"
+        self.summary_label.setText(summary)
+
+        if not stations:
+            empty = QLabel(f"No clients (or AP interface {AP_IF} is down).")
+            empty.setStyleSheet("color: gray;")
+            self.clients_layout.addWidget(empty)
+        else:
+            for mac, sig in stations:
+                row = QWidget()
+                row_layout = QHBoxLayout(row)
+                row_layout.setContentsMargins(4, 2, 4, 2)
+                row_layout.setSpacing(8)
+
+                info = QLabel(f"{mac}  ({sig or 'signal ?'})")
+                btn_kick = QPushButton("Disconnect")
+                btn_kick.setFixedWidth(90)
+                btn_kick.clicked.connect(lambda _, m=mac: self._kick(m))
+
+                row_layout.addWidget(info, 1)
+                row_layout.addWidget(btn_kick)
+                self.clients_layout.addWidget(row)
+
+        self.clients_layout.addStretch()
+
+    def _kick(self, mac: str) -> None:
+        """Disconnect specified station MAC and refresh the view."""
+        self.controller.disconnect_client(mac)
+        self.refresh_clients()
 
 
 class DropdownPanel(QWidget):
@@ -377,6 +480,10 @@ class HotspotPanel:
         self.timer = QTimer()  # auto-refresh tooltip + menu + panel every 5 s
         self.timer.timeout.connect(self.refresh)
         self.timer.start(5000)
+        self._known_macs: set[str] = {mac.lower() for mac, _ in station_dump()}
+        self.client_timer = QTimer()  # poll station_dump every 10 s for notifications
+        self.client_timer.timeout.connect(self._poll_stations)
+        self.client_timer.start(10000)
         self.refresh()
         self.tray.show()
 
@@ -470,20 +577,110 @@ class HotspotPanel:
                     else f"Restart failed: {(out[-300:] or 'nmcli failed')}")
         self.refresh()
 
-    def show_clients(self) -> None:
-        """Display dialog showing connected clients and DHCP lease count."""
+    def _poll_stations(self) -> None:
+        """Poll station_dump() every 10s and notify on client connect or disconnect."""
         try:
-            stations = station_dump()
-            err = ""
-        except Exception as e:
-            stations, err = [], str(e)
-        body = "\n".join(f"{m}  {s or 'signal ?'}" for m, s in stations) \
-            if stations else "No clients (or AP interface ap0 is down)."
-        body += f"\n\nStations: {len(stations)} | DHCP leases: {lease_count()}"
-        if err:
-            body += f"\nNote: {err}"
-        QMessageBox.information(self.panel if self.panel.isVisible() else None,
-                                "Connected clients (ap0)", body)
+            current_stations = station_dump()
+            current_macs = {mac.lower() for mac, _ in current_stations}
+        except Exception:
+            return
+
+        connected = current_macs - self._known_macs
+        disconnected = self._known_macs - current_macs
+
+        for mac in sorted(connected):
+            self.tray.showMessage("Client Connected",
+                                  f"Client {mac} connected to hotspot",
+                                  QSystemTrayIcon.MessageIcon.Information, 5000)
+        for mac in sorted(disconnected):
+            self.tray.showMessage("Client Disconnected",
+                                  f"Client {mac} disconnected from hotspot",
+                                  QSystemTrayIcon.MessageIcon.Information, 5000)
+
+        self._known_macs = current_macs
+
+    def disconnect_client(self, mac: str) -> tuple[int, str]:
+        """Disconnect a station via `iw dev ap0 station del <mac>` and refresh."""
+        rc, out = priv(["iw", "dev", AP_IF, "station", "del", mac])
+        if rc == 0:
+            self.notify("Client Disconnected", f"Station {mac} disconnected.")
+        else:
+            self.notify("Disconnect Failed", f"Failed to disconnect {mac}: {(out[-200:] or 'iw failed')}")
+        self.refresh()
+        self._poll_stations()
+        return rc, out
+
+    def show_clients(self) -> None:
+        """Display dialog showing connected clients with kick capability."""
+        dialog = ClientsDialog(self, self.panel if self.panel.isVisible() else None)
+        dialog.exec()
+
+    def show_qr_code(self) -> None:
+        """Read SSID and PSK, generate WiFi QR code via qrencode, and display in a dialog."""
+        if not shutil.which("qrencode"):
+            QMessageBox.warning(
+                self.panel if self.panel.isVisible() else None,
+                "QR Code",
+                "The 'qrencode' CLI tool is not installed.\n"
+                "Please install qrencode (e.g. pacman -S qrencode) to generate QR codes.",
+            )
+            return
+
+        psk = run(["nmcli", "-s", "-g", "802-11-wireless-security.psk",
+                   "connection", "show", HOTSPOT_CON])
+        ssid = run(["nmcli", "-s", "-g", "802-11-wireless.ssid",
+                    "connection", "show", HOTSPOT_CON])
+        if not ssid:
+            ssid = iface_info(AP_IF).get("ssid", "")
+        if not ssid:
+            ssid = "Hotspot-Hub"
+
+        if not psk:
+            QMessageBox.warning(
+                self.panel if self.panel.isVisible() else None,
+                "QR Code",
+                f"Could not read hotspot password for connection '{HOTSPOT_CON}'.",
+            )
+            return
+
+        png_data = qr_code_png(ssid, psk)
+        if not png_data:
+            QMessageBox.warning(
+                self.panel if self.panel.isVisible() else None,
+                "QR Code",
+                "Failed to generate QR code using qrencode.",
+            )
+            return
+
+        pix = QPixmap()
+        if not pix.loadFromData(png_data, "PNG"):
+            QMessageBox.warning(
+                self.panel if self.panel.isVisible() else None,
+                "QR Code",
+                "Failed to render QR code image.",
+            )
+            return
+
+        dialog = QDialog(self.panel if self.panel.isVisible() else None)
+        dialog.setWindowTitle("Hotspot QR Code")
+        dlg_layout = QVBoxLayout(dialog)
+        dlg_layout.setSpacing(10)
+        dlg_layout.setContentsMargins(16, 16, 16, 16)
+
+        info_lbl = QLabel(f"<b>SSID:</b> {ssid}")
+        info_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        dlg_layout.addWidget(info_lbl)
+
+        img_lbl = QLabel()
+        img_lbl.setPixmap(pix)
+        img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        dlg_layout.addWidget(img_lbl)
+
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dialog.accept)
+        dlg_layout.addWidget(close_btn)
+
+        dialog.exec()
 
     def warp(self, op: str) -> None:
         """Run warp-cli connect or disconnect command."""
