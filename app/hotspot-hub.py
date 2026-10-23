@@ -14,11 +14,12 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable, Sequence
+from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
-from PyQt6.QtCore import QEvent, QRectF, QSettings, QTimer, Qt
+from PyQt6.QtCore import QEvent, QRectF, QSettings, QTime, QTimer, Qt
 from PyQt6.QtGui import (QAction, QBrush, QColor, QCursor, QFocusEvent,
                          QFont, QIcon, QKeySequence, QPainter, QPalette, QPen,
                          QPixmap, QShortcut)
@@ -26,8 +27,8 @@ from PyQt6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox,
                              QDialog, QFrame, QGroupBox, QHBoxLayout, QLabel,
                              QLineEdit, QListWidget, QMenu, QMessageBox,
                              QPushButton, QRadioButton, QScrollArea, QSizeGrip,
-                             QSizePolicy, QSystemTrayIcon, QTabWidget,
-                             QVBoxLayout, QWidget)
+                             QSizePolicy, QSpinBox, QSystemTrayIcon,
+                             QTabWidget, QTimeEdit, QVBoxLayout, QWidget)
 
 # Optional KColorScheme support (PyKF6 / PyKF5)
 try:
@@ -260,7 +261,58 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "band": "Auto",              # "Auto", "2.4GHz", "5GHz"
     "wpa3_supported": False,
     "security": "wpa2",          # "wpa2" or "wpa3-sae"
+    "schedule_enabled": False,
+    "schedule_on": "08:00",
+    "schedule_off": "22:00",
+    "battery_saver_enabled": False,
+    "battery_threshold": 20,
+    "ipv6_enabled": False,
 }
+
+
+def validate_config(cfg: dict[str, Any]) -> list[str]:
+    """Validate application configuration values against allowed ranges and formats.
+
+    Checks:
+        - band in ("Auto", "2.4GHz", "5GHz")
+        - security in ("wpa2", "wpa3-sae")
+        - schedule_on/schedule_off match regex ^\\d{2}:\\d{2}$ and valid hours/minutes
+        - battery_threshold between 5 and 50
+
+    Args:
+        cfg: Configuration dictionary to validate.
+
+    Returns:
+        list[str]: Human-readable warning strings for invalid configuration values (empty if valid).
+    """
+    warnings: list[str] = []
+
+    band = cfg.get("band")
+    if band not in ("Auto", "2.4GHz", "5GHz"):
+        warnings.append(f"Invalid band '{band}': expected 'Auto', '2.4GHz', or '5GHz'")
+
+    security = cfg.get("security")
+    if security not in ("wpa2", "wpa3-sae"):
+        warnings.append(f"Invalid security '{security}': expected 'wpa2' or 'wpa3-sae'")
+
+    time_regex = re.compile(r"^\d{2}:\d{2}$")
+    for key in ("schedule_on", "schedule_off"):
+        val = cfg.get(key)
+        if not isinstance(val, str) or not time_regex.match(val):
+            warnings.append(f"Invalid format for '{key}': '{val}', expected HH:MM")
+        else:
+            try:
+                h, m = map(int, val.split(":"))
+                if not (0 <= h <= 23 and 0 <= m <= 59):
+                    warnings.append(f"Invalid time in '{key}': '{val}', hours must be 0-23 and minutes 0-59")
+            except ValueError:
+                warnings.append(f"Invalid time in '{key}': '{val}'")
+
+    threshold = cfg.get("battery_threshold")
+    if isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not (5 <= threshold <= 50):
+        warnings.append(f"Invalid battery_threshold '{threshold}': expected integer between 5 and 50")
+
+    return warnings
 
 
 def load_app_config() -> dict[str, Any]:
@@ -286,6 +338,11 @@ def load_app_config() -> dict[str, Any]:
             cfg["wpa3_supported"] = True
             save_app_config(cfg)
 
+    # Validate configuration and log any warnings
+    warnings = validate_config(cfg)
+    for warning in warnings:
+        logger.warning("Config validation warning: %s", warning)
+
     return cfg
 
 
@@ -305,6 +362,37 @@ def detect_wpa3_support() -> bool:
     """Probe 'iw phy' for SAE (Simultaneous Authentication of Equals / WPA3) support."""
     out = run(["iw", "phy"], timeout=5)
     return bool(re.search(r"SAE", out, re.IGNORECASE))
+
+
+def read_battery_percent() -> int | None:
+    """Read the current battery percentage from sysfs (/sys/class/power_supply/BAT0/capacity).
+
+    Returns:
+        int | None: Battery capacity percentage (0-100), or None on any failure.
+    """
+    bat_path = Path("/sys/class/power_supply/BAT0/capacity")
+    try:
+        if bat_path.is_file():
+            return int(bat_path.read_text(encoding="utf-8").strip())
+    except Exception as e:
+        logger.debug("Failed reading battery capacity from %s: %s", bat_path, e)
+    return None
+
+
+def detect_ipv6_support() -> bool:
+    """Check if IPv6 is supported by the kernel by inspecting /proc/net/if_inet6.
+
+    Returns:
+        bool: True if /proc/net/if_inet6 exists and is non-empty, False otherwise.
+    """
+    proc_file = Path("/proc/net/if_inet6")
+    try:
+        if proc_file.is_file():
+            content = proc_file.read_text(encoding="utf-8").strip()
+            return bool(content)
+    except Exception as e:
+        logger.debug("Failed reading %s: %s", proc_file, e)
+    return False
 
 
 def get_hotspot_security() -> str:
@@ -1415,7 +1503,7 @@ class SystemSection(PanelSection):
     title = "System"
 
     def build_body(self) -> None:
-        """Build System section widgets, autostart toggle, and connect action buttons."""
+        """Build System section widgets, autostart toggle, IPv6, schedule, battery saver, and connect action buttons."""
         self.info = QLabel("…")
         self.info.setProperty("metricLabel", True)
         self.info.setFont(get_monospace_font(pixel_size=12))
@@ -1438,7 +1526,49 @@ class SystemSection(PanelSection):
         self.chk_autostart = QCheckBox("Start on boot")
         self.chk_autostart.setChecked(is_autostart_enabled())
         self.chk_autostart.toggled.connect(self._toggle_autostart)
-        self.body.addWidget(self.chk_autostart)
+
+        # IPv6 support toggle
+        self.chk_ipv6 = QCheckBox("IPv6")
+        self.chk_ipv6.setEnabled(detect_ipv6_support())
+        self.chk_ipv6.setChecked(bool(self.controller.config.get("ipv6_enabled", False)))
+        self.chk_ipv6.toggled.connect(self._toggle_ipv6)
+        self.row(self.chk_autostart, self.chk_ipv6)
+
+        # Scheduled hotspot toggle and time inputs
+        self.chk_schedule = QCheckBox("Scheduled")
+        self.chk_schedule.setChecked(bool(self.controller.config.get("schedule_enabled", False)))
+        self.chk_schedule.toggled.connect(self._toggle_schedule)
+
+        self.time_sched_on = QTimeEdit()
+        self.time_sched_on.setDisplayFormat("HH:mm")
+        t_on = QTime.fromString(str(self.controller.config.get("schedule_on", "08:00")), "HH:mm")
+        self.time_sched_on.setTime(t_on if t_on.isValid() else QTime(8, 0))
+        self.time_sched_on.timeChanged.connect(self._time_sched_changed)
+
+        self.time_sched_off = QTimeEdit()
+        self.time_sched_off.setDisplayFormat("HH:mm")
+        t_off = QTime.fromString(str(self.controller.config.get("schedule_off", "22:00")), "HH:mm")
+        self.time_sched_off.setTime(t_off if t_off.isValid() else QTime(22, 0))
+        self.time_sched_off.timeChanged.connect(self._time_sched_changed)
+
+        self.row(self.chk_schedule, QLabel("On:"), self.time_sched_on, QLabel("Off:"), self.time_sched_off)
+
+        # Battery saver toggle and threshold
+        self.chk_battery = QCheckBox("Battery saver")
+        self.chk_battery.setChecked(bool(self.controller.config.get("battery_saver_enabled", False)))
+        self.chk_battery.toggled.connect(self._toggle_battery_saver)
+
+        self.spin_battery = QSpinBox()
+        self.spin_battery.setRange(5, 50)
+        self.spin_battery.setSuffix("%")
+        try:
+            val = int(self.controller.config.get("battery_threshold", 20))
+            self.spin_battery.setValue(max(5, min(50, val)))
+        except (ValueError, TypeError):
+            self.spin_battery.setValue(20)
+        self.spin_battery.valueChanged.connect(self._battery_threshold_changed)
+
+        self.row(self.chk_battery, self.spin_battery)
 
     def _toggle_autostart(self, checked: bool) -> None:
         """Handle autostart checkbox toggle."""
@@ -1447,6 +1577,39 @@ class SystemSection(PanelSection):
             self.chk_autostart.blockSignals(True)
             self.chk_autostart.setChecked(is_autostart_enabled())
             self.chk_autostart.blockSignals(False)
+
+    def _toggle_ipv6(self, checked: bool) -> None:
+        """Handle IPv6 checkbox toggle and apply sysctl if hotspot is active."""
+        self.controller.config["ipv6_enabled"] = checked
+        save_app_config(self.controller.config)
+        if self.controller.detect_state() == "on":
+            val = "0" if checked else "1"
+            rc, out = priv(["sysctl", "-w", f"net.ipv6.conf.{AP_IF}.disable_ipv6={val}"])
+            if rc == 0:
+                logger.info("IPv6 sysctl disable_ipv6=%s applied on %s", val, AP_IF)
+            else:
+                logger.warning("Failed applying IPv6 sysctl on %s: %s", AP_IF, out)
+
+    def _toggle_schedule(self, checked: bool) -> None:
+        """Handle schedule checkbox toggle and persist to config."""
+        self.controller.config["schedule_enabled"] = checked
+        save_app_config(self.controller.config)
+
+    def _time_sched_changed(self) -> None:
+        """Handle schedule time changes and persist to config."""
+        self.controller.config["schedule_on"] = self.time_sched_on.time().toString("HH:mm")
+        self.controller.config["schedule_off"] = self.time_sched_off.time().toString("HH:mm")
+        save_app_config(self.controller.config)
+
+    def _toggle_battery_saver(self, checked: bool) -> None:
+        """Handle battery saver checkbox toggle and persist to config."""
+        self.controller.config["battery_saver_enabled"] = checked
+        save_app_config(self.controller.config)
+
+    def _battery_threshold_changed(self, value: int) -> None:
+        """Handle battery threshold spinbox value change and persist to config."""
+        self.controller.config["battery_threshold"] = value
+        save_app_config(self.controller.config)
 
     def refresh(self) -> None:
         """Update channel-sync service status, VPN bypass state, channels, autostart, and health."""
@@ -1470,6 +1633,39 @@ class SystemSection(PanelSection):
         self.chk_autostart.blockSignals(True)
         self.chk_autostart.setChecked(is_autostart_enabled())
         self.chk_autostart.blockSignals(False)
+
+        # Sync IPv6
+        self.chk_ipv6.blockSignals(True)
+        self.chk_ipv6.setEnabled(detect_ipv6_support())
+        self.chk_ipv6.setChecked(bool(self.controller.config.get("ipv6_enabled", False)))
+        self.chk_ipv6.blockSignals(False)
+
+        # Sync schedule
+        self.chk_schedule.blockSignals(True)
+        self.time_sched_on.blockSignals(True)
+        self.time_sched_off.blockSignals(True)
+        self.chk_schedule.setChecked(bool(self.controller.config.get("schedule_enabled", False)))
+        t_on = QTime.fromString(str(self.controller.config.get("schedule_on", "08:00")), "HH:mm")
+        if t_on.isValid():
+            self.time_sched_on.setTime(t_on)
+        t_off = QTime.fromString(str(self.controller.config.get("schedule_off", "22:00")), "HH:mm")
+        if t_off.isValid():
+            self.time_sched_off.setTime(t_off)
+        self.chk_schedule.blockSignals(False)
+        self.time_sched_on.blockSignals(False)
+        self.time_sched_off.blockSignals(False)
+
+        # Sync battery saver
+        self.chk_battery.blockSignals(True)
+        self.spin_battery.blockSignals(True)
+        self.chk_battery.setChecked(bool(self.controller.config.get("battery_saver_enabled", False)))
+        try:
+            b_val = int(self.controller.config.get("battery_threshold", 20))
+            self.spin_battery.setValue(max(5, min(50, b_val)))
+        except (ValueError, TypeError):
+            self.spin_battery.setValue(20)
+        self.chk_battery.blockSignals(False)
+        self.spin_battery.blockSignals(False)
 
         health = self.controller.last_health
         if health:
@@ -1905,6 +2101,10 @@ class DropdownPanel(QWidget):
             self.sections.append(sec)
             container_layout.addWidget(sec)
 
+        # Absorb extra vertical space so cards keep their natural height
+        # instead of stretching with large gaps when the window is tall.
+        container_layout.addStretch(1)
+
     def refresh_all(self) -> None:
         """Refresh all registered panel sections."""
         for s in self.sections:
@@ -1983,6 +2183,9 @@ class HotspotPanel:
             self.config["wpa3_supported"] = wpa3_ok
             save_app_config(self.config)
 
+        self._schedule_last_action: str | None = None
+        self._battery_action_taken: bool = False
+
         self.allowed_macs: set[str] = load_mac_file(ALLOWED_MACS_FILE)
         self.blocked_macs: set[str] = load_mac_file(BLOCKED_MACS_FILE)
 
@@ -2000,14 +2203,11 @@ class HotspotPanel:
             self.shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
             self.shortcut.activated.connect(self.toggle_hotspot)
 
-        # Main refresh timer reduced to 30s (30000ms) with lazy pause/resume.
-        # Note: NetworkManager dispatcher events (/etc/NetworkManager/dispatcher.d/90-hotspot-channelsync)
-        # trigger immediate synchronization on interface state changes, so 30s polling
-        # is only a fallback sync mechanism.
+        # Main refresh timer running on 30s (30000ms) interval for status updates,
+        # scheduled hotspot checks, and battery-aware auto-disable.
         self.timer = QTimer()
         self.timer.timeout.connect(self.refresh)
-        if self.panel.isVisible():
-            self.timer.start(30000)
+        self.timer.start(30000)
 
         self._known_macs: set[str] = {mac.lower() for mac, _ in station_dump()}
         self.client_timer = QTimer()  # poll station_dump every 10 s for notifications
@@ -2069,9 +2269,83 @@ class HotspotPanel:
         self.refresh()
 
     def on_panel_hidden(self) -> None:
-        """Pause main refresh timer to save CPU/battery while panel is hidden."""
-        if self.timer.isActive():
-            self.timer.stop()
+        """Handle dropdown panel hidden event."""
+        pass
+
+    def check_schedule(self) -> None:
+        """Check and enforce scheduled hotspot on/off times.
+
+        If schedule_enabled is True, parses HH:MM strings and compares with datetime.now()
+        hour/minute. Triggers hotspot_on() or hotspot_off() once per matching minute.
+        """
+        if not self.config.get("schedule_enabled", False):
+            self._schedule_last_action = None
+            return
+
+        now = datetime.now()
+        sched_on = str(self.config.get("schedule_on", "08:00")).strip()
+        sched_off = str(self.config.get("schedule_off", "22:00")).strip()
+
+        try:
+            on_h, on_m = map(int, sched_on.split(":"))
+            matches_on = (now.hour == on_h and now.minute == on_m)
+        except Exception:
+            matches_on = False
+
+        try:
+            off_h, off_m = map(int, sched_off.split(":"))
+            matches_off = (now.hour == off_h and now.minute == off_m)
+        except Exception:
+            matches_off = False
+
+        if matches_on:
+            if self._schedule_last_action != "on":
+                self._schedule_last_action = "on"
+                logger.info("Schedule triggered: turning hotspot ON (%02d:%02d)", now.hour, now.minute)
+                self.hotspot_on()
+        elif matches_off:
+            if self._schedule_last_action != "off":
+                self._schedule_last_action = "off"
+                logger.info("Schedule triggered: turning hotspot OFF (%02d:%02d)", now.hour, now.minute)
+                self.hotspot_off()
+        else:
+            self._schedule_last_action = None
+
+    def check_battery(self) -> None:
+        """Check battery level and auto-disable hotspot if battery falls to or below threshold.
+
+        Tracks _battery_action_taken with hysteresis: resets only when battery recovers
+        above threshold + 5%.
+        """
+        if not self.config.get("battery_saver_enabled", False):
+            self._battery_action_taken = False
+            return
+
+        percent = read_battery_percent()
+        if percent is None:
+            return
+
+        try:
+            threshold = int(self.config.get("battery_threshold", 20))
+        except (ValueError, TypeError):
+            threshold = 20
+
+        # Hysteresis: clear action taken when battery recovers above threshold + 5
+        if percent > threshold + 5:
+            self._battery_action_taken = False
+
+        if percent <= threshold:
+            if not self._battery_action_taken and self.detect_state() == "on":
+                self._battery_action_taken = True
+                logger.warning(
+                    "Battery level (%d%%) is at or below threshold (%d%%). Auto-disabling hotspot.",
+                    percent, threshold
+                )
+                self.hotspot_off()
+                self.notify(
+                    "Battery saver",
+                    f"Hotspot disabled to conserve battery ({percent}% <= {threshold}%)."
+                )
 
     def _run_health_check(self) -> None:
         """Execute periodic health check, log results, and update system UI."""
@@ -2192,6 +2466,10 @@ class HotspotPanel:
         self.status_action.setText(text[:160])
         self.tray.setToolTip("Hotspot Hub\n" + text)
 
+        # Auto-control checks: scheduled hotspot and battery-aware auto-disable
+        self.check_schedule()
+        self.check_battery()
+
         # Lazy refresh: Only update panel sections when panel is visible
         if self.panel.isVisible():
             self.panel.refresh_bandwidth()
@@ -2219,6 +2497,9 @@ class HotspotPanel:
         if ok:
             self._last_error = None
             logger.info("Hotspot On succeeded: %s", msg)
+            if "ipv6_enabled" in self.config:
+                val = "0" if self.config.get("ipv6_enabled", False) else "1"
+                priv(["sysctl", "-w", f"net.ipv6.conf.{AP_IF}.disable_ipv6={val}"])
             self.notify("Hotspot On", f"{HOTSPOT_CON} activated on {AP_IF}.")
         else:
             self._last_error = msg

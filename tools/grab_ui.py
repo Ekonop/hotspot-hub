@@ -25,7 +25,7 @@ app = QApplication.instance() or QApplication(sys.argv)
 panel = hub.HotspotPanel()
 panel.build_ui() if hasattr(panel, "build_ui") else None
 dropdown = hub.DropdownPanel(panel)
-dropdown.resize(460, 720)
+dropdown.resize(460, 1200)
 dropdown.show()
 app.processEvents()
 time.sleep(0.4)

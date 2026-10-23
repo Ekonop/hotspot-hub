@@ -23,11 +23,11 @@
 ### B. Functionality
 - [ ] **Multi-profile support** — allow multiple hotspot profiles (different SSIDs), switch between them.
 - [ ] **Guest network** — separate SSID with client isolation and bandwidth limit.
-- [ ] **Scheduled hotspot** — auto on/off at specified times.
-- [ ] **Battery-aware** — auto-disable hotspot when battery low (integrate with the hibernate-at-5% work).
+- [x] **Scheduled hotspot** — auto on/off at specified times. ✅
+- [x] **Battery-aware** — auto-disable hotspot when battery low (integrate with the hibernate-at-5% work). ✅
 - [x] **Client MAC filtering** — allow/deny list for connected devices. ✅
 - [ ] **Bandwidth throttling** — per-client or total bandwidth limits via tc.
-- [ ] **IPv6 support** — optional IPv6 on AP interface.
+- [x] **IPv6 support** — optional IPv6 on AP interface. ✅
 - [x] **5GHz band support** — currently only 2.4/5GHz auto; allow manual band selection. ✅
 - [x] **WPA3 support detection** — auto-detect firmware SAE capability instead of hardcoding WPA2. ✅
 
@@ -56,7 +56,7 @@
 ### B. Reliability
 - [x] **Retry logic** — retry failed nmcli/iw commands with backoff.
 - [x] **Graceful degradation** — if ap0 can't be created, show helpful error instead of crashing.
-- [ ] **Config validation** — validate env vars and profile at startup.
+- [x] **Config validation** — validate env vars and profile at startup. ✅
 - [ ] **Atomic profile updates** — backup profile before modifying, restore on failure.
 
 ### C. Security
