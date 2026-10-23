@@ -70,6 +70,95 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_metrics(args: argparse.Namespace) -> int:
+    """Emit Prometheus/node_exporter textfile-collector metrics for the hotspot.
+
+    Writes a set of gauge metrics to stdout (or to --output file) in the
+    OpenMetrics/Prometheus text exposition format. Suitable for piping into
+    node_exporter's textfile collector.
+    """
+    sta_text, ap_text, client_count = hub.hotspot_state()
+    ap = hub.iface_info(hub.AP_IF)
+    cons = hub.active_cons()
+    hotspot_active = cons.get(hub.HOTSPOT_CON) == hub.AP_IF
+    cfg = hub.load_app_config()
+    hc = hub.health_check()
+    is_disabled = bool(getattr(hub, "DISABLED_FLAG", None) and hub.DISABLED_FLAG.exists())
+
+    allowed_count = len(hub.load_mac_file(hub.ALLOWED_MACS_FILE))
+    blocked_count = len(hub.load_mac_file(hub.BLOCKED_MACS_FILE))
+
+    # Parse lease count into an int when possible.
+    lease_raw = hub.lease_count()
+    try:
+        lease_num = int(lease_raw)
+    except (TypeError, ValueError):
+        lease_num = 0
+
+    # Bandwidth rates (bytes/sec) for each interface.
+    def _rates(iface: str) -> tuple[float, float]:
+        """Return (rx_bps, tx_bps) current rates for iface using cached counters."""
+        return 0.0, 0.0  # placeholder; real rates come from BandwidthSection state
+
+    warp = hub.warp_status()
+    warp_up = 1 if warp and warp.lower() not in ("disconnected", "down", "inactive", "error", "") else 0
+
+    lines: list[str] = []
+    lines.append("# HELP hotspot_up Whether the hotspot connection is active (1) or not (0).")
+    lines.append("# TYPE hotspot_up gauge")
+    lines.append(f"hotspot_up {1 if hotspot_active else 0}")
+    lines.append("# HELP hotspot_disabled Manually stopped flag present (1) or not (0).")
+    lines.append("# TYPE hotspot_disabled gauge")
+    lines.append(f"hotspot_disabled {1 if is_disabled else 0}")
+    lines.append("# HELP hotspot_clients Number of connected Wi-Fi stations.")
+    lines.append("# TYPE hotspot_clients gauge")
+    lines.append(f"hotspot_clients {client_count}")
+    lines.append("# HELP hotspot_dhcp_leases Number of active DHCP leases.")
+    lines.append("# TYPE hotspot_dhcp_leases gauge")
+    lines.append(f"hotspot_dhcp_leases {lease_num}")
+    lines.append("# HELP hotspot_healthy All health checks passing (1) or not (0).")
+    lines.append("# TYPE hotspot_healthy gauge")
+    lines.append(f"hotspot_healthy {1 if hc.get('healthy') else 0}")
+    lines.append("# HELP hotspot_gateway_responsive Default gateway responds to ping (1) or not (0).")
+    lines.append("# TYPE hotspot_gateway_responsive gauge")
+    lines.append(f"hotspot_gateway_responsive {1 if hc.get('gateway_ok') else 0}")
+    lines.append("# HELP hotspot_ap_up AP interface is up (1) or not (0).")
+    lines.append("# TYPE hotspot_ap_up gauge")
+    lines.append(f"hotspot_ap_up {1 if hc.get('ap_up') else 0}")
+    lines.append("# HELP hotspot_mac_filter_enabled MAC filtering enabled (1) or not (0).")
+    lines.append("# TYPE hotspot_mac_filter_enabled gauge")
+    lines.append(f"hotspot_mac_filter_enabled {1 if cfg.get('mac_filter_enabled') else 0}")
+    lines.append("# HELP hotspot_mac_allowed Number of MACs in the allow list.")
+    lines.append("# TYPE hotspot_mac_allowed gauge")
+    lines.append(f"hotspot_mac_allowed {allowed_count}")
+    lines.append("# HELP hotspot_mac_blocked Number of MACs in the block list.")
+    lines.append("# TYPE hotspot_mac_blocked gauge")
+    lines.append(f"hotspot_mac_blocked {blocked_count}")
+    lines.append("# HELP hotspot_warp_up Cloudflare WARP connected (1) or not (0).")
+    lines.append("# TYPE hotspot_warp_up gauge")
+    lines.append(f"hotspot_warp_up {warp_up}")
+    lines.append("# HELP hotspot_ap_channel Current AP channel number.")
+    lines.append("# TYPE hotspot_ap_channel gauge")
+    try:
+        lines.append(f"hotspot_ap_channel {int(ap.get('channel', 0))}")
+    except (TypeError, ValueError):
+        lines.append("hotspot_ap_channel 0")
+
+    output = "\n".join(lines) + "\n"
+
+    if getattr(args, "output", None):
+        try:
+            with open(args.output, "w", encoding="utf-8") as f:
+                f.write(output)
+            print(f"Wrote metrics to {args.output}", file=sys.stderr)
+        except OSError as e:
+            print(f"Failed to write metrics: {e}", file=sys.stderr)
+            return 1
+    else:
+        sys.stdout.write(output)
+    return 0
+
+
 def cmd_on(args: argparse.Namespace) -> int:
     """Turn on hotspot."""
     print("Activating hotspot...")
@@ -337,6 +426,14 @@ def build_parser() -> argparse.ArgumentParser:
                       help="MAC filter action")
     p_mf.add_argument("mac", nargs="?", help="MAC address for allow/deny/remove actions")
     p_mf.set_defaults(func=cmd_mac_filter)
+
+    # metrics
+    p_metrics = subparsers.add_parser(
+        "metrics",
+        help="Emit Prometheus textfile-collector metrics (hotspot_up, clients, health, ...)")
+    p_metrics.add_argument("-o", "--output", metavar="FILE",
+                           help="Write metrics to FILE instead of stdout")
+    p_metrics.set_defaults(func=cmd_metrics)
 
     return parser
 

@@ -1258,10 +1258,12 @@ def get_base_icon() -> QIcon:
             icon = QIcon(str(p))
             if not icon.isNull():
                 return icon
-    return QIcon.fromTheme(
-        "hotspot-hub",
-        QIcon.fromTheme("network-wireless-hotspot", QIcon.fromTheme("network-wireless"))
-    )
+        return QIcon.fromTheme(
+            "hotspot-hub",
+            QIcon.fromTheme("network-wireless-hotspot",
+                            QIcon.fromTheme("network-wireless",
+                                            QIcon.fromTheme("network-modem")))
+        )
 
 
 def make_status_icon(state: str, size: int = 64) -> QIcon:
@@ -1284,7 +1286,7 @@ def make_status_icon(state: str, size: int = 64) -> QIcon:
         if base_pix.isNull():
             fallback = QIcon.fromTheme(
                 "network-wireless-hotspot",
-                QIcon.fromTheme("network-wireless")
+                QIcon.fromTheme("network-wireless", QIcon.fromTheme("network-modem"))
             )
             base_pix = fallback.pixmap(s, s)
 

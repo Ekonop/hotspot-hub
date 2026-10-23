@@ -41,7 +41,7 @@
 ### D. Monitoring/Logging
 - [x] **Persistent logs** — structured logging to file with rotation.
 - [x] **Health check** — periodic self-test (AP reachable, DHCP working, internet via AP).
-- [ ] **Metrics export** — Prometheus/node_exporter compatible metrics.
+- [x] **Metrics export** — Prometheus/node_exporter compatible metrics.
 
 ---
 
@@ -79,7 +79,7 @@
 - [ ] **Client routing bypass** — currently re-enforced every 10s; should be event-driven.
 - [ ] **AP on wrong channel** — if STA roams, AP restarts; may cause brief disconnect.
 - [ ] **WPA3 detection** — hardcoded WPA2; should probe firmware capability.
-- [ ] **icon theme fallback** — `QIcon.fromTheme` may not find hotspot-hub icon on all systems.
+- [x] **icon theme fallback** — `QIcon.fromTheme` may not find hotspot-hub icon on all systems.
 - [ ] **Wayland popup** — uses Qt.Tool (no grab); focus-out hide may be unreliable.
 - [x] **Hardcoded phy0** — fixed, now auto-detects WiFi PHY. ✅
 
@@ -91,7 +91,7 @@
 - [x] **Contributing guide** — expand CONTRIBUTING.md with dev setup, coding style. ✅
 - [x] **Changelog** — CHANGELOG.md with version history. ✅
 - [x] **Man page** — `man hotspot-hub-cli` for CLI usage. ✅
-- [ ] **Screenshots** — add UI screenshots to README.
+- [x] **Screenshots** — add UI screenshots to README.
 
 ---
 

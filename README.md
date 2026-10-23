@@ -53,6 +53,10 @@ sudo pacman -U packaging/arch/hotspot-hub-0.1.0-1-any.pkg.tar.zst
 ./uninstall.sh --purge  # also deletes profile + UFW rules
 ```
 
+## Screenshots
+
+![Dropdown canvas](docs/screenshots/dropdown.png)
+
 ## Docs
 
 Full setup/ops/troubleshooting: `~/doc/hotspot-system/`
