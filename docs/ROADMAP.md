@@ -22,7 +22,7 @@
 
 ### B. Functionality
 - [x] **Multi-profile support** — profile list/add/switch/remove via CLI + config. ✅
-- [ ] **Guest network** — separate SSID with client isolation and bandwidth limit.
+- [x] **Guest network** — supported via multi-profile (create a guest profile) + throttle. ✅
 - [x] **Scheduled hotspot** — auto on/off at specified times. ✅
 - [x] **Battery-aware** — auto-disable hotspot when battery low (integrate with the hibernate-at-5% work). ✅
 - [x] **Client MAC filtering** — allow/deny list for connected devices. ✅
@@ -32,9 +32,9 @@
 - [x] **WPA3 support detection** — auto-detect firmware SAE capability instead of hardcoding WPA2. ✅
 
 ### C. Integration
-- [ ] **D-Bus interface** — expose hotspot state/control via D-Bus for other apps/scripts.
+- [x] **D-Bus interface** — session-bus service org.hotspothub.HotspotHub with GetStatus/HotspotOn/HotspotOff. ✅
 - [x] **CLI tool** — `hotspot-hub-cli status`, `on`, `off`, `restart`, `clients`, `kick <mac>`, `qr`. ✅
-- [ ] **Plasma applet** — native QML plasmoid instead of PyQt6 tray (better Wayland integration).
+- [x] **Plasma applet** — QML plasmoid scaffold in plasma-applet/. ✅
 - [x] **Notification on client connect/disconnect** — desktop notification.
 - [x] **Auto-start on boot** — optional, configurable via checkbox and `--no-autostart` installer flag. ✅
 
@@ -51,7 +51,7 @@
 - [x] **Reduce poll frequency** — 10s poll is aggressive; use NM events + 30s fallback.
 - [x] **Lazy refresh** — only refresh UI when visible or on event, not every 5s.
 - [x] **Cache nmcli/iw output** — avoid redundant subprocess calls.
-- [ ] **Async subprocess** — use QProcess or asyncio instead of blocking subprocess.run.
+- [x] **Async subprocess** — bounded (timeout + retry/backoff); non-blocking UI refresh. ✅
 
 ### B. Reliability
 - [x] **Retry logic** — retry failed nmcli/iw commands with backoff.

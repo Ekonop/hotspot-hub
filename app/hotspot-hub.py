@@ -19,7 +19,13 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
-from PyQt6.QtCore import QEvent, QRectF, QSettings, Qt, QTime, QTimer
+from PyQt6.QtCore import QEvent, QRectF, QSettings, Qt, QTime, QTimer, pyqtSlot
+
+try:
+    from PyQt6.QtDBus import QDBusAbstractAdaptor, QDBusConnection
+    _DBUS_AVAILABLE = True
+except ImportError:
+    _DBUS_AVAILABLE = False
 from PyQt6.QtGui import (
     QAction,
     QBrush,
@@ -2247,6 +2253,52 @@ class DropdownPanel(QWidget):
         super().focusOutEvent(event)
 
 
+if _DBUS_AVAILABLE:
+    class HotspotDBusAdaptor(QDBusAbstractAdaptor):
+        """D-Bus adaptor exposing Hotspot Hub state and control.
+
+        Service: org.hotspothub.HotspotHub
+        Object path: /org/hotspothub/HotspotHub
+        Interface: org.hotspothub.HotspotHub
+        """
+
+        def __init__(self, parent: HotspotPanel) -> None:
+            super().__init__(parent)
+            self._controller = parent
+
+        @pyqtSlot(result=str)
+        def GetStatus(self) -> str:
+            """Return a human-readable status string."""
+            sta_text, ap_text, n = self._controller.hotspot_state()
+            return f"hotspot_clients={n} warp={self._controller.warp_status()}"
+
+        @pyqtSlot(result=int)
+        def HotspotOn(self) -> int:
+            """Activate the hotspot. Returns 0 on success."""
+            self._controller.hotspot_on()
+            return 0
+
+        @pyqtSlot(result=int)
+        def HotspotOff(self) -> int:
+            """Deactivate the hotspot. Returns 0 on success."""
+            self._controller.hotspot_off()
+            return 0
+
+        @pyqtSlot(result=int)
+        def GetClientCount(self) -> int:
+            """Return the number of connected clients."""
+            _, _, n = self._controller.hotspot_state()
+            return n
+
+        @pyqtSlot(result=str)
+        def GetWarpStatus(self) -> str:
+            """Return Cloudflare WARP status."""
+            return self._controller.warp_status()
+
+else:
+    HotspotDBusAdaptor = None  # type: ignore[misc, assignment]
+
+
 class HotspotPanel:
     def __init__(self) -> None:
         """Initialize Qt application, tray icon, context menu, and refresh timer."""
@@ -2298,6 +2350,17 @@ class HotspotPanel:
         self.tray.setContextMenu(self.menu)
         self.panel = DropdownPanel(self)
         self._build_menu()
+
+        # Register D-Bus service (session bus) for external control/integration.
+        if _DBUS_AVAILABLE and HotspotDBusAdaptor is not None:
+            try:
+                bus = QDBusConnection.sessionBus()
+                if bus.registerService("org.hotspothub.HotspotHub"):
+                    self._dbus_adaptor = HotspotDBusAdaptor(self)
+                    bus.registerObject("/org/hotspothub/HotspotHub", self, QDBusConnection.ExportAdaptors)
+                    logger.info("D-Bus service registered: org.hotspothub.HotspotHub")
+            except Exception as e:
+                logger.debug("D-Bus registration failed: %s", e)
         self.tray.activated.connect(self._on_tray_activated)
 
         # Global keyboard shortcut for toggling hotspot

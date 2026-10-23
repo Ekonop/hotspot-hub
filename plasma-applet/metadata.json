@@ -1,0 +1,14 @@
+{
+  "KPlugin": {
+    "Id": "org.kde.plasma.hotspothub",
+    "Name": "Hotspot Hub",
+    "Description": "Tray control for concurrent Wi-Fi hotspot, WARP, and channel-sync",
+    "Icon": "network-wireless-hotspot",
+    "Authors": [{"Name": "vansh"}],
+    "Category": "System Information",
+    "Version": "0.1.0",
+    "License": "MIT"
+  },
+  "KPackageStructure": "Plasma/Applet",
+  "X-Plasma-API-Minimum-Version": "6.0"
+}
