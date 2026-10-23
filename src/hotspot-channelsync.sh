@@ -40,8 +40,9 @@ fi
 
 # 1. ensure ap0 exists
 if ! iw dev "$AP_IF" info >/dev/null 2>&1; then
-  log "$AP_IF missing, creating"
-  iw phy phy0 interface add "$AP_IF" type __ap 2>&1 | logger -t "$LOG_TAG"
+  PHY="$(ls /sys/class/ieee80211/ 2>/dev/null | head -1)"
+  log "$AP_IF missing, creating on $PHY"
+  iw phy "$PHY" interface add "$AP_IF" type __ap 2>&1 | logger -t "$LOG_TAG"
   ip link set "$AP_IF" up
 fi
 

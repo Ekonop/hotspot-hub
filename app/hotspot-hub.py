@@ -172,7 +172,8 @@ def ensure_ap0() -> tuple[bool, str]:
     """Create ap0 passwordless (sudoers) if missing. Returns (ok, msg)."""
     if iface_info(AP_IF):
         return True, "ap0 exists"
-    rc, out = priv(["iw", "phy", "phy0", "interface",
+    phy = os.listdir("/sys/class/ieee80211")[0] if os.path.isdir("/sys/class/ieee80211") and os.listdir("/sys/class/ieee80211") else "phy0"
+    rc, out = priv(["iw", "phy", phy, "interface",
                     "add", AP_IF, "type", "__ap"])
     if rc != 0 and not iface_info(AP_IF):
         return False, f"create ap0 failed: {out[-200:]}"
