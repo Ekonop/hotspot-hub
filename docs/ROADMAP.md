@@ -25,11 +25,11 @@
 - [ ] **Guest network** — separate SSID with client isolation and bandwidth limit.
 - [ ] **Scheduled hotspot** — auto on/off at specified times.
 - [ ] **Battery-aware** — auto-disable hotspot when battery low (integrate with the hibernate-at-5% work).
-- [ ] **Client MAC filtering** — allow/deny list for connected devices.
+- [x] **Client MAC filtering** — allow/deny list for connected devices. ✅
 - [ ] **Bandwidth throttling** — per-client or total bandwidth limits via tc.
 - [ ] **IPv6 support** — optional IPv6 on AP interface.
-- [ ] **5GHz band support** — currently only 2.4/5GHz auto; allow manual band selection.
-- [ ] **WPA3 support detection** — auto-detect firmware SAE capability instead of hardcoding WPA2.
+- [x] **5GHz band support** — currently only 2.4/5GHz auto; allow manual band selection. ✅
+- [x] **WPA3 support detection** — auto-detect firmware SAE capability instead of hardcoding WPA2. ✅
 
 ### C. Integration
 - [ ] **D-Bus interface** — expose hotspot state/control via D-Bus for other apps/scripts.
@@ -88,9 +88,9 @@
 ## 4. Documentation improvements
 
 - [ ] **API documentation** — docstrings for all functions (partially done).
-- [ ] **Contributing guide** — expand CONTRIBUTING.md with dev setup, coding style.
-- [ ] **Changelog** — CHANGELOG.md with version history.
-- [ ] **Man page** — `man hotspot-hub` for CLI usage.
+- [x] **Contributing guide** — expand CONTRIBUTING.md with dev setup, coding style. ✅
+- [x] **Changelog** — CHANGELOG.md with version history. ✅
+- [x] **Man page** — `man hotspot-hub-cli` for CLI usage. ✅
 - [ ] **Screenshots** — add UI screenshots to README.
 
 ---

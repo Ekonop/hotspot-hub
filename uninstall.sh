@@ -12,6 +12,7 @@ sudo rm -f /usr/bin/hotspot-hub \
   /etc/systemd/system/hotspot-channelsync.service \
   /etc/sysctl.d/99-hotspot.conf \
   /etc/sudoers.d/hotspot-hub \
+  /usr/share/man/man1/hotspot-hub-cli.1 \
   /usr/share/icons/hicolor/scalable/apps/hotspot-hub.svg \
   /usr/share/applications/hotspot-hub.desktop
 sudo rm -rf /usr/share/hotspot-hub

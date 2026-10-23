@@ -4,6 +4,8 @@
 set -u
 AP_IF="ap0"
 CON="Hotspot-Shared"
+DISABLED_FLAG="${DISABLED_FLAG:-/run/hotspot-hub-disabled}"
+rm -f "$DISABLED_FLAG" 2>/dev/null || sudo -n rm -f "$DISABLED_FLAG" 2>/dev/null || true
 
 PHY="$(ls /sys/class/ieee80211/ 2>/dev/null | head -1)"
 if [ -z "$PHY" ]; then echo "No WiFi PHY found" >&2; exit 1; fi

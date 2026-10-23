@@ -5,6 +5,7 @@ DropdownPanel._build_sections(). Privileged ops use passwordless sudo
 (/etc/sudoers.d/hotspot-hub), pkexec fallback. No plaintext passwords."""
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -17,14 +18,15 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
-from PyQt6.QtCore import QEvent, QRectF, QTimer, Qt
+from PyQt6.QtCore import QEvent, QRectF, QSettings, QTimer, Qt
 from PyQt6.QtGui import (QAction, QBrush, QColor, QCursor, QFocusEvent, QIcon,
                          QKeySequence, QPainter, QPalette, QPen, QPixmap,
                          QShortcut)
-from PyQt6.QtWidgets import (QApplication, QCheckBox, QDialog, QFrame,
-                             QHBoxLayout, QLabel, QMenu, QMessageBox,
-                             QPushButton, QScrollArea, QSystemTrayIcon,
-                             QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox,
+                             QDialog, QFrame, QGroupBox, QHBoxLayout, QLabel,
+                             QLineEdit, QListWidget, QMenu, QMessageBox,
+                             QPushButton, QRadioButton, QScrollArea, QSizeGrip,
+                             QSystemTrayIcon, QTabWidget, QVBoxLayout, QWidget)
 
 AP_IF = os.environ.get("HOTSPOT_HUB_AP_IF", "ap0")
 STA_IF = os.environ.get("HOTSPOT_HUB_STA_IF", "wlan0")
@@ -46,6 +48,11 @@ DOC_PATH = _default_doc()
 LEASE_FILE = "/var/lib/NetworkManager/dnsmasq-ap0.leases"
 LOG_DIR = Path.home() / ".local" / "share" / "hotspot-hub"
 LOG_FILE = LOG_DIR / "hotspot-hub.log"
+CONFIG_DIR = Path.home() / ".config" / "hotspot-hub"
+CONFIG_FILE = CONFIG_DIR / "config.json"
+ALLOWED_MACS_FILE = CONFIG_DIR / "allowed_macs.txt"
+BLOCKED_MACS_FILE = CONFIG_DIR / "blocked_macs.txt"
+DISABLED_FLAG = Path("/run/hotspot-hub-disabled")
 
 
 def setup_logging() -> logging.Logger:
@@ -203,6 +210,209 @@ def run_rc(
     return last_rc, last_out
 
 
+def load_mac_file(path: Path) -> set[str]:
+    """Load normalized MAC addresses from a file (one per line, ignoring comments)."""
+    if not path.is_file():
+        return set()
+    macs: set[str] = set()
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                cleaned = line.lower().replace("-", ":")
+                if re.match(r"^([0-9a-f]{2}:){5}[0-9a-f]{2}$", cleaned):
+                    macs.add(cleaned)
+    except OSError as e:
+        logger.warning("Failed to read MAC file %s: %s", path, e)
+    return macs
+
+
+def save_mac_file(path: Path, macs: set[str] | Sequence[str]) -> bool:
+    """Save normalized MAC addresses to a file (one per line, sorted)."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lines = sorted({m.lower().replace("-", ":") for m in macs if m})
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("# Hotspot Hub MAC Filter List\n")
+            for m in lines:
+                f.write(f"{m}\n")
+        return True
+    except OSError as e:
+        logger.error("Failed to write MAC file %s: %s", path, e)
+        return False
+
+
+DEFAULT_CONFIG: dict[str, Any] = {
+    "mac_filter_enabled": False,
+    "mac_filter_mode": "allow",  # "allow" (whitelist) or "deny" (blacklist)
+    "band": "Auto",              # "Auto", "2.4GHz", "5GHz"
+    "wpa3_supported": False,
+    "security": "wpa2",          # "wpa2" or "wpa3-sae"
+}
+
+
+def load_app_config() -> dict[str, Any]:
+    """Load persistent configuration from ~/.config/hotspot-hub/config.json."""
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    cfg = dict(DEFAULT_CONFIG)
+    if CONFIG_FILE.is_file():
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    cfg.update(data)
+        except Exception as e:
+            logger.warning("Failed to read config from %s: %s", CONFIG_FILE, e)
+    else:
+        # First run: auto-detect WPA3 support and initialize config
+        cfg["wpa3_supported"] = detect_wpa3_support()
+        save_app_config(cfg)
+
+    # Ensure wpa3_supported reflects live hardware if not previously recorded
+    if "wpa3_supported" not in cfg or not cfg.get("wpa3_supported"):
+        if detect_wpa3_support():
+            cfg["wpa3_supported"] = True
+            save_app_config(cfg)
+
+    return cfg
+
+
+def save_app_config(cfg: dict[str, Any]) -> bool:
+    """Save persistent configuration to ~/.config/hotspot-hub/config.json."""
+    try:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+        return True
+    except OSError as e:
+        logger.error("Failed to write config to %s: %s", CONFIG_FILE, e)
+        return False
+
+
+def detect_wpa3_support() -> bool:
+    """Probe 'iw phy' for SAE (Simultaneous Authentication of Equals / WPA3) support."""
+    out = run(["iw", "phy"], timeout=5)
+    return bool(re.search(r"SAE", out, re.IGNORECASE))
+
+
+def get_hotspot_security() -> str:
+    """Query NetworkManager for Hotspot-Shared security key-mgmt (returns 'WPA3' or 'WPA2')."""
+    key_mgmt = run(["nmcli", "-s", "-g", "802-11-wireless-security.key-mgmt",
+                    "connection", "show", HOTSPOT_CON], timeout=5)
+    if "sae" in key_mgmt.lower():
+        return "WPA3"
+    return "WPA2"
+
+
+def get_phy_channels() -> dict[str, list[int]]:
+    """Parse 'iw phy' output to discover available (non-disabled) channels for 2.4GHz and 5GHz."""
+    out = run(["iw", "phy"], timeout=5)
+    chans: dict[str, list[int]] = {"2.4GHz": [], "5GHz": []}
+    for line in out.splitlines():
+        m = re.search(r"\*\s+(\d+(?:\.\d+)?)\s+MHz\s+\[(\d+)\](.*)", line)
+        if m:
+            freq = float(m.group(1))
+            ch = int(m.group(2))
+            rest = m.group(3)
+            if "(disabled)" not in rest:
+                if 2400.0 <= freq <= 2500.0:
+                    if ch not in chans["2.4GHz"]:
+                        chans["2.4GHz"].append(ch)
+                elif 5150.0 <= freq <= 5895.0:
+                    if ch not in chans["5GHz"]:
+                        chans["5GHz"].append(ch)
+    return chans
+
+
+def validate_band_availability(band: str) -> tuple[bool, str, list[int]]:
+    """Check if the requested band has usable channels on the current hardware.
+
+    Args:
+        band: One of '2.4GHz', '5GHz', or 'Auto'.
+
+    Returns:
+        tuple[bool, str, list[int]]: (valid, message, available_channels).
+    """
+    if band.lower() in ("auto", ""):
+        return True, "Band set to Auto", []
+
+    channels = get_phy_channels()
+    target_key = "2.4GHz" if "2.4" in band else "5GHz"
+    avail = channels.get(target_key, [])
+    if not avail:
+        return False, f"No channels available for {target_key} on this Wi-Fi adapter.", []
+    return True, f"Found {len(avail)} channels for {target_key}", avail
+
+
+def modify_hotspot_band(band: str) -> tuple[bool, str]:
+    """Modify the NetworkManager profile band setting ('2.4GHz', '5GHz', or 'Auto').
+
+    Validates channel availability first. If valid, modifies 802-11-wireless.band
+    and adjusts channel if necessary.
+    """
+    valid, msg, avail = validate_band_availability(band)
+    if not valid:
+        return False, msg
+
+    invalidate_cache()
+    if band == "2.4GHz":
+        cur_ch = run(["nmcli", "-g", "802-11-wireless.channel", "connection", "show", HOTSPOT_CON], timeout=5)
+        args = ["nmcli", "con", "modify", HOTSPOT_CON, "802-11-wireless.band", "bg"]
+        try:
+            ch_num = int(cur_ch) if cur_ch.isdigit() else 0
+            if ch_num not in avail:
+                new_ch = str(avail[0] if avail else 11)
+                args.extend(["802-11-wireless.channel", new_ch])
+        except Exception:
+            args.extend(["802-11-wireless.channel", "11"])
+    elif band == "5GHz":
+        cur_ch = run(["nmcli", "-g", "802-11-wireless.channel", "connection", "show", HOTSPOT_CON], timeout=5)
+        args = ["nmcli", "con", "modify", HOTSPOT_CON, "802-11-wireless.band", "a"]
+        try:
+            ch_num = int(cur_ch) if cur_ch.isdigit() else 0
+            if ch_num not in avail:
+                new_ch = str(avail[0] if avail else 36)
+                args.extend(["802-11-wireless.channel", new_ch])
+        except Exception:
+            args.extend(["802-11-wireless.channel", "36"])
+    else:  # Auto
+        args = ["nmcli", "con", "modify", HOTSPOT_CON, "802-11-wireless.band", ""]
+
+    rc, out = run_rc(args, timeout=15)
+    invalidate_cache()
+    if rc == 0:
+        return True, f"Band updated to {band}"
+    return False, f"Failed to modify band: {out}"
+
+
+def modify_hotspot_security(sec: str) -> tuple[bool, str]:
+    """Modify NetworkManager profile security: 'wpa2' or 'wpa3-sae'."""
+    invalidate_cache()
+    if sec.lower() in ("wpa3", "wpa3-sae", "sae"):
+        args = [
+            "nmcli", "con", "modify", HOTSPOT_CON,
+            "wifi-sec.key-mgmt", "sae",
+            "wifi-sec.pmf", "required",
+            "wifi-sec.proto", "rsn",
+        ]
+    else:
+        args = [
+            "nmcli", "con", "modify", HOTSPOT_CON,
+            "wifi-sec.key-mgmt", "wpa-psk",
+            "wifi-sec.pmf", "optional",
+            "wifi-sec.proto", "rsn",
+            "wifi-sec.pairwise", "ccmp",
+            "wifi-sec.group", "ccmp",
+        ]
+    rc, out = run_rc(args, timeout=15)
+    invalidate_cache()
+    if rc == 0:
+        return True, f"Security updated to {sec}"
+    return False, f"Failed to modify security: {out}"
+
+
 def active_cons() -> dict[str, str]:
     """Parse `nmcli -t -f NAME,DEVICE con show --active` -> {name: device}."""
     m = {}
@@ -286,15 +496,25 @@ def vpn_bypass_on() -> bool:
 
 
 def hotspot_state() -> tuple[str, str, int]:
-    """Return (sta_text, ap_text, n_clients); safe with missing interfaces."""
+    """Return (sta_text, ap_text, n_clients); safe with missing interfaces.
+
+    If the hotspot has been manually disabled by the user, ap_text reflects
+    a 'disabled by user' state.
+    """
     cons = active_cons()
     sta, ap = iface_info(STA_IF), iface_info(AP_IF)
     on = cons.get(HOTSPOT_CON) == AP_IF
     name = sta_name()
     sta_t = f"STA {sta.get('ssid') or name or '?'} ch{sta.get('channel') or '?'}" if (sta or name) \
         else "STA down"
-    ap_t = f"AP {ap.get('ssid') or AP_IF} ch{ap.get('channel') or '?'} ON" if (ap and on) \
-        else (f"AP {AP_IF} idle" if ap else "AP off (no ap0)")
+    if DISABLED_FLAG.exists():
+        ap_t = "AP disabled by user"
+    elif ap and on:
+        ap_t = f"AP {ap.get('ssid') or AP_IF} ch{ap.get('channel') or '?'} ON"
+    elif ap:
+        ap_t = f"AP {AP_IF} idle"
+    else:
+        ap_t = "AP off (no ap0)"
     try:
         n = len(station_dump())
     except Exception:
@@ -311,6 +531,53 @@ def priv(cmd: list[str], timeout: int | float = 30) -> tuple[int, str]:
         if shutil.which("pkexec"):
             return run_rc(["pkexec"] + cmd, timeout=timeout, max_retries=1)
     return rc, out
+
+
+def set_disabled_flag(disabled: bool = True) -> bool:
+    """Create or remove the manually disabled flag file (/run/hotspot-hub-disabled).
+
+    Args:
+        disabled: True to create the flag file (touch), False to remove it.
+
+    Returns:
+        bool: True if the flag file was successfully created or removed.
+    """
+    flag = Path(DISABLED_FLAG)
+    try:
+        if disabled:
+            flag.touch(exist_ok=True)
+            logger.info("Hotspot disabled flag touched at %s", flag)
+            return True
+        else:
+            if flag.exists():
+                flag.unlink(missing_ok=True)
+                logger.info("Hotspot disabled flag removed from %s", flag)
+            return True
+    except (PermissionError, OSError) as e:
+        logger.debug("Direct flag file access failed (%s), using priv fallback", e)
+        if disabled:
+            rc, out = priv(["touch", str(flag)])
+            if rc == 0:
+                logger.info("Hotspot disabled flag touched via priv at %s", flag)
+                return True
+            logger.error("Failed to touch %s via priv: %s", flag, out)
+            return False
+        else:
+            rc, out = priv(["rm", "-f", str(flag)])
+            if rc == 0:
+                logger.info("Hotspot disabled flag removed via priv from %s", flag)
+                return True
+            logger.error("Failed to remove %s via priv: %s", flag, out)
+            return False
+
+
+def is_hotspot_disabled() -> bool:
+    """Check if the hotspot has been manually disabled by the user.
+
+    Returns:
+        bool: True if the disabled flag file exists, False otherwise.
+    """
+    return Path(DISABLED_FLAG).exists()
 
 
 def ensure_ap0() -> tuple[bool, str]:
@@ -420,9 +687,10 @@ def health_check() -> dict[str, Any]:
 
 
 def hotspot_start() -> tuple[bool, str]:
-    """Ensure ap0 exists and activate hotspot connection. Return (ok, message)."""
+    """Ensure ap0 exists, clear disabled flag, and activate hotspot connection. Return (ok, message)."""
     invalidate_cache()
     logger.info("hotspot_start requested: activating %s on %s", HOTSPOT_CON, AP_IF)
+    set_disabled_flag(False)
     ok, msg = ensure_ap0()
     if not ok:
         logger.error("hotspot_start failed during ensure_ap0: %s", msg)
@@ -438,13 +706,14 @@ def hotspot_start() -> tuple[bool, str]:
 
 
 def hotspot_stop() -> tuple[bool, str]:
-    """Deactivate hotspot connection. Return (ok, message)."""
+    """Deactivate hotspot connection and create disabled flag. Return (ok, message)."""
     invalidate_cache()
     logger.info("hotspot_stop requested: deactivating %s", HOTSPOT_CON)
     rc, out = run_rc(["nmcli", "con", "down", HOTSPOT_CON], timeout=30)
     invalidate_cache()
     if rc == 0:
         logger.info("hotspot_stop succeeded")
+        set_disabled_flag(True)
         return True, f"{HOTSPOT_CON} deactivated"
     err = out[-300:] or "nmcli down failed"
     logger.error("hotspot_stop failed: %s", err)
@@ -452,9 +721,10 @@ def hotspot_stop() -> tuple[bool, str]:
 
 
 def hotspot_cycle() -> tuple[bool, str]:
-    """Cycle hotspot connection off and on. Return (ok, message)."""
+    """Cycle hotspot connection off and on, clearing disabled flag. Return (ok, message)."""
     invalidate_cache()
     logger.info("hotspot_cycle requested for %s", HOTSPOT_CON)
+    set_disabled_flag(False)
     ok, msg = ensure_ap0()
     if not ok:
         logger.error("hotspot_cycle failed during ensure_ap0: %s", msg)
@@ -642,6 +912,57 @@ def get_theme_stylesheet(palette: QPalette | None = None) -> str:
             background-color: {accent};
             border-color: {accent};
         }}
+        QSizeGrip {{
+            width: 16px;
+            height: 16px;
+        }}
+        QComboBox, QLineEdit, QListWidget {{
+            background-color: {card_bg};
+            color: {win_text};
+            border: 1px solid {card_border};
+            border-radius: 4px;
+            padding: 3px 6px;
+        }}
+        QComboBox::drop-down {{
+            border: none;
+            width: 20px;
+        }}
+        QTabWidget::pane {{
+            border: 1px solid {card_border};
+            border-radius: 4px;
+            background-color: {card_bg};
+        }}
+        QTabBar::tab {{
+            background-color: {btn_bg_style};
+            color: {win_text};
+            padding: 4px 10px;
+            border-top-left-radius: 4px;
+            border-top-right-radius: 4px;
+            margin-right: 2px;
+        }}
+        QTabBar::tab:selected {{
+            background-color: {card_bg};
+            border: 1px solid {card_border};
+            border-bottom-color: {card_bg};
+        }}
+        QGroupBox {{
+            color: {win_text};
+            font-weight: bold;
+            border: 1px solid {card_border};
+            border-radius: 6px;
+            margin-top: 8px;
+            padding-top: 10px;
+        }}
+        QGroupBox::title {{
+            subcontrol-origin: margin;
+            subcontrol-position: top left;
+            left: 10px;
+            padding: 0 4px;
+        }}
+        QRadioButton {{
+            color: {win_text};
+            spacing: 6px;
+        }}
     """
 
 
@@ -770,6 +1091,18 @@ class HotspotSection(PanelSection):
         self.info = QLabel("…")
         self.info.setWordWrap(True)
         self.body.addWidget(self.info)
+
+        # Band selector row
+        band_row = QHBoxLayout()
+        band_row.setSpacing(6)
+        band_lbl = QLabel("Band:")
+        self.combo_band = QComboBox()
+        self.combo_band.addItems(["Auto", "2.4GHz", "5GHz"])
+        self.combo_band.currentTextChanged.connect(self._on_band_changed)
+        band_row.addWidget(band_lbl)
+        band_row.addWidget(self.combo_band, 1)
+        self.body.addLayout(band_row)
+
         self.btn_on = QPushButton("On")
         self.btn_off = QPushButton("Off")
         self.btn_restart = QPushButton("Restart")
@@ -783,6 +1116,22 @@ class HotspotSection(PanelSection):
         self.row(self.btn_on, self.btn_off, self.btn_restart)
         self.row(self.btn_clients, self.btn_qr)
 
+    def _on_band_changed(self, band_name: str) -> None:
+        """Handle user selection of Wi-Fi band."""
+        if not band_name:
+            return
+        current_cfg = self.controller.config.get("band", "Auto")
+        if band_name == current_cfg:
+            return
+        ok, msg = self.controller.set_band(band_name)
+        if not ok:
+            QMessageBox.warning(self, "Band Selection Error", msg)
+            self.combo_band.blockSignals(True)
+            idx = self.combo_band.findText(current_cfg)
+            if idx >= 0:
+                self.combo_band.setCurrentIndex(idx)
+            self.combo_band.blockSignals(False)
+
     def refresh(self) -> None:
         """Update hotspot and station status labels from live system state and toggle controls."""
         ap0_ok = self.controller.ap0_available
@@ -791,6 +1140,7 @@ class HotspotSection(PanelSection):
         self.btn_restart.setEnabled(ap0_ok)
         self.btn_clients.setEnabled(ap0_ok)
         self.btn_qr.setEnabled(ap0_ok)
+        self.combo_band.setEnabled(ap0_ok)
 
         if not ap0_ok:
             self.info.setText(
@@ -800,10 +1150,19 @@ class HotspotSection(PanelSection):
             return
 
         try:
+            sec = get_hotspot_security()
             sta, ap, n = hotspot_state()
-            self.info.setText(f"{sta}\n{ap} | clients {n} | leases {lease_count()}")
+            self.info.setText(f"{sta}\n{ap} [{sec}] | clients {n} | leases {lease_count()}")
         except Exception as e:
             self.info.setText(f"Status error: {e}")
+
+        # Keep band dropdown in sync with controller config
+        cfg_band = self.controller.config.get("band", "Auto")
+        self.combo_band.blockSignals(True)
+        idx = self.combo_band.findText(cfg_band)
+        if idx >= 0:
+            self.combo_band.setCurrentIndex(idx)
+        self.combo_band.blockSignals(False)
 
 
 class WarpSection(PanelSection):
@@ -875,12 +1234,14 @@ class SystemSection(PanelSection):
         self.body.addWidget(self.info)
         self.btn_sync = QPushButton("Restart channel-sync")
         self.btn_route = QPushButton("Fix client routing")
+        self.btn_mac_filter = QPushButton("MAC Filter…")
         self.btn_docs = QPushButton("Docs")
         self.btn_sync.clicked.connect(self.controller.sync_restart)
         self.btn_route.clicked.connect(self.controller.fix_routing)
+        self.btn_mac_filter.clicked.connect(self.controller.show_mac_filter)
         self.btn_docs.clicked.connect(lambda: run(["xdg-open", DOC_PATH], max_retries=1))
         self.row(self.btn_sync, self.btn_route)
-        self.row(self.btn_docs)
+        self.row(self.btn_mac_filter, self.btn_docs)
 
         self.health_info = QLabel("<b>Health:</b> checking…")
         self.health_info.setWordWrap(True)
@@ -906,9 +1267,18 @@ class SystemSection(PanelSection):
         state = out.strip().splitlines()[0] if out else "unknown"
         sta, ap = iface_info(STA_IF), iface_info(AP_IF)
         bypass = "on" if vpn_bypass_on() else "OFF"
-        self.info.setText(f"channel-sync: {state} | VPN bypass: {bypass}\n"
-                          f"wlan0 ch{sta.get('channel', '?')} | "
-                          f"ap0 ch{ap.get('channel', '?')}")
+        mf_enabled = self.controller.config.get("mac_filter_enabled", False)
+        mf_mode = self.controller.config.get("mac_filter_mode", "allow")
+        mf_status = (
+            f"Active ({mf_mode})" if mf_enabled else "OFF"
+        ) + f" ({len(self.controller.allowed_macs)} allowed, {len(self.controller.blocked_macs)} blocked)"
+
+        lines = [f"channel-sync: {state} | VPN bypass: {bypass}"]
+        if DISABLED_FLAG.exists():
+            lines.append("Hotspot: manually stopped")
+        lines.append(f"MAC filter: {mf_status}")
+        lines.append(f"wlan0 ch{sta.get('channel', '?')} | ap0 ch{ap.get('channel', '?')}")
+        self.info.setText("\n".join(lines))
         self.chk_autostart.blockSignals(True)
         self.chk_autostart.setChecked(is_autostart_enabled())
         self.chk_autostart.blockSignals(False)
@@ -928,7 +1298,7 @@ class ClientsDialog(QDialog):
         super().__init__(parent)
         self.controller = controller
         self.setWindowTitle(f"Connected Clients ({AP_IF})")
-        self.setMinimumWidth(380)
+        self.setMinimumWidth(440)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
@@ -991,20 +1361,217 @@ class ClientsDialog(QDialog):
                 row_layout.setSpacing(8)
 
                 info = QLabel(f"{mac}  ({sig or 'signal ?'})")
+
+                # Allow button
+                btn_allow = QPushButton("+ Allow")
+                btn_allow.setFixedWidth(75)
+                if mac.lower() in self.controller.allowed_macs:
+                    btn_allow.setText("Allowed")
+                    btn_allow.setEnabled(False)
+                else:
+                    btn_allow.clicked.connect(lambda _, m=mac: self._allow(m))
+
                 btn_kick = QPushButton("Disconnect")
                 btn_kick.setFixedWidth(90)
                 btn_kick.clicked.connect(lambda _, m=mac: self._kick(m))
 
                 row_layout.addWidget(info, 1)
+                row_layout.addWidget(btn_allow)
                 row_layout.addWidget(btn_kick)
                 self.clients_layout.addWidget(row)
 
         self.clients_layout.addStretch()
 
+    def _allow(self, mac: str) -> None:
+        """Add MAC address to allowed list and refresh client list."""
+        self.controller.add_allowed_mac(mac)
+        self.refresh_clients()
+
     def _kick(self, mac: str) -> None:
         """Disconnect specified station MAC and refresh the view."""
         self.controller.disconnect_client(mac)
         self.refresh_clients()
+
+
+class MacFilterDialog(QDialog):
+    """Dialog for configuring MAC address filtering (allow/deny lists)."""
+
+    def __init__(self, controller: HotspotPanel, parent: QWidget | None = None) -> None:
+        """Initialize MAC filter dialog."""
+        super().__init__(parent)
+        self.controller = controller
+        self.setWindowTitle("MAC Address Filter")
+        self.setMinimumWidth(460)
+        self.setMinimumHeight(440)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+        layout.setContentsMargins(14, 14, 14, 14)
+
+        # Policy Controls
+        self.chk_enable = QCheckBox("Enable MAC Filtering")
+        self.chk_enable.setChecked(self.controller.config.get("mac_filter_enabled", False))
+        layout.addWidget(self.chk_enable)
+
+        mode_box = QGroupBox("Filter Mode")
+        mode_layout = QHBoxLayout(mode_box)
+        self.radio_allow = QRadioButton("Allowlist (Only allowed MACs)")
+        self.radio_deny = QRadioButton("Denylist (Block listed MACs)")
+        mode = self.controller.config.get("mac_filter_mode", "allow")
+        if mode == "deny":
+            self.radio_deny.setChecked(True)
+        else:
+            self.radio_allow.setChecked(True)
+        mode_layout.addWidget(self.radio_allow)
+        mode_layout.addWidget(self.radio_deny)
+        layout.addWidget(mode_box)
+
+        # Tabs for Allowed and Blocked lists
+        self.tabs = QTabWidget()
+
+        # Tab 1: Allowed MACs (allowed_macs.txt)
+        tab_allow = QWidget()
+        lay_allow = QVBoxLayout(tab_allow)
+        lay_allow.setContentsMargins(8, 8, 8, 8)
+        self.list_allowed = QListWidget()
+        for mac in sorted(self.controller.allowed_macs):
+            self.list_allowed.addItem(mac)
+        lay_allow.addWidget(self.list_allowed)
+
+        add_allow_row = QHBoxLayout()
+        self.input_allow = QLineEdit()
+        self.input_allow.setPlaceholderText("00:11:22:33:44:55")
+        btn_add_allow = QPushButton("Add MAC")
+        btn_add_allow.clicked.connect(self._add_allowed_mac)
+        add_allow_row.addWidget(self.input_allow, 1)
+        add_allow_row.addWidget(btn_add_allow)
+        lay_allow.addLayout(add_allow_row)
+
+        btn_allow_row = QHBoxLayout()
+        btn_add_client = QPushButton("Add Connected Client…")
+        btn_add_client.clicked.connect(self._add_connected_to_allow)
+        btn_del_allow = QPushButton("Remove Selected")
+        btn_del_allow.clicked.connect(self._remove_selected_allowed)
+        btn_allow_row.addWidget(btn_add_client)
+        btn_allow_row.addStretch()
+        btn_allow_row.addWidget(btn_del_allow)
+        lay_allow.addLayout(btn_allow_row)
+        self.tabs.addTab(tab_allow, f"Allowed MACs ({ALLOWED_MACS_FILE.name})")
+
+        # Tab 2: Blocked MACs (blocked_macs.txt)
+        tab_deny = QWidget()
+        lay_deny = QVBoxLayout(tab_deny)
+        lay_deny.setContentsMargins(8, 8, 8, 8)
+        self.list_blocked = QListWidget()
+        for mac in sorted(self.controller.blocked_macs):
+            self.list_blocked.addItem(mac)
+        lay_deny.addWidget(self.list_blocked)
+
+        add_deny_row = QHBoxLayout()
+        self.input_deny = QLineEdit()
+        self.input_deny.setPlaceholderText("00:11:22:33:44:55")
+        btn_add_deny = QPushButton("Add MAC")
+        btn_add_deny.clicked.connect(self._add_blocked_mac)
+        add_deny_row.addWidget(self.input_deny, 1)
+        add_deny_row.addWidget(btn_add_deny)
+        lay_deny.addLayout(add_deny_row)
+
+        btn_deny_row = QHBoxLayout()
+        btn_del_deny = QPushButton("Remove Selected")
+        btn_del_deny.clicked.connect(self._remove_selected_blocked)
+        btn_deny_row.addStretch()
+        btn_deny_row.addWidget(btn_del_deny)
+        lay_deny.addLayout(btn_deny_row)
+        self.tabs.addTab(tab_deny, f"Blocked MACs ({BLOCKED_MACS_FILE.name})")
+
+        layout.addWidget(self.tabs, 1)
+
+        # Bottom buttons
+        bottom = QHBoxLayout()
+        btn_save = QPushButton("Save & Apply")
+        btn_save.clicked.connect(self._save_and_apply)
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.clicked.connect(self.reject)
+        bottom.addStretch()
+        bottom.addWidget(btn_save)
+        bottom.addWidget(btn_cancel)
+        layout.addLayout(bottom)
+
+    def _normalize_mac(self, text: str) -> str:
+        """Validate and return normalized lowercase colon-separated MAC, or '' if invalid."""
+        cleaned = text.strip().lower().replace("-", ":")
+        if re.match(r"^([0-9a-f]{2}:){5}[0-9a-f]{2}$", cleaned):
+            return cleaned
+        return ""
+
+    def _add_allowed_mac(self) -> None:
+        """Add MAC from input field into allowed list."""
+        mac = self._normalize_mac(self.input_allow.text())
+        if not mac:
+            QMessageBox.warning(self, "Invalid MAC", "Please enter a valid MAC address (e.g. 00:11:22:33:44:55).")
+            return
+        existing = [self.list_allowed.item(i).text() for i in range(self.list_allowed.count())]
+        if mac not in existing:
+            self.list_allowed.addItem(mac)
+        self.input_allow.clear()
+
+    def _add_connected_to_allow(self) -> None:
+        """Add connected clients to allowed list."""
+        stations = station_dump()
+        if not stations:
+            QMessageBox.information(self, "Connected Clients", "No clients currently connected.")
+            return
+        existing = [self.list_allowed.item(i).text() for i in range(self.list_allowed.count())]
+        added = 0
+        for mac, _ in stations:
+            norm = mac.lower().replace("-", ":")
+            if norm not in existing:
+                self.list_allowed.addItem(norm)
+                existing.append(norm)
+                added += 1
+        QMessageBox.information(self, "Connected Clients", f"Added {added} connected station(s) to allowed list.")
+
+    def _remove_selected_allowed(self) -> None:
+        """Remove selected items from allowed list."""
+        for item in self.list_allowed.selectedItems():
+            self.list_allowed.takeItem(self.list_allowed.row(item))
+
+    def _add_blocked_mac(self) -> None:
+        """Add MAC from input field into blocked list."""
+        mac = self._normalize_mac(self.input_deny.text())
+        if not mac:
+            QMessageBox.warning(self, "Invalid MAC", "Please enter a valid MAC address (e.g. 00:11:22:33:44:55).")
+            return
+        existing = [self.list_blocked.item(i).text() for i in range(self.list_blocked.count())]
+        if mac not in existing:
+            self.list_blocked.addItem(mac)
+        self.input_deny.clear()
+
+    def _remove_selected_blocked(self) -> None:
+        """Remove selected items from blocked list."""
+        for item in self.list_blocked.selectedItems():
+            self.list_blocked.takeItem(self.list_blocked.row(item))
+
+    def _save_and_apply(self) -> None:
+        """Persist lists and configuration, then enforce filtering policy."""
+        allowed = {self.list_allowed.item(i).text().lower() for i in range(self.list_allowed.count())}
+        blocked = {self.list_blocked.item(i).text().lower() for i in range(self.list_blocked.count())}
+
+        self.controller.allowed_macs = allowed
+        self.controller.blocked_macs = blocked
+        save_mac_file(ALLOWED_MACS_FILE, allowed)
+        save_mac_file(BLOCKED_MACS_FILE, blocked)
+
+        self.controller.config["mac_filter_enabled"] = self.chk_enable.isChecked()
+        self.controller.config["mac_filter_mode"] = "deny" if self.radio_deny.isChecked() else "allow"
+        save_app_config(self.controller.config)
+
+        kicked = self.controller.enforce_mac_filter()
+        msg = f"MAC filter configuration saved.\n{len(allowed)} allowed, {len(blocked)} blocked."
+        if kicked > 0:
+            msg += f"\nDisconnected {kicked} unauthorized station(s)."
+        QMessageBox.information(self, "MAC Filter Saved", msg)
+        self.accept()
 
 
 class DropdownPanel(QWidget):
@@ -1024,7 +1591,9 @@ class DropdownPanel(QWidget):
         self.setObjectName("dropdownCanvas")
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, False)
         self.setMinimumWidth(340)
-        self.setMaximumWidth(420)
+        self.setMinimumHeight(240)
+        # Note: Maximum width constraint removed to allow window resizing
+
         root = QVBoxLayout(self)
         root.setContentsMargins(10, 10, 10, 10)
         root.setSpacing(8)
@@ -1036,15 +1605,38 @@ class DropdownPanel(QWidget):
         top.addWidget(header, 1)
         top.addWidget(close_btn)
         root.addLayout(top)
+
         self.sections: list[PanelSection] = []
         self._build_sections(root)
+
+        # Bottom row with hint label and resize grip at bottom-right
+        bottom_bar = QHBoxLayout()
+        bottom_bar.setContentsMargins(0, 0, 0, 0)
         hint = QLabel("Right-click tray for menu • Quit there. "
                       "Add future mods as new PanelSection.")
         hint.setWordWrap(True)
         hint.setEnabled(False)
-        root.addWidget(hint)
+        self.size_grip = QSizeGrip(self)
+        self.size_grip.setToolTip("Resize panel")
+        bottom_bar.addWidget(hint, 1)
+        bottom_bar.addWidget(self.size_grip, 0, Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight)
+        root.addLayout(bottom_bar)
+
+        self.restore_settings()
         self._applying_theme = False
         self.apply_theme()
+
+    def save_settings(self) -> None:
+        """Save window geometry to QSettings."""
+        settings = QSettings("hotspot-hub", "hotspot-hub")
+        settings.setValue("panel_geometry", self.saveGeometry())
+
+    def restore_settings(self) -> None:
+        """Restore window geometry from QSettings."""
+        settings = QSettings("hotspot-hub", "hotspot-hub")
+        geo = settings.value("panel_geometry")
+        if geo is not None:
+            self.restoreGeometry(geo)
 
     def apply_theme(self) -> None:
         """Apply dynamic stylesheet adhering to palette and dark mode."""
@@ -1094,9 +1686,15 @@ class DropdownPanel(QWidget):
         self.controller.on_panel_shown()
 
     def hideEvent(self, event: Any) -> None:
-        """Pause refresh timer when panel is hidden."""
+        """Pause refresh timer and save geometry when panel is hidden."""
+        self.save_settings()
         super().hideEvent(event)
         self.controller.on_panel_hidden()
+
+    def resizeEvent(self, event: Any) -> None:
+        """Save geometry when resized."""
+        super().resizeEvent(event)
+        self.save_settings()
 
     def focusOutEvent(self, event: QFocusEvent) -> None:
         """Hide panel when focus is lost and cursor is outside the window."""
@@ -1132,6 +1730,17 @@ class HotspotPanel:
             initial_icon if not initial_icon.isNull() else self.fallback_icon,
             self.app
         )
+
+        # Persistent configuration & MAC filtering state
+        self.config: dict[str, Any] = load_app_config()
+        wpa3_ok = detect_wpa3_support()
+        if self.config.get("wpa3_supported") != wpa3_ok:
+            self.config["wpa3_supported"] = wpa3_ok
+            save_app_config(self.config)
+
+        self.allowed_macs: set[str] = load_mac_file(ALLOWED_MACS_FILE)
+        self.blocked_macs: set[str] = load_mac_file(BLOCKED_MACS_FILE)
+
         self.menu = QMenu()  # right-click fallback menu
         self.tray.setContextMenu(self.menu)
         self.panel = DropdownPanel(self)
@@ -1267,8 +1876,9 @@ class HotspotPanel:
             return
         self.invalidate_cache()
         pos = QCursor.pos()
-        geo = self.panel.sizeHint()
-        self.panel.move(pos.x() - geo.width() // 2, pos.y() - geo.height() - 20)
+        w = self.panel.width() if self.panel.width() >= 340 else self.panel.sizeHint().width()
+        h = self.panel.height() if self.panel.height() >= 240 else self.panel.sizeHint().height()
+        self.panel.move(max(10, pos.x() - w // 2), max(10, pos.y() - h - 20))
         self.panel.show()
         self.panel.raise_()
         self.panel.activateWindow()
@@ -1320,8 +1930,9 @@ class HotspotPanel:
         """Refresh tray tooltip, status indicator icon, and visible panel sections."""
         status_err = ""
         try:
+            sec = get_hotspot_security()
             sta, ap, n = hotspot_state()
-            text = f"{sta} | {ap} | clients {n} | WARP {warp_status()}"
+            text = f"{sta} | {ap} [{sec}] | clients {n} | WARP {warp_status()}"
         except Exception as e:
             status_err = str(e)
             text = f"Status error: {e}"
@@ -1405,7 +2016,7 @@ class HotspotPanel:
         self.refresh()
 
     def _poll_stations(self) -> None:
-        """Poll station_dump() every 10s and notify on client connect or disconnect."""
+        """Poll station_dump() every 10s, enforce MAC filter, and notify on client connect or disconnect."""
         try:
             current_stations = station_dump()
             current_macs = {mac.lower() for mac, _ in current_stations}
@@ -1417,16 +2028,90 @@ class HotspotPanel:
 
         for mac in sorted(connected):
             logger.info("Client connected to hotspot: %s", mac)
+            if not self.is_mac_authorized(mac):
+                logger.warning("Unauthorized client %s connected! Kicking per MAC filter policy.", mac)
+                self.disconnect_client(mac)
+                self.tray.showMessage("Blocked Unauthorized Client",
+                                      f"Blocked client {mac} by MAC filter policy",
+                                      QSystemTrayIcon.MessageIcon.Warning, 5000)
+                continue
             self.tray.showMessage("Client Connected",
                                   f"Client {mac} connected to hotspot",
                                   QSystemTrayIcon.MessageIcon.Information, 5000)
+
         for mac in sorted(disconnected):
             logger.info("Client disconnected from hotspot: %s", mac)
             self.tray.showMessage("Client Disconnected",
                                   f"Client {mac} disconnected from hotspot",
                                   QSystemTrayIcon.MessageIcon.Information, 5000)
 
-        self._known_macs = current_macs
+        self._known_macs = {mac.lower() for mac, _ in station_dump()}
+
+    def is_mac_authorized(self, mac: str) -> bool:
+        """Check if MAC is authorized under current filtering policy."""
+        if not self.config.get("mac_filter_enabled", False):
+            return True
+        mac_lower = mac.lower().replace("-", ":")
+        mode = self.config.get("mac_filter_mode", "allow")
+        if mode == "deny":
+            return mac_lower not in self.blocked_macs
+        return mac_lower in self.allowed_macs
+
+    def enforce_mac_filter(self) -> int:
+        """Check all currently connected stations and disconnect unauthorized ones using iw station del."""
+        if not self.config.get("mac_filter_enabled", False):
+            return 0
+        stations = station_dump()
+        kicked_count = 0
+        for mac, _ in stations:
+            if not self.is_mac_authorized(mac):
+                logger.warning("Enforcing MAC filter: kicking unauthorized station %s", mac)
+                self.disconnect_client(mac)
+                kicked_count += 1
+        return kicked_count
+
+    def add_allowed_mac(self, mac: str) -> bool:
+        """Add MAC address to allowed list and persist to ~/.config/hotspot-hub/allowed_macs.txt."""
+        cleaned = mac.strip().lower().replace("-", ":")
+        if not re.match(r"^([0-9a-f]{2}:){5}[0-9a-f]{2}$", cleaned):
+            return False
+        self.allowed_macs.add(cleaned)
+        save_mac_file(ALLOWED_MACS_FILE, self.allowed_macs)
+        logger.info("Added %s to allowed MAC list", cleaned)
+        self.notify("MAC Filter", f"Added {cleaned} to allowed list.")
+        return True
+
+    def add_blocked_mac(self, mac: str) -> bool:
+        """Add MAC address to blocked list and persist to ~/.config/hotspot-hub/blocked_macs.txt."""
+        cleaned = mac.strip().lower().replace("-", ":")
+        if not re.match(r"^([0-9a-f]{2}:){5}[0-9a-f]{2}$", cleaned):
+            return False
+        self.blocked_macs.add(cleaned)
+        save_mac_file(BLOCKED_MACS_FILE, self.blocked_macs)
+        logger.info("Added %s to blocked MAC list", cleaned)
+        self.notify("MAC Filter", f"Added {cleaned} to blocked list.")
+        return True
+
+    def show_mac_filter(self) -> None:
+        """Open the MAC Filter dialog."""
+        dlg = MacFilterDialog(self, self.panel if self.panel.isVisible() else None)
+        dlg.exec()
+
+    def set_band(self, band: str) -> tuple[bool, str]:
+        """Modify hotspot Wi-Fi band ('2.4GHz', '5GHz', or 'Auto') and persist preference in config."""
+        self.invalidate_cache()
+        logger.info("Setting hotspot band to %s", band)
+        ok, msg = modify_hotspot_band(band)
+        if ok:
+            self.config["band"] = band
+            save_app_config(self.config)
+            self.notify("Band Configuration", f"Wi-Fi band updated to {band}.")
+            if self.detect_state() == "on":
+                self.hotspot_restart()
+        else:
+            logger.error("Failed to set band to %s: %s", band, msg)
+        self.refresh()
+        return ok, msg
 
     def disconnect_client(self, mac: str) -> tuple[int, str]:
         """Disconnect a station via `iw dev ap0 station del <mac>` and refresh."""

@@ -9,3 +9,5 @@
 %wheel ALL=(root) NOPASSWD: /usr/bin/cat /var/lib/NetworkManager/dnsmasq-ap0.leases
 %wheel ALL=(root) NOPASSWD: /usr/bin/nft list *
 %wheel ALL=(root) NOPASSWD: /usr/local/bin/hotspot-channelsync.sh
+%wheel ALL=(root) NOPASSWD: /usr/bin/touch /run/hotspot-hub-disabled
+%wheel ALL=(root) NOPASSWD: /usr/bin/rm -f /run/hotspot-hub-disabled

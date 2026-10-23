@@ -31,6 +31,7 @@ sudo install -Dm644 "$ROOT/src/99-hotspot.conf" /etc/sysctl.d/99-hotspot.conf
 sudo install -Dm644 "$ROOT/icons/hotspot-hub.svg" /usr/share/icons/hicolor/scalable/apps/hotspot-hub.svg
 sudo install -Dm644 "$ROOT/hotspot-hub.desktop" /usr/share/applications/hotspot-hub.desktop
 sudo install -Dm440 "$ROOT/src/hotspot-hub.sudoers" /etc/sudoers.d/hotspot-hub
+sudo install -Dm644 "$ROOT/man/hotspot-hub-cli.1" /usr/share/man/man1/hotspot-hub-cli.1
 sudo visudo -c
 sudo gtk-update-icon-cache -f /usr/share/icons/hicolor 2>/dev/null || \
   sudo update-icon-caches /usr/share/icons/hicolor 2>/dev/null || true

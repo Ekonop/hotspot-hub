@@ -4,6 +4,9 @@
 IFACE="$1"
 ACTION="$2"
 if [ "$IFACE" != "wlan0" ] && [ "$IFACE" != "ap0" ]; then exit 0; fi
+
+DISABLED_FLAG="${DISABLED_FLAG:-/run/hotspot-hub-disabled}"
+if [ -f "$DISABLED_FLAG" ]; then exit 0; fi
 case "$ACTION" in
   up|reapply|connectivity-change|dhcp4-change|dhcp6-change)
     /usr/local/bin/hotspot-channelsync.sh &

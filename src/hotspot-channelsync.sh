@@ -46,6 +46,12 @@ if ! iw dev "$AP_IF" info >/dev/null 2>&1; then
   ip link set "$AP_IF" up
 fi
 
+DISABLED_FLAG="${DISABLED_FLAG:-/run/hotspot-hub-disabled}"
+if [ -f "$DISABLED_FLAG" ]; then
+  log "Hotspot manually disabled, skipping auto-start"
+  exit 0
+fi
+
 # 2. read STA channel/freq
 WLAN_INFO=$(iw dev "$STA_IF" info 2>/dev/null)
 CH=$(echo "$WLAN_INFO" | awk '/channel/ {print $2}')

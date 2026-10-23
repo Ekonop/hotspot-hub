@@ -1,0 +1,118 @@
+.TH HOTSPOT\-HUB\-CLI 1 "October 2026" "Hotspot Hub 0.2.0" "User Commands"
+.SH NAME
+hotspot\-hub\-cli \- command-line interface for Hotspot Hub
+.SH SYNOPSIS
+.B hotspot\-hub\-cli
+[\fB\-h\fR]
+.IR command
+[\fIargs\fR...]
+.SH DESCRIPTION
+.B hotspot\-hub\-cli
+is the command-line companion to Hotspot Hub, a lightweight concurrent Wi-Fi Access Point (AP) controller for Linux systems.
+It allows inspecting status, starting or stopping the hotspot, listing and disconnecting connected stations, managing 2.4GHz/5GHz frequency bands, configuring WPA2/WPA3 security, and administering MAC address access control lists.
+.SH COMMANDS
+.TP
+.B status
+Display comprehensive status information including hotspot activation state, active security protocol (WPA2 or WPA3-SAE), uplink station details, client counts, DHCP lease status, MAC filter enforcement state, WARP status, and VPN bypass routing priority.
+.TP
+.B on
+Ensure virtual interface \fBap0\fR exists and activate the NetworkManager hotspot connection profile.
+.TP
+.B off
+Deactivate the hotspot connection profile.
+.TP
+.B restart
+Cycle the hotspot connection off and back on.
+.TP
+.B clients
+List currently associated Wi-Fi stations on the AP interface, including MAC addresses, signal strength (dBm), and active DHCP leases.
+.TP
+.BI kick " <mac>"
+Disconnect an active client station identified by its MAC address using \fBiw dev ap0 station del\fR.
+.TP
+.B qr
+Display hotspot SSID, passphrase, and render a terminal-friendly UTF-8 QR code for mobile device scanning (requires \fBqrencode\fR).
+.TP
+.BI band " [2.4GHz|5GHz|Auto]"
+View current Wi-Fi band configuration and available hardware channels, or modify the active band. Available hardware channels on the Wi-Fi PHY are validated prior to profile application.
+.TP
+.BI mac\-filter " <action> [mac]"
+Manage MAC filtering access policies and list entries:
+.RS
+.TP
+.B list
+Display filter operational state (enabled/disabled, mode) and show all allowed and blocked MAC addresses.
+.TP
+.B enable
+Enable active MAC address filtering.
+.TP
+.B disable
+Disable active MAC address filtering.
+.TP
+.BI allow " <mac>"
+Add a normalized MAC address to the allowed list (\fBallowed_macs.txt\fR).
+.TP
+.BI deny " <mac>"
+Add a normalized MAC address to the blocked list (\fBblocked_macs.txt\fR).
+.TP
+.BI remove " <mac>"
+Remove a MAC address from both allowed and blocked lists.
+.RE
+.SH OPTIONS
+.TP
+.BR \-h ", " \-\-help
+Show summary of command-line options and subcommands.
+.SH ENVIRONMENT
+.TP
+.B HOTSPOT_HUB_STA_IF
+Station (uplink) wireless network interface name. Default is \fBwlan0\fR.
+.TP
+.B HOTSPOT_HUB_AP_IF
+Access Point virtual network interface name. Default is \fBap0\fR.
+.TP
+.B HOTSPOT_HUB_CON
+NetworkManager connection profile name for the hotspot. Default is \fBHotspot\-Shared\fR.
+.TP
+.B HOTSPOT_HUB_DOCS
+Path to project documentation.
+.SH FILES
+.TP
+.I ~/.config/hotspot\-hub/config.json
+JSON configuration storing MAC filter state, frequency band preference, and detected WPA3-SAE hardware support.
+.TP
+.I ~/.config/hotspot\-hub/allowed_macs.txt
+Plain-text list of permitted client MAC addresses (one per line).
+.TP
+.I ~/.config/hotspot\-hub/blocked_macs.txt
+Plain-text list of denied client MAC addresses (one per line).
+.TP
+.I ~/.local/share/hotspot\-hub/hotspot\-hub.log
+Persistent rotating log file.
+.SH EXAMPLES
+.PP
+Show overall system and hotspot status:
+.RS
+.B hotspot\-hub\-cli status
+.RE
+.PP
+Switch AP operation to 5GHz band:
+.RS
+.B hotspot\-hub\-cli band 5GHz
+.RE
+.PP
+Add a trusted smartphone MAC to the allowlist:
+.RS
+.B hotspot\-hub\-cli mac\-filter allow 00:11:22:33:44:55
+.RE
+.PP
+Disconnect an unauthorized station immediately:
+.RS
+.B hotspot\-hub\-cli kick 00:11:22:33:44:55
+.RE
+.SH SEE ALSO
+.BR hotspot\-hub (1),
+.BR nmcli (1),
+.BR iw (8),
+.BR qrencode (1)
+.SH AUTHORS
+Hotspot Hub Contributors. Project repository: <https://github.com/Ekonop/hotspot-hub>

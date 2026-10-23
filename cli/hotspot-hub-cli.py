@@ -17,47 +17,56 @@ from pathlib import Path
 from typing import Sequence
 
 # ---------------------------------------------------------------------------
-# Dynamic import of app/hotspot-hub.py via sys.path
+# Dynamic import of app/hotspot-hub.py
 # ---------------------------------------------------------------------------
-_repo_app = Path(__file__).resolve().parent.parent / "app"
-if _repo_app.is_dir() and str(_repo_app) not in sys.path:
-    sys.path.insert(0, str(_repo_app))
+import importlib.machinery
+import importlib.util
 
-_share_app = Path("/usr/share/hotspot-hub/app")
-if _share_app.is_dir() and str(_share_app) not in sys.path:
-    sys.path.insert(0, str(_share_app))
+_repo_hub = Path(__file__).resolve().parent.parent / "app" / "hotspot-hub.py"
+_share_hub = Path("/usr/share/hotspot-hub/app/hotspot-hub.py")
+_bin_hub = Path("/usr/bin/hotspot-hub")
 
-try:
-    import importlib
-    hub = importlib.import_module("hotspot-hub")
-except ModuleNotFoundError:
-    import importlib.machinery
-    import importlib.util
-    installed_bin = Path("/usr/bin/hotspot-hub")
-    if installed_bin.exists():
-        loader = importlib.machinery.SourceFileLoader("hotspot_hub", str(installed_bin))
-        spec = importlib.util.spec_from_loader("hotspot_hub", loader)
-        hub = importlib.util.module_from_spec(spec)
-        loader.exec_module(hub)
-    else:
-        print("Error: Could not import hotspot-hub module from app/ or /usr/share/hotspot-hub/app.",
-              file=sys.stderr)
-        sys.exit(1)
+hub_path = None
+for p in (_repo_hub, _share_hub, _bin_hub):
+    if p.is_file():
+        hub_path = p
+        break
+
+if not hub_path:
+    print("Error: Could not locate hotspot-hub.py in repo or system.", file=sys.stderr)
+    sys.exit(1)
+
+loader = importlib.machinery.SourceFileLoader("hotspot_hub", str(hub_path))
+spec = importlib.util.spec_from_loader("hotspot_hub", loader)
+hub = importlib.util.module_from_spec(spec)
+loader.exec_module(hub)
 
 
 def cmd_status(args: argparse.Namespace) -> int:
-    """Display comprehensive status of hotspot, uplink, clients, and routing."""
+    """Display comprehensive status of hotspot, uplink, clients, security, and routing."""
     sta_text, ap_text, client_count = hub.hotspot_state()
     sta = hub.iface_info(hub.STA_IF)
     ap = hub.iface_info(hub.AP_IF)
     cons = hub.active_cons()
     hotspot_active = cons.get(hub.HOTSPOT_CON) == hub.AP_IF
 
-    state_str = "ACTIVE" if hotspot_active else ("IDLE" if ap else "DOWN")
+    cfg = hub.load_app_config()
+    sec = hub.get_hotspot_security()
+    band_pref = cfg.get("band", "Auto")
+    mf_enabled = cfg.get("mac_filter_enabled", False)
+    mf_mode = cfg.get("mac_filter_mode", "allow")
+    allowed_count = len(hub.load_mac_file(hub.ALLOWED_MACS_FILE))
+    blocked_count = len(hub.load_mac_file(hub.BLOCKED_MACS_FILE))
+    mf_str = (f"ENABLED ({mf_mode} mode)" if mf_enabled else "OFF") + f" [allowed: {allowed_count}, blocked: {blocked_count}]"
+
+    is_disabled = bool(getattr(hub, "DISABLED_FLAG", None) and hub.DISABLED_FLAG.exists())
+    state_str = "ACTIVE" if hotspot_active else ("DISABLED (manually stopped)" if is_disabled else ("IDLE" if ap else "DOWN"))
     print(f"Hotspot:    {state_str} ({hub.HOTSPOT_CON} on {hub.AP_IF})")
-    print(f"  AP info:  SSID='{ap.get('ssid', '')}' Channel={ap.get('channel', '?')}")
+    print(f"  Security: {sec} (WPA3-SAE supported: {'yes' if cfg.get('wpa3_supported') else 'no'})")
+    print(f"  AP info:  SSID='{ap.get('ssid', '')}' Channel={ap.get('channel', '?')} (Band: {band_pref})")
     print(f"Uplink:     {sta_text}")
     print(f"Clients:    {client_count} connected (DHCP leases: {hub.lease_count()})")
+    print(f"MAC Filter: {mf_str}")
     print(f"WARP:       {hub.warp_status()}")
     print(f"VPN Bypass: {'ENABLED (pref 50)' if hub.vpn_bypass_on() else 'OFF'}")
     return 0
@@ -160,6 +169,125 @@ def cmd_qr(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_band(args: argparse.Namespace) -> int:
+    """View or set hotspot Wi-Fi band (2.4GHz / 5GHz / Auto)."""
+    if args.band:
+        band_val = args.band.strip()
+        if band_val.lower() in ("2.4", "2.4ghz", "bg"):
+            target_band = "2.4GHz"
+        elif band_val.lower() in ("5", "5ghz", "a"):
+            target_band = "5GHz"
+        elif band_val.lower() in ("auto", ""):
+            target_band = "Auto"
+        else:
+            print(f"Error: Unknown band '{args.band}'. Choose from: 2.4GHz, 5GHz, Auto", file=sys.stderr)
+            return 1
+
+        ok, msg = hub.modify_hotspot_band(target_band)
+        if ok:
+            cfg = hub.load_app_config()
+            cfg["band"] = target_band
+            hub.save_app_config(cfg)
+            print(f"Success: {msg}")
+            return 0
+        else:
+            print(f"Error: {msg}", file=sys.stderr)
+            return 1
+    else:
+        cfg = hub.load_app_config()
+        print(f"Current band preference: {cfg.get('band', 'Auto')}")
+        channels = hub.get_phy_channels()
+        print(f"Available 2.4GHz channels: {channels.get('2.4GHz', [])}")
+        print(f"Available 5GHz channels:   {channels.get('5GHz', [])}")
+        return 0
+
+
+def cmd_mac_filter(args: argparse.Namespace) -> int:
+    """Manage MAC filtering policy and address lists."""
+    action = args.action
+    cfg = hub.load_app_config()
+    allowed = hub.load_mac_file(hub.ALLOWED_MACS_FILE)
+    blocked = hub.load_mac_file(hub.BLOCKED_MACS_FILE)
+
+    if action == "list":
+        status_str = "ENABLED" if cfg.get("mac_filter_enabled", False) else "DISABLED"
+        print(f"MAC Filter Status: {status_str} (Mode: {cfg.get('mac_filter_mode', 'allow')})")
+        print(f"\nAllowed MACs ({hub.ALLOWED_MACS_FILE}):")
+        if allowed:
+            for m in sorted(allowed):
+                print(f"  - {m}")
+        else:
+            print("  (empty)")
+        print(f"\nBlocked MACs ({hub.BLOCKED_MACS_FILE}):")
+        if blocked:
+            for m in sorted(blocked):
+                print(f"  - {m}")
+        else:
+            print("  (empty)")
+        return 0
+
+    elif action == "enable":
+        cfg["mac_filter_enabled"] = True
+        hub.save_app_config(cfg)
+        print("MAC filtering enabled.")
+        return 0
+
+    elif action == "disable":
+        cfg["mac_filter_enabled"] = False
+        hub.save_app_config(cfg)
+        print("MAC filtering disabled.")
+        return 0
+
+    elif action == "allow":
+        if not args.mac:
+            print("Error: 'allow' requires a MAC address argument.", file=sys.stderr)
+            return 1
+        mac = args.mac.strip().lower().replace("-", ":")
+        if not re.match(r"^([0-9a-f]{2}:){5}[0-9a-f]{2}$", mac):
+            print(f"Error: Invalid MAC address: {args.mac}", file=sys.stderr)
+            return 1
+        allowed.add(mac)
+        hub.save_mac_file(hub.ALLOWED_MACS_FILE, allowed)
+        print(f"Added {mac} to allowed list.")
+        return 0
+
+    elif action in ("deny", "block"):
+        if not args.mac:
+            print("Error: 'deny' requires a MAC address argument.", file=sys.stderr)
+            return 1
+        mac = args.mac.strip().lower().replace("-", ":")
+        if not re.match(r"^([0-9a-f]{2}:){5}[0-9a-f]{2}$", mac):
+            print(f"Error: Invalid MAC address: {args.mac}", file=sys.stderr)
+            return 1
+        blocked.add(mac)
+        hub.save_mac_file(hub.BLOCKED_MACS_FILE, blocked)
+        print(f"Added {mac} to blocked list.")
+        return 0
+
+    elif action == "remove":
+        if not args.mac:
+            print("Error: 'remove' requires a MAC address argument.", file=sys.stderr)
+            return 1
+        mac = args.mac.strip().lower().replace("-", ":")
+        changed = False
+        if mac in allowed:
+            allowed.remove(mac)
+            hub.save_mac_file(hub.ALLOWED_MACS_FILE, allowed)
+            changed = True
+        if mac in blocked:
+            blocked.remove(mac)
+            hub.save_mac_file(hub.BLOCKED_MACS_FILE, blocked)
+            changed = True
+        if changed:
+            print(f"Removed {mac} from MAC filter lists.")
+            return 0
+        else:
+            print(f"MAC {mac} not found in allowed or blocked lists.", file=sys.stderr)
+            return 1
+
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build and return command-line argument parser."""
     parser = argparse.ArgumentParser(
@@ -198,6 +326,19 @@ def build_parser() -> argparse.ArgumentParser:
     # qr
     p_qr = subparsers.add_parser("qr", help="Display SSID, password, and terminal QR code")
     p_qr.set_defaults(func=cmd_qr)
+
+    # band
+    p_band = subparsers.add_parser("band", help="View or set Wi-Fi band (2.4GHz / 5GHz / Auto)")
+    p_band.add_argument("band", nargs="?", choices=["2.4GHz", "5GHz", "Auto", "2.4", "5", "auto"],
+                        help="Optional band to set (2.4GHz, 5GHz, Auto)")
+    p_band.set_defaults(func=cmd_band)
+
+    # mac-filter
+    p_mf = subparsers.add_parser("mac-filter", help="Manage MAC address filtering")
+    p_mf.add_argument("action", choices=["list", "allow", "deny", "block", "remove", "enable", "disable"],
+                      help="MAC filter action")
+    p_mf.add_argument("mac", nargs="?", help="MAC address for allow/deny/remove actions")
+    p_mf.set_defaults(func=cmd_mac_filter)
 
     return parser
 
