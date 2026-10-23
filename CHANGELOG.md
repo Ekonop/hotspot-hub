@@ -5,6 +5,58 @@ All notable changes to Hotspot Hub are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-10-24
+
+### Added
+- **UI Redesign (Modern Aesthetic)**:
+  - New fonts: Manrope (UI) and JetBrains Mono (metrics/IPs/MACs) with fallback chains.
+  - Glassmorphism cards: semi-transparent backgrounds, subtle borders, 12px radius.
+  - Card drop shadows via `QGraphicsDropShadowEffect` with hover elevation.
+  - Solid backgrounds (no compositor flicker); removed `WA_TranslucentBackground`.
+  - Resizable dropdown window with `QSizeGrip` and geometry persistence.
+  - Tab-friendly layout with consistent 8px grid spacing, 30px min button height.
+  - Improved dark/light mode detection via `QPalette` + `KColorScheme`.
+  - Icon theme fallback chain extended (`network-wireless-hotspot` → `network-wireless` → `network-modem`).
+- **Hotspot Restart Fix**:
+  - Manual stop no longer auto-restarts: `/run/hotspot-hub-disabled` flag respected by channel-sync.
+- **Scheduled Hotspot**: auto on/off at configured times (`schedule_enabled`, `schedule_on`, `schedule_off`).
+- **Battery-Aware Auto-Disable**: disables hotspot when battery ≤ threshold (with hysteresis).
+- **Config Validation**: validates band, security, schedule times, battery threshold at load.
+- **IPv6 Toggle**: per-profile IPv6 enable/disable via sysctl (sudoers rule added).
+- **Multi-Profile Support**: list/add/switch/remove profiles via `hotspot-hub-cli profile`.
+- **Bandwidth Throttling**: tc-based total bandwidth cap via `hotspot-hub-cli throttle <iface> <rate>`.
+- **Prometheus Metrics Export**: `hotspot-hub-cli metrics` emits textfile-collector format.
+- **D-Bus Interface**: session-bus service `org.hotspothub.HotspotHub` (GetStatus, HotspotOn, HotspotOff, GetClientCount, GetWarpStatus).
+- **Plasma Applet Scaffold**: QML plasmoid in `plasma-applet/`.
+- **Flatpak Manifest**: `flatpak/io.github.vansh.HotspotHub.json`.
+- **systemd User Service**: `src/hotspot-hub.service.user`.
+- **Env-File Config**: `~/.config/hotspot-hub/config` KEY=VALUE loader for env overrides.
+- **Security Audit**: `docs/SECURITY-AUDIT.md` documenting least-privilege sudoers, shell injection, secrets handling.
+- **Unit Tests**: 22 tests in `tests/test_parsers.py` (unittest, zero deps).
+- **Linting & CI**: ruff config (`pyproject.toml`), GitHub Actions workflow (`.github/workflows/ci.yml`).
+- **Screenshots**: added `docs/screenshots/dropdown.png` and README reference.
+- **Atomic Profile Updates**: backup + restore on failure in `setup-profile.sh`.
+- **Firewall Rules Review**: minimal, interface-scoped UFW rules documented.
+
+### Changed
+- Refactored `DropdownPanel` to use `QScrollArea` for sections (no compression/overlap).
+- Removed `QGraphicsDropShadowEffect` from `PanelSection` (was causing render overlap).
+- PanelSection size policy set to `(Expanding, Minimum)` with trailing stretch.
+- `HotspotPanel.refresh()` now calls `check_schedule()` and `check_battery()`.
+- `get_base_icon()` extended fallback chain (network-modem).
+- `cmd_status` in CLI now includes MAC filter status and WPA3 support.
+- `setup-profile.sh` adds atomic backup/restore and sysctl rule for IPv6.
+
+### Fixed
+- Hotspot auto-restart on manual stop (channel-sync respects disabled flag).
+- Infinite recursion crash (apply_theme ↔ changeEvent) — reentrancy guard.
+- UI widget overlap (drop shadow + padding removed, scroll area added).
+- Compositor flickering (removed WA_TranslucentBackground, solid backgrounds).
+- Button sizing (min-height 30px, padding 6px 12px).
+- Missing sudoers rule for IPv6 sysctl (was falling back to pkexec prompt).
+
+---
+
 ## [0.2.0] - 2026-10-23
 
 ### Added
@@ -58,5 +110,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - QR code generation using `qrencode` for rapid client connection.
 - Desktop notifications on Wi-Fi client connection and disconnection.
 - Passwordless privileged execution through `/etc/sudoers.d/hotspot-hub`.
-- Arch Linux PKGBUILD packaging and idempotent `./install.sh` installation script.
-- Core documentation suite: README, ARCHITECTURE, CONFIGURATION, and TROUBLESHOOTING.
