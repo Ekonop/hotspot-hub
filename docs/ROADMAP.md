@@ -21,7 +21,7 @@
 - [x] **Keyboard shortcuts** — global shortcut (Ctrl+Alt+H, configurable) to toggle hotspot on/off. ✅
 
 ### B. Functionality
-- [ ] **Multi-profile support** — allow multiple hotspot profiles (different SSIDs), switch between them.
+- [x] **Multi-profile support** — profile list/add/switch/remove via CLI + config. ✅
 - [ ] **Guest network** — separate SSID with client isolation and bandwidth limit.
 - [x] **Scheduled hotspot** — auto on/off at specified times. ✅
 - [x] **Battery-aware** — auto-disable hotspot when battery low (integrate with the hibernate-at-5% work). ✅

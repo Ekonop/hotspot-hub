@@ -171,6 +171,64 @@ def cmd_throttle(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def cmd_profile(args: argparse.Namespace) -> int:
+    """Manage hotspot profiles (list/add/switch/remove)."""
+    action = args.action
+    cfg = hub.load_app_config()
+    profiles = cfg.get("profiles", ["Hotspot-Shared"])
+    active = cfg.get("active_profile", hub.HOTSPOT_CON)
+
+    if action == "list":
+        print("Hotspot profiles:")
+        for p in profiles:
+            marker = " (active)" if p == active else ""
+            print(f"  {p}{marker}")
+        return 0
+
+    if action == "add":
+        name = args.name
+        if not name:
+            print("Profile name required.", file=sys.stderr)
+            return 2
+        if name in profiles:
+            print(f"Profile '{name}' already exists.")
+            return 0
+        profiles.append(name)
+        cfg["profiles"] = profiles
+        hub.save_app_config(cfg)
+        print(f"Added profile '{name}'.")
+        return 0
+
+    if action == "switch":
+        name = args.name
+        if name not in profiles:
+            print(f"Profile '{name}' not found. Use 'profile add {name}' first.", file=sys.stderr)
+            return 2
+        cfg["active_profile"] = name
+        hub.save_app_config(cfg)
+        print(f"Switched active profile to '{name}'. Restart hotspot-hub to apply.")
+        return 0
+
+    if action == "remove":
+        name = args.name
+        if name == "Hotspot-Shared":
+            print("Cannot remove the default profile.", file=sys.stderr)
+            return 2
+        if name not in profiles:
+            print(f"Profile '{name}' not found.", file=sys.stderr)
+            return 2
+        profiles = [p for p in profiles if p != name]
+        cfg["profiles"] = profiles
+        if cfg.get("active_profile") == name:
+            cfg["active_profile"] = "Hotspot-Shared"
+        hub.save_app_config(cfg)
+        print(f"Removed profile '{name}'.")
+        return 0
+
+    print(f"Unknown action: {action}", file=sys.stderr)
+    return 2
+
+
 def cmd_on(args: argparse.Namespace) -> int:
     """Turn on hotspot."""
     print("Activating hotspot...")
@@ -455,6 +513,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_throttle.add_argument("rate", nargs="?", type=float, default=0.0,
                             help="Rate limit in Mbps (0 or omit to clear)")
     p_throttle.set_defaults(func=cmd_throttle)
+
+    # profile
+    p_profile = subparsers.add_parser(
+        "profile", help="Manage hotspot profiles (list/add/switch/remove)")
+    p_profile.add_argument("action", choices=["list", "add", "switch", "remove"],
+                           help="Profile action")
+    p_profile.add_argument("name", nargs="?", help="Profile name for add/switch/remove")
+    p_profile.set_defaults(func=cmd_profile)
 
     return parser
 

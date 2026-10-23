@@ -316,6 +316,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "battery_saver_enabled": False,
     "battery_threshold": 20,
     "ipv6_enabled": False,
+    "profiles": ["Hotspot-Shared"],
+    "active_profile": "Hotspot-Shared",
 }
 
 
@@ -2280,6 +2282,11 @@ class HotspotPanel:
         if self.config.get("wpa3_supported") != wpa3_ok:
             self.config["wpa3_supported"] = wpa3_ok
             save_app_config(self.config)
+
+        # Apply multi-profile selection to the active hotspot connection name.
+        active_profile = self.config.get("active_profile")
+        if active_profile:
+            globals()["HOTSPOT_CON"] = active_profile
 
         self._schedule_last_action: str | None = None
         self._battery_action_taken: bool = False
