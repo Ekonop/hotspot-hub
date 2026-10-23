@@ -13,8 +13,8 @@
 
 ### A. UI/UX
 - [ ] **Status indicator on tray icon** — change icon color based on hotspot state (green=on, grey=off, red=error).
-- [ ] **Client list with kick button** — show connected clients with MAC/IP/signal, allow disconnecting a client.
-- [ ] **QR code for SSID/PSK** — generate and display a QR code for easy client onboarding.
+- [x] **Client list with kick button** — show connected clients with MAC/IP/signal, allow disconnecting a client.
+- [x] **QR code for SSID/PSK** — generate and display a QR code for easy client onboarding.
 - [ ] **Bandwidth monitor** — show real-time up/down throughput per client and total.
 - [ ] **Dark mode support** — respect Plasma theme (already partial).
 - [ ] **Keyboard shortcuts** — global shortcut to toggle hotspot on/off.
@@ -34,7 +34,7 @@
 - [ ] **D-Bus interface** — expose hotspot state/control via D-Bus for other apps/scripts.
 - [ ] **CLI tool** — `hotspot-hub status`, `hotspot-hub on/off`, `hotspot-hub clients`.
 - [ ] **Plasma applet** — native QML plasmoid instead of PyQt6 tray (better Wayland integration).
-- [ ] **Notification on client connect/disconnect** — desktop notification.
+- [x] **Notification on client connect/disconnect** — desktop notification.
 - [ ] **Auto-start on boot** — optional, configurable.
 
 ### D. Monitoring/Logging
