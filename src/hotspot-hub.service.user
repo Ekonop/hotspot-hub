@@ -1,0 +1,14 @@
+[Unit]
+Description=Hotspot Hub system tray (user session)
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/hotspot-hub
+Restart=on-failure
+RestartSec=5
+Environment="QT_QPA_PLATFORM=xcb"
+
+[Install]
+WantedBy=graphical-session.target

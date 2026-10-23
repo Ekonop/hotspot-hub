@@ -1,0 +1,33 @@
+{
+  "app-id": "io.github.vansh.HotspotHub",
+  "runtime": "org.kde.Platform",
+  "runtime-version": "6.7",
+  "sdk": "org.kde.Sdk",
+  "command": "hotspot-hub",
+  "finish-args": [
+    "--share=network",
+    "--system-bus-name=org.freedesktop.NetworkManager",
+    "--talk-name=org.freedesktop.NetworkManager",
+    "--talk-name=org.kde.StatusNotifierWatcher",
+    "--system-talk-name=org.freedesktop.systemd1",
+    "--filesystem=host",
+    "--device=all"
+  ],
+  "modules": [
+    {
+      "name": "hotspot-hub",
+      "buildsystem": "simple",
+      "build-commands": [
+        "install -Dm755 app/hotspot-hub.py /app/bin/hotspot-hub",
+        "install -Dm755 cli/hotspot-hub-cli.py /app/bin/hotspot-hub-cli",
+        "install -Dm644 icons/hotspot-hub.svg /app/share/icons/hicolor/scalable/apps/io.github.vansh.HotspotHub.svg"
+      ],
+      "sources": [
+        {
+          "type": "dir",
+          "path": "."
+        }
+      ]
+    }
+  ]
+}

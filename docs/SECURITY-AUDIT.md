@@ -79,7 +79,23 @@ code should raise specific exceptions (covered by unit tests in `tests/`).
 
 ---
 
-## Verification
+## 5. Firewall rules review ✅
+
+Install-time UFW rules (`install.sh`):
+
+```
+ufw allow in on ap0                      # AP clients -> hotspot host
+ufw route allow in on ap0 out on wlan0    # AP clients -> internet via uplink
+```
+
+- Both rules are scoped to the AP interface (`ap0`) and the uplink interface
+  (`wlan0`); no global open ports are added.
+- `uninstall.sh --purge` removes both rules.
+- No NAT/masquerade rules are added by install.sh; routing/masquerade is
+  handled by NM's shared mode (`ipv4.method shared`).
+- `nft list *` is the only nft access granted (read-only, for diagnostics).
+
+Conclusion: rules are minimal and interface-scoped.
 
 ```bash
 # sudoers syntax

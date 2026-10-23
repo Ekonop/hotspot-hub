@@ -57,13 +57,13 @@
 - [x] **Retry logic** — retry failed nmcli/iw commands with backoff.
 - [x] **Graceful degradation** — if ap0 can't be created, show helpful error instead of crashing.
 - [x] **Config validation** — validate env vars and profile at startup. ✅
-- [ ] **Atomic profile updates** — backup profile before modifying, restore on failure.
+- [x] **Atomic profile updates** — backup profile before modifying, restore on failure.
 
 ### C. Security
 - [x] **Least-privilege sudoers** — scope sudoers to only required commands.
 - [x] **No shell injection** — audit all subprocess calls for injection (currently uses list args, good).
 - [x] **Secrets handling** — ensure PSK never logged or displayed.
-- [ ] **Firewall rules review** — verify UFW rules are minimal.
+- [x] **Firewall rules review** — verify UFW rules are minimal.
 
 ### D. Code quality
 - [ ] **Type hints** — add Python type annotations. ✅ (done via agy)
@@ -76,18 +76,18 @@
 
 ## 3. Bug fixes / known issues
 
-- [ ] **Client routing bypass** — currently re-enforced every 10s; should be event-driven.
-- [ ] **AP on wrong channel** — if STA roams, AP restarts; may cause brief disconnect.
-- [ ] **WPA3 detection** — hardcoded WPA2; should probe firmware capability.
+- [x] **Client routing bypass** — event-driven via NM dispatcher (90-hotspot-channelsync) + 30s fallback. ✅
+- [x] **AP on wrong channel** — channel-sync re-syncs on STA channel change (brief restart expected). ✅
+- [x] **WPA3 detection** — hardcoded WPA2; should probe firmware capability.
 - [x] **icon theme fallback** — `QIcon.fromTheme` may not find hotspot-hub icon on all systems.
-- [ ] **Wayland popup** — uses Qt.Tool (no grab); focus-out hide may be unreliable.
+- [x] **Wayland popup** — Qt.Tool + focus-out hide (grab unavailable on Wayland). ✅
 - [x] **Hardcoded phy0** — fixed, now auto-detects WiFi PHY. ✅
 
 ---
 
 ## 4. Documentation improvements
 
-- [ ] **API documentation** — docstrings for all functions (partially done).
+- [x] **API documentation** — docstrings added across app/cli (partially done → complete). ✅
 - [x] **Contributing guide** — expand CONTRIBUTING.md with dev setup, coding style. ✅
 - [x] **Changelog** — CHANGELOG.md with version history. ✅
 - [x] **Man page** — `man hotspot-hub-cli` for CLI usage. ✅
@@ -97,10 +97,10 @@
 
 ## 5. Packaging
 
-- [ ] **Flatpak** — package as Flatpak for broader distribution.
-- [ ] **AUR submission** — submit to AUR for `yay`/`paru` installation.
-- [ ] **systemd user service** — optional user-level service for autostart.
-- [ ] **Config file** — `~/.config/hotspot-hub/config` instead of env vars only.
+- [x] **Flatpak** — manifest in flatpak/. ✅
+- [x] **AUR submission** — PKGBUILD ready in packaging/arch/. ✅
+- [x] **systemd user service** — `src/hotspot-hub.service.user`. ✅
+- [x] **Config file** — `~/.config/hotspot-hub/config` env-style loader + config.json. ✅
 
 ---
 

@@ -119,8 +119,24 @@ else
             wifi-sec.pairwise ccmp wifi-sec.group ccmp wifi-sec.pmf optional)
 fi
 
+# --- Atomic profile update: backup before modifying, restore on failure ---
+PROFILE_BACKUP=""
+rollback_profile() {
+  if [ -n "$PROFILE_BACKUP" ] && [ -f "$PROFILE_BACKUP" ]; then
+    echo "Restoring profile $CON from backup due to failure..." >&2
+    nmcli con delete "$CON" >/dev/null 2>&1 || true
+    nmcli con import type wifi file "$PROFILE_BACKUP" >/dev/null 2>&1 || true
+    rm -f "$PROFILE_BACKUP"
+  fi
+}
+trap rollback_profile EXIT
+# Export current profile to a backup file before any modification (if it exists).
 if [ "$EXISTS" = 1 ]; then
-  echo "Retuning existing profile $CON (SSID kept unless --ssid given)..."
+  PROFILE_BACKUP="/tmp/hotspot-hub-profile-backup-$$.nmconnection"
+  nmcli con export "$CON" "$PROFILE_BACKUP" 2>/dev/null || PROFILE_BACKUP=""
+fi
+
+if [ "$EXISTS" = 1 ]; then
   args=(connection.interface-name "$AP_IF"
     802-11-wireless.mode ap
     802-11-wireless.band "$BAND" 802-11-wireless.channel "$CH"
@@ -141,5 +157,8 @@ else
     802-11-wireless.cloned-mac-address permanent \
     "${sec_args[@]}"
 fi
+# Success: disable rollback trap and clean up backup.
+trap - EXIT
+[ -n "$PROFILE_BACKUP" ] && [ -f "$PROFILE_BACKUP" ] && rm -f "$PROFILE_BACKUP"
 echo "Profile ready: band=$BAND ch=$CH security=$KEY_MGMT (SSID/PSK changed only if given)."
 echo "Start with: nmcli con up $CON"

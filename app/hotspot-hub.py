@@ -70,6 +70,23 @@ except ImportError:
     except ImportError:
         KColorScheme = None  # Fallback to QPalette
 
+# Optional env-style config file (~/.config/hotspot-hub/config, KEY=VALUE lines)
+# lets users override interface/profile names without exporting env vars.
+try:
+    _env_cfg = Path.home() / ".config" / "hotspot-hub" / "config"
+    if _env_cfg.is_file():
+        for _line in _env_cfg.read_text(encoding="utf-8").splitlines():
+            _line = _line.strip()
+            if not _line or _line.startswith("#") or "=" not in _line:
+                continue
+            _k, _, _v = _line.partition("=")
+            _k = _k.strip()
+            _v = _v.strip().strip('"').strip("'")
+            if _k and _k not in os.environ:
+                os.environ[_k] = _v
+except OSError:
+    pass
+
 AP_IF = os.environ.get("HOTSPOT_HUB_AP_IF", "ap0")
 STA_IF = os.environ.get("HOTSPOT_HUB_STA_IF", "wlan0")
 HOTSPOT_CON = os.environ.get("HOTSPOT_HUB_CON", "Hotspot-Shared")
@@ -92,6 +109,7 @@ LOG_DIR = Path.home() / ".local" / "share" / "hotspot-hub"
 LOG_FILE = LOG_DIR / "hotspot-hub.log"
 CONFIG_DIR = Path.home() / ".config" / "hotspot-hub"
 CONFIG_FILE = CONFIG_DIR / "config.json"
+ENV_CONFIG_FILE = CONFIG_DIR / "config"
 ALLOWED_MACS_FILE = CONFIG_DIR / "allowed_macs.txt"
 BLOCKED_MACS_FILE = CONFIG_DIR / "blocked_macs.txt"
 DISABLED_FLAG = Path("/run/hotspot-hub-disabled")
