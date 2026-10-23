@@ -5,6 +5,7 @@ DropdownPanel._build_sections(). Privileged ops use passwordless sudo
 (/etc/sudoers.d/hotspot-hub), pkexec fallback. No plaintext passwords."""
 from __future__ import annotations
 
+import logging
 import os
 import re
 import shutil
@@ -12,6 +13,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable, Sequence
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
@@ -42,24 +44,163 @@ def _default_doc() -> str:
 
 DOC_PATH = _default_doc()
 LEASE_FILE = "/var/lib/NetworkManager/dnsmasq-ap0.leases"
+LOG_DIR = Path.home() / ".local" / "share" / "hotspot-hub"
+LOG_FILE = LOG_DIR / "hotspot-hub.log"
 
 
-def run(cmd: Sequence[str], timeout: int | float = 5) -> str:
-    """Run cmd, return stdout. Never raises ('' on error)."""
-    try:
-        return subprocess.run(cmd, capture_output=True, text=True,
-                              timeout=timeout).stdout.strip()
-    except Exception:
-        return ""
+def setup_logging() -> logging.Logger:
+    """Configure persistent rotating file logging and stderr stream logging."""
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    log = logging.getLogger("hotspot-hub")
+    log.setLevel(logging.INFO)
+    if not log.handlers:
+        fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+        # Rotate at 5MB, keep 3 backup copies
+        file_handler = RotatingFileHandler(
+            str(LOG_FILE),
+            maxBytes=5 * 1024 * 1024,
+            backupCount=3,
+            encoding="utf-8"
+        )
+        file_handler.setFormatter(fmt)
+        file_handler.setLevel(logging.INFO)
+        log.addHandler(file_handler)
+    return log
 
 
-def run_rc(cmd: Sequence[str], timeout: int | float = 15) -> tuple[int, str]:
-    """Run cmd, return (rc, output). Never raises."""
-    try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        return p.returncode, (p.stdout + p.stderr).strip()
-    except Exception as e:
-        return 1, str(e)
+logger = setup_logging()
+
+# TTL cache structures: (cmd_tuple, timeout) -> (output, timestamp)
+_RUN_CACHE: dict[tuple[tuple[str, ...], int | float], tuple[str, float]] = {}
+_RUN_RC_CACHE: dict[tuple[tuple[str, ...], int | float], tuple[tuple[int, str], float]] = {}
+CACHE_TTL: float = 5.0
+BACKOFF_DELAYS: tuple[float, ...] = (1.0, 2.0, 4.0)
+
+_MUTATING_KEYWORDS: set[str] = {
+    "up", "down", "add", "del", "delete", "set", "restart", "start", "stop", "connect", "disconnect"
+}
+
+
+def invalidate_cache() -> None:
+    """Invalidate cached outputs for subprocess commands."""
+    _RUN_CACHE.clear()
+    _RUN_RC_CACHE.clear()
+    logger.debug("Subprocess command cache invalidated")
+
+
+def _is_cacheable(cmd: Sequence[str]) -> bool:
+    """Check if command is a read query eligible for caching."""
+    if not cmd:
+        return False
+    if cmd[0] == "xdg-open":
+        return False
+    cmd_lower = [c.lower() for c in cmd]
+    return not any(action in cmd_lower for action in _MUTATING_KEYWORDS)
+
+
+def run(
+    cmd: Sequence[str],
+    timeout: int | float = 5,
+    max_retries: int = 3,
+    use_cache: bool = True,
+) -> str:
+    """Run cmd, return stdout. Never raises ('' on error).
+
+    Caches output with 5s TTL for cacheable commands.
+    Retries up to max_retries times with exponential backoff (1s, 2s, 4s).
+    """
+    cmd_tuple = tuple(cmd)
+    cache_key = (cmd_tuple, timeout)
+    now = time.monotonic()
+
+    if use_cache and _is_cacheable(cmd):
+        cached = _RUN_CACHE.get(cache_key)
+        if cached is not None:
+            val, ts = cached
+            if now - ts < CACHE_TTL:
+                return val
+
+    last_err = ""
+    for attempt in range(max(1, max_retries)):
+        try:
+            p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            out = p.stdout.strip()
+            if p.returncode == 0:
+                if use_cache and _is_cacheable(cmd):
+                    _RUN_CACHE[cache_key] = (out, time.monotonic())
+                return out
+            err_msg = (p.stderr or p.stdout).strip()
+            last_err = f"code {p.returncode}: {err_msg}"
+            if any(s in err_msg.lower() for s in ("no such device", "device not found", "not found")):
+                break
+        except Exception as e:
+            last_err = str(e)
+
+        if attempt < max_retries - 1:
+            delay = BACKOFF_DELAYS[attempt] if attempt < len(BACKOFF_DELAYS) else BACKOFF_DELAYS[-1] * (2 ** (attempt - len(BACKOFF_DELAYS) + 1))
+            logger.warning(
+                "Retrying command %s in %.1fs (attempt %d/%d): %s",
+                cmd, delay, attempt + 1, max_retries, last_err
+            )
+            time.sleep(delay)
+
+    if last_err and not any(s in last_err.lower() for s in ("no such device", "device not found")):
+        logger.error("Command %s failed after %d attempts: %s", cmd, max_retries, last_err)
+    return ""
+
+
+def run_rc(
+    cmd: Sequence[str],
+    timeout: int | float = 15,
+    max_retries: int = 3,
+    use_cache: bool = True,
+) -> tuple[int, str]:
+    """Run cmd, return (rc, output). Never raises.
+
+    Caches output with 5s TTL for cacheable commands.
+    Retries up to max_retries times with exponential backoff (1s, 2s, 4s).
+    """
+    cmd_tuple = tuple(cmd)
+    cache_key = (cmd_tuple, timeout)
+    now = time.monotonic()
+
+    if use_cache and _is_cacheable(cmd):
+        cached = _RUN_RC_CACHE.get(cache_key)
+        if cached is not None:
+            val, ts = cached
+            if now - ts < CACHE_TTL:
+                return val
+
+    last_rc = 1
+    last_out = ""
+    for attempt in range(max(1, max_retries)):
+        try:
+            p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            out = (p.stdout + p.stderr).strip()
+            if p.returncode == 0:
+                res = (0, out)
+                if use_cache and _is_cacheable(cmd):
+                    _RUN_RC_CACHE[cache_key] = (res, time.monotonic())
+                return res
+            last_rc = p.returncode
+            last_out = out
+            if any(s in out.lower() for s in ("no such device", "device not found", "not found", "password")):
+                break
+        except Exception as e:
+            last_rc = 1
+            last_out = str(e)
+
+        if attempt < max_retries - 1:
+            delay = BACKOFF_DELAYS[attempt] if attempt < len(BACKOFF_DELAYS) else BACKOFF_DELAYS[-1] * (2 ** (attempt - len(BACKOFF_DELAYS) + 1))
+            logger.warning(
+                "Retrying command %s in %.1fs (attempt %d/%d): code %d - %s",
+                cmd, delay, attempt + 1, max_retries, last_rc, last_out
+            )
+            time.sleep(delay)
+
+    if last_rc != 0 and not any(s in last_out.lower() for s in ("no such device", "device not found")):
+        logger.error("Command %s failed after %d attempts (code %d): %s", cmd, max_retries, last_rc, last_out)
+    return last_rc, last_out
 
 
 def active_cons() -> dict[str, str]:
@@ -163,26 +304,37 @@ def hotspot_state() -> tuple[str, str, int]:
 
 def priv(cmd: list[str], timeout: int | float = 30) -> tuple[int, str]:
     """Run privileged cmd without prompt: sudo -n first (sudoers), pkexec fallback."""
-    rc, out = run_rc(["sudo", "-n"] + cmd, timeout=timeout)
+    rc, out = run_rc(["sudo", "-n"] + cmd, timeout=timeout, max_retries=1)
     if rc == 0:
         return rc, out
     if "password" in out.lower() or "sudo" in out.lower()[:200]:
         if shutil.which("pkexec"):
-            return run_rc(["pkexec"] + cmd, timeout=timeout)
+            return run_rc(["pkexec"] + cmd, timeout=timeout, max_retries=1)
     return rc, out
 
 
 def ensure_ap0() -> tuple[bool, str]:
     """Create ap0 passwordless (sudoers) if missing. Returns (ok, msg)."""
-    if iface_info(AP_IF):
-        return True, "ap0 exists"
-    phy = os.listdir("/sys/class/ieee80211")[0] if os.path.isdir("/sys/class/ieee80211") and os.listdir("/sys/class/ieee80211") else "phy0"
-    rc, out = priv(["iw", "phy", phy, "interface",
-                    "add", AP_IF, "type", "__ap"])
-    if rc != 0 and not iface_info(AP_IF):
-        return False, f"create ap0 failed: {out[-200:]}"
-    priv(["ip", "link", "set", AP_IF, "up"])
-    return True, "ap0 created"
+    try:
+        if iface_info(AP_IF):
+            return True, "ap0 exists"
+        phy_dir = "/sys/class/ieee80211"
+        phy = (os.listdir(phy_dir)[0]
+               if os.path.isdir(phy_dir) and os.listdir(phy_dir) else "phy0")
+        rc, out = priv(["iw", "phy", phy, "interface",
+                        "add", AP_IF, "type", "__ap"])
+        if rc != 0 and not iface_info(AP_IF):
+            err = f"create ap0 failed: {out[-200:]}"
+            logger.error("ensure_ap0 failed: %s", err)
+            return False, err
+        priv(["ip", "link", "set", AP_IF, "up"])
+        invalidate_cache()
+        logger.info("ap0 interface created and brought up on %s", phy)
+        return True, "ap0 created"
+    except Exception as e:
+        err = f"ensure_ap0 error: {e}"
+        logger.error("ensure_ap0 exception: %s", err, exc_info=True)
+        return False, err
 
 
 def lease_count() -> str:
@@ -192,41 +344,130 @@ def lease_count() -> str:
             return str(sum(1 for ln in f if ln.strip()))
     except (PermissionError, OSError):
         pass
-    rc, out = run_rc(["sudo", "-n", "cat", LEASE_FILE], timeout=15)
+    rc, out = run_rc(["sudo", "-n", "cat", LEASE_FILE], timeout=15, max_retries=1)
     if rc == 0 and out:
         return str(sum(1 for ln in out.splitlines() if ln.strip()))
     return "0 (no leases yet)"
 
 
+def health_check() -> dict[str, Any]:
+    """Perform health checks: ping gateway, check DHCP leases, and verify AP interface state.
+
+    Returns:
+        dict[str, Any] with keys:
+            - 'healthy': bool, True if all checks pass
+            - 'gateway_ok': bool, True if default gateway responds to ICMP ping
+            - 'gateway_ip': str, IP address of default gateway or 'none'
+            - 'leases_ok': bool, True if DHCP lease status is readable
+            - 'leases_count': str, formatted count or status of DHCP leases
+            - 'ap_up': bool, True if AP interface is UP
+            - 'summary': str, concise human-readable summary
+    """
+    # 1. Ping default gateway
+    gw_ip = ""
+    gateway_ok = False
+    try:
+        route_out = run(["ip", "route", "show", "default"], timeout=3, max_retries=1)
+        m = re.search(r"default via (\S+)", route_out)
+        if m:
+            gw_ip = m.group(1)
+            ping_rc, _ = run_rc(["ping", "-c", "1", "-W", "1", gw_ip], timeout=2, max_retries=1, use_cache=False)
+            gateway_ok = (ping_rc == 0)
+        else:
+            gw_ip = "none"
+    except Exception as e:
+        logger.warning("Health check gateway ping error: %s", e)
+        gw_ip = "error"
+
+    # 2. Check DHCP leases
+    leases_str = lease_count()
+    leases_ok = not leases_str.lower().startswith("error")
+
+    # 3. Verify AP interface UP
+    ap_up = False
+    try:
+        ap_sys = Path(f"/sys/class/net/{AP_IF}")
+        if ap_sys.exists():
+            state_file = ap_sys / "operstate"
+            operstate = state_file.read_text(encoding="utf-8").strip().lower() if state_file.exists() else ""
+            flags_file = ap_sys / "flags"
+            flags = int(flags_file.read_text().strip(), 16) if flags_file.exists() else 0
+            is_iff_up = bool(flags & 0x1)  # IFF_UP flag
+            ap_up = is_iff_up or operstate in ("up", "dormant", "unknown")
+        if not ap_up:
+            link_out = run(["ip", "link", "show", "dev", AP_IF], timeout=3, max_retries=1)
+            ap_up = "<UP" in link_out or ",UP" in link_out or "state UP" in link_out
+    except Exception as e:
+        logger.warning("Health check AP interface error: %s", e)
+        ap_up = False
+
+    healthy = gateway_ok and ap_up and leases_ok
+    gw_status = f"GW: {'ok' if gateway_ok else 'unreachable'} ({gw_ip})"
+    ap_status = f"AP: {'UP' if ap_up else 'DOWN'}"
+    dhcp_status = f"DHCP: {'ok' if leases_ok else 'fail'} ({leases_str})"
+    summary = f"{'OK' if healthy else 'Degraded'} [{gw_status} | {ap_status} | {dhcp_status}]"
+
+    res = {
+        "healthy": healthy,
+        "gateway_ok": gateway_ok,
+        "gateway_ip": gw_ip,
+        "leases_ok": leases_ok,
+        "leases_count": leases_str,
+        "ap_up": ap_up,
+        "summary": summary,
+    }
+    return res
+
+
 def hotspot_start() -> tuple[bool, str]:
     """Ensure ap0 exists and activate hotspot connection. Return (ok, message)."""
+    invalidate_cache()
+    logger.info("hotspot_start requested: activating %s on %s", HOTSPOT_CON, AP_IF)
     ok, msg = ensure_ap0()
     if not ok:
+        logger.error("hotspot_start failed during ensure_ap0: %s", msg)
         return False, msg
     rc, out = run_rc(["nmcli", "con", "up", HOTSPOT_CON], timeout=30)
+    invalidate_cache()
     if rc == 0:
+        logger.info("hotspot_start succeeded: %s", out)
         return True, f"{HOTSPOT_CON} activated on {AP_IF}"
-    return False, out[-300:] or "nmcli failed"
+    err = out[-300:] or "nmcli failed"
+    logger.error("hotspot_start nmcli failed: %s", err)
+    return False, err
 
 
 def hotspot_stop() -> tuple[bool, str]:
     """Deactivate hotspot connection. Return (ok, message)."""
+    invalidate_cache()
+    logger.info("hotspot_stop requested: deactivating %s", HOTSPOT_CON)
     rc, out = run_rc(["nmcli", "con", "down", HOTSPOT_CON], timeout=30)
+    invalidate_cache()
     if rc == 0:
+        logger.info("hotspot_stop succeeded")
         return True, f"{HOTSPOT_CON} deactivated"
-    return False, out[-300:] or "nmcli down failed"
+    err = out[-300:] or "nmcli down failed"
+    logger.error("hotspot_stop failed: %s", err)
+    return False, err
 
 
 def hotspot_cycle() -> tuple[bool, str]:
     """Cycle hotspot connection off and on. Return (ok, message)."""
+    invalidate_cache()
+    logger.info("hotspot_cycle requested for %s", HOTSPOT_CON)
     ok, msg = ensure_ap0()
     if not ok:
+        logger.error("hotspot_cycle failed during ensure_ap0: %s", msg)
         return False, msg
     run_rc(["nmcli", "con", "down", HOTSPOT_CON], timeout=30)
     rc, out = run_rc(["nmcli", "con", "up", HOTSPOT_CON], timeout=30)
+    invalidate_cache()
     if rc == 0:
+        logger.info("hotspot_cycle succeeded: %s", out)
         return True, f"{HOTSPOT_CON} restarted on {AP_IF}"
-    return False, out[-300:] or "nmcli failed"
+    err = out[-300:] or "nmcli failed"
+    logger.error("hotspot_cycle failed: %s", err)
+    return False, err
 
 
 def kick_client(mac: str) -> tuple[bool, str]:
@@ -543,7 +784,21 @@ class HotspotSection(PanelSection):
         self.row(self.btn_clients, self.btn_qr)
 
     def refresh(self) -> None:
-        """Update hotspot and station status labels from live system state."""
+        """Update hotspot and station status labels from live system state and toggle controls."""
+        ap0_ok = self.controller.ap0_available
+        self.btn_on.setEnabled(ap0_ok)
+        self.btn_off.setEnabled(ap0_ok)
+        self.btn_restart.setEnabled(ap0_ok)
+        self.btn_clients.setEnabled(ap0_ok)
+        self.btn_qr.setEnabled(ap0_ok)
+
+        if not ap0_ok:
+            self.info.setText(
+                f"Interface {AP_IF} is unavailable.\n"
+                "Hotspot controls disabled."
+            )
+            return
+
         try:
             sta, ap, n = hotspot_state()
             self.info.setText(f"{sta}\n{ap} | clients {n} | leases {lease_count()}")
@@ -623,9 +878,13 @@ class SystemSection(PanelSection):
         self.btn_docs = QPushButton("Docs")
         self.btn_sync.clicked.connect(self.controller.sync_restart)
         self.btn_route.clicked.connect(self.controller.fix_routing)
-        self.btn_docs.clicked.connect(lambda: run(["xdg-open", DOC_PATH]))
+        self.btn_docs.clicked.connect(lambda: run(["xdg-open", DOC_PATH], max_retries=1))
         self.row(self.btn_sync, self.btn_route)
         self.row(self.btn_docs)
+
+        self.health_info = QLabel("<b>Health:</b> checking…")
+        self.health_info.setWordWrap(True)
+        self.body.addWidget(self.health_info)
 
         self.chk_autostart = QCheckBox("Start on boot")
         self.chk_autostart.setChecked(is_autostart_enabled())
@@ -641,9 +900,9 @@ class SystemSection(PanelSection):
             self.chk_autostart.blockSignals(False)
 
     def refresh(self) -> None:
-        """Update channel-sync service status, VPN bypass state, channels, and autostart state."""
+        """Update channel-sync service status, VPN bypass state, channels, autostart, and health."""
         _, out = run_rc(["systemctl", "is-active",
-                         "hotspot-channelsync.service"], timeout=10)
+                         "hotspot-channelsync.service"], timeout=10, max_retries=1)
         state = out.strip().splitlines()[0] if out else "unknown"
         sta, ap = iface_info(STA_IF), iface_info(AP_IF)
         bypass = "on" if vpn_bypass_on() else "OFF"
@@ -653,6 +912,12 @@ class SystemSection(PanelSection):
         self.chk_autostart.blockSignals(True)
         self.chk_autostart.setChecked(is_autostart_enabled())
         self.chk_autostart.blockSignals(False)
+
+        health = self.controller.last_health
+        if health:
+            self.health_info.setText(f"<b>Health:</b> {health.get('summary', 'unknown')}")
+        else:
+            self.health_info.setText("<b>Health:</b> checking…")
 
 
 class ClientsDialog(QDialog):
@@ -697,6 +962,7 @@ class ClientsDialog(QDialog):
 
     def refresh_clients(self) -> None:
         """Refresh station list and rebuild client rows."""
+        self.controller.invalidate_cache()
         while self.clients_layout.count():
             item = self.clients_layout.takeAt(0)
             if item.widget():
@@ -777,16 +1043,24 @@ class DropdownPanel(QWidget):
         hint.setWordWrap(True)
         hint.setEnabled(False)
         root.addWidget(hint)
+        self._applying_theme = False
         self.apply_theme()
 
     def apply_theme(self) -> None:
         """Apply dynamic stylesheet adhering to palette and dark mode."""
-        self.setStyleSheet(get_theme_stylesheet(self.palette()))
+        if self._applying_theme:
+            return
+        self._applying_theme = True
+        try:
+            self.setStyleSheet(get_theme_stylesheet(self.palette()))
+        finally:
+            self._applying_theme = False
 
     def changeEvent(self, event: QEvent) -> None:
         """Re-apply styling when system theme or palette changes."""
         if event.type() in (QEvent.Type.PaletteChange, QEvent.Type.ApplicationPaletteChange):
-            self.apply_theme()
+            if not self._applying_theme:
+                self.apply_theme()
         super().changeEvent(event)
 
     def _build_sections(self, root: QVBoxLayout) -> None:
@@ -813,6 +1087,16 @@ class DropdownPanel(QWidget):
                     s.refresh()
                 except Exception:
                     pass
+
+    def showEvent(self, event: Any) -> None:
+        """Resume refresh timer and update sections when panel is displayed."""
+        super().showEvent(event)
+        self.controller.on_panel_shown()
+
+    def hideEvent(self, event: Any) -> None:
+        """Pause refresh timer when panel is hidden."""
+        super().hideEvent(event)
+        self.controller.on_panel_hidden()
 
     def focusOutEvent(self, event: QFocusEvent) -> None:
         """Hide panel when focus is lost and cursor is outside the window."""
@@ -862,15 +1146,89 @@ class HotspotPanel:
             self.shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
             self.shortcut.activated.connect(self.toggle_hotspot)
 
-        self.timer = QTimer()  # auto-refresh tooltip + menu + panel every 5 s
+        # Main refresh timer reduced to 30s (30000ms) with lazy pause/resume.
+        # Note: NetworkManager dispatcher events (/etc/NetworkManager/dispatcher.d/90-hotspot-channelsync)
+        # trigger immediate synchronization on interface state changes, so 30s polling
+        # is only a fallback sync mechanism.
+        self.timer = QTimer()
         self.timer.timeout.connect(self.refresh)
-        self.timer.start(5000)
+        if self.panel.isVisible():
+            self.timer.start(30000)
+
         self._known_macs: set[str] = {mac.lower() for mac, _ in station_dump()}
         self.client_timer = QTimer()  # poll station_dump every 10 s for notifications
         self.client_timer.timeout.connect(self._poll_stations)
         self.client_timer.start(10000)
+
+        # Health check timer: run on startup and every 60s
+        self.last_health: dict[str, Any] = {}
+        self.health_timer = QTimer()
+        self.health_timer.timeout.connect(self._run_health_check)
+        self.health_timer.start(60000)
+        self._run_health_check()
+
         self.refresh()
         self.tray.show()
+
+    @property
+    def ap0_available(self) -> bool:
+        """Return True if AP interface (ap0) exists and is accessible."""
+        return Path(f"/sys/class/net/{AP_IF}").exists() or bool(iface_info(AP_IF))
+
+    def invalidate_cache(self) -> None:
+        """Invalidate subprocess command caches."""
+        invalidate_cache()
+
+    def show_ap0_error_dialog(self, error_msg: str = "") -> None:
+        """Show a user-friendly error dialog with troubleshooting steps when ap0 is unavailable."""
+        parent = self.panel if self.panel.isVisible() else None
+        dlg = QMessageBox(parent)
+        dlg.setIcon(QMessageBox.Icon.Critical)
+        dlg.setWindowTitle("Hotspot Hub — AP Interface Error")
+        dlg.setText(f"<h3>Unable to create or access AP interface ({AP_IF})</h3>")
+
+        details = (
+            f"<p><b>Error Details:</b><br><code>{error_msg or 'Interface not found'}</code></p>"
+            "<p><b>Troubleshooting Steps:</b></p>"
+            "<ol>"
+            "<li><b>Check AP support:</b> Verify your Wi-Fi card supports concurrent AP mode:<br>"
+            "&nbsp;&nbsp;<code>iw list | grep -A 10 'valid interface combinations'</code></li>"
+            "<li><b>Check permissions:</b> Ensure sudoers file is installed for passwordless interface creation:<br>"
+            "&nbsp;&nbsp;<code>sudo -n iw phy phy0 interface add ap0 type __ap</code></li>"
+            "<li><b>Unblock Wi-Fi:</b> Ensure wireless is not software/hardware blocked:<br>"
+            "&nbsp;&nbsp;<code>rfkill list</code></li>"
+            "<li><b>Manual interface creation:</b> Try adding interface manually in terminal:<br>"
+            "&nbsp;&nbsp;<code>sudo iw phy $(ls /sys/class/ieee80211 | head -n1) interface add ap0 type __ap</code><br>"
+            "&nbsp;&nbsp;<code>sudo ip link set ap0 up</code></li>"
+            "<li><b>Documentation:</b> Refer to project troubleshooting guide at:<br>"
+            f"&nbsp;&nbsp;<code>{DOC_PATH}</code></li>"
+            "</ol>"
+        )
+        dlg.setInformativeText(details)
+        dlg.setStandardButtons(QMessageBox.StandardButton.Ok)
+        dlg.exec()
+
+    def on_panel_shown(self) -> None:
+        """Resume main refresh timer and refresh panel when opened."""
+        if not self.timer.isActive():
+            self.timer.start(30000)
+        self.refresh()
+
+    def on_panel_hidden(self) -> None:
+        """Pause main refresh timer to save CPU/battery while panel is hidden."""
+        if self.timer.isActive():
+            self.timer.stop()
+
+    def _run_health_check(self) -> None:
+        """Execute periodic health check, log results, and update system UI."""
+        try:
+            self.last_health = health_check()
+            logger.info("Health check: %s", self.last_health.get("summary", "unknown"))
+        except Exception as e:
+            logger.error("Health check error: %s", e, exc_info=True)
+            self.last_health = {"healthy": False, "summary": f"Health check error: {e}"}
+        if self.panel.isVisible():
+            self.panel.refresh_all()
 
     def toggle_hotspot(self) -> None:
         """Toggle hotspot state between on and off."""
@@ -907,7 +1265,7 @@ class HotspotPanel:
         if self.panel.isVisible():
             self.panel.hide()
             return
-        self.panel.refresh_all()
+        self.invalidate_cache()
         pos = QCursor.pos()
         geo = self.panel.sizeHint()
         self.panel.move(pos.x() - geo.width() // 2, pos.y() - geo.height() - 20)
@@ -924,7 +1282,7 @@ class HotspotPanel:
                 return "error"
 
             # Red: error if nmcli failed
-            rc, out = run_rc(["nmcli", "-t", "-f", "NAME,DEVICE", "con", "show", "--active"], timeout=5)
+            rc, out = run_rc(["nmcli", "-t", "-f", "NAME,DEVICE", "con", "show", "--active"], timeout=5, max_retries=1)
             if rc != 0:
                 return "error"
 
@@ -977,8 +1335,10 @@ class HotspotPanel:
         self._update_tray_icon()
         self.status_action.setText(text[:160])
         self.tray.setToolTip("Hotspot Hub\n" + text)
-        self.panel.refresh_bandwidth()
+
+        # Lazy refresh: Only update panel sections when panel is visible
         if self.panel.isVisible():
+            self.panel.refresh_bandwidth()
             self.panel.refresh_all()
 
     def notify(self, title: str, msg: str) -> None:
@@ -997,35 +1357,51 @@ class HotspotPanel:
 
     def hotspot_on(self) -> None:
         """Ensure ap0 exists and activate hotspot connection."""
+        self.invalidate_cache()
+        logger.info("Hotspot On requested")
         ok, msg = hotspot_start()
         if ok:
             self._last_error = None
+            logger.info("Hotspot On succeeded: %s", msg)
             self.notify("Hotspot On", f"{HOTSPOT_CON} activated on {AP_IF}.")
         else:
             self._last_error = msg
+            logger.error("Hotspot On failed: %s", msg)
             self.notify("Hotspot On failed", msg)
+            if not self.ap0_available:
+                self.show_ap0_error_dialog(msg)
         self.refresh()
 
     def hotspot_off(self) -> None:
         """Deactivate hotspot connection."""
+        self.invalidate_cache()
+        logger.info("Hotspot Off requested")
         ok, msg = hotspot_stop()
         if ok:
             self._last_error = None
+            logger.info("Hotspot Off succeeded: %s", msg)
             self.notify("Hotspot Off", f"{HOTSPOT_CON} deactivated.")
         else:
             self._last_error = msg
+            logger.error("Hotspot Off failed: %s", msg)
             self.notify("Hotspot Off", msg)
         self.refresh()
 
     def hotspot_restart(self) -> None:
         """Cycle hotspot connection off and on."""
+        self.invalidate_cache()
+        logger.info("Hotspot Restart requested")
         ok, msg = hotspot_cycle()
         if ok:
             self._last_error = None
+            logger.info("Hotspot Restart succeeded: %s", msg)
             self.notify("Hotspot Restart", f"{HOTSPOT_CON} restarted.")
         else:
             self._last_error = msg
+            logger.error("Hotspot Restart failed: %s", msg)
             self.notify("Hotspot Restart", f"Restart failed: {msg}")
+            if not self.ap0_available:
+                self.show_ap0_error_dialog(msg)
         self.refresh()
 
     def _poll_stations(self) -> None:
@@ -1040,10 +1416,12 @@ class HotspotPanel:
         disconnected = self._known_macs - current_macs
 
         for mac in sorted(connected):
+            logger.info("Client connected to hotspot: %s", mac)
             self.tray.showMessage("Client Connected",
                                   f"Client {mac} connected to hotspot",
                                   QSystemTrayIcon.MessageIcon.Information, 5000)
         for mac in sorted(disconnected):
+            logger.info("Client disconnected from hotspot: %s", mac)
             self.tray.showMessage("Client Disconnected",
                                   f"Client {mac} disconnected from hotspot",
                                   QSystemTrayIcon.MessageIcon.Information, 5000)
@@ -1052,11 +1430,15 @@ class HotspotPanel:
 
     def disconnect_client(self, mac: str) -> tuple[int, str]:
         """Disconnect a station via `iw dev ap0 station del <mac>` and refresh."""
+        self.invalidate_cache()
+        logger.info("Disconnect client requested: %s", mac)
         ok, msg = kick_client(mac)
         if ok:
+            logger.info("Client %s disconnected successfully: %s", mac, msg)
             self.notify("Client Disconnected", msg)
             rc, out = 0, msg
         else:
+            logger.error("Failed to disconnect client %s: %s", mac, msg)
             self.notify("Disconnect Failed", msg)
             rc, out = 1, msg
         self.refresh()
@@ -1137,27 +1519,42 @@ class HotspotPanel:
 
     def warp(self, op: str) -> None:
         """Run warp-cli connect or disconnect command."""
+        self.invalidate_cache()
+        logger.info("WARP command requested: %s", op)
         rc, out = run_rc(["warp-cli", "--accept-tos", op], timeout=30)
+        if rc == 0:
+            logger.info("WARP %s succeeded: %s", op, out)
+        else:
+            logger.error("WARP %s failed: %s", op, out)
         self.notify(f"WARP {op}", (out[-300:] or "done") if rc == 0
                     else (out[-300:] or "warp-cli failed"))
         self.refresh()
 
     def sync_restart(self) -> None:
         """Restart hotspot-channelsync systemd service."""
+        self.invalidate_cache()
+        logger.info("Restarting hotspot-channelsync service")
         rc, out = priv(["systemctl", "restart",
                         "hotspot-channelsync.service"])
+        if rc == 0:
+            logger.info("hotspot-channelsync restarted successfully")
+        else:
+            logger.error("hotspot-channelsync restart failed: %s", out)
         self.notify("Channel-sync", "Service restarted." if rc == 0
                     else (out[-300:] or "restart failed (sudoers?)"))
 
     def fix_routing(self) -> None:
         """Run hotspot-channelsync script to enforce VPN bypass routing."""
+        self.invalidate_cache()
+        logger.info("Running hotspot-channelsync script to fix client routing")
         rc, out = priv(["/usr/local/bin/hotspot-channelsync.sh"])
         if rc == 0:
-            self.notify("Client routing",
-                        "VPN bypass enforced (pref 50) + channel synced."
-                        if vpn_bypass_on() else "Sync ran; verify bypass below.")
+            logger.info("hotspot-channelsync script completed successfully")
         else:
-            self.notify("Client routing", (out[-300:] or "sync failed"))
+            logger.error("hotspot-channelsync script failed: %s", out)
+        self.notify("Client routing",
+                    "VPN bypass enforced (pref 50) + channel synced."
+                    if vpn_bypass_on() else "Sync ran; verify bypass below.")
 
     def run(self) -> None:
         """Run the Qt application event loop."""
