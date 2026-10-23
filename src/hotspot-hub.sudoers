@@ -11,3 +11,4 @@
 %wheel ALL=(root) NOPASSWD: /usr/local/bin/hotspot-channelsync.sh
 %wheel ALL=(root) NOPASSWD: /usr/bin/touch /run/hotspot-hub-disabled
 %wheel ALL=(root) NOPASSWD: /usr/bin/rm -f /run/hotspot-hub-disabled
+%wheel ALL=(root) NOPASSWD: /usr/bin/sysctl -w net.ipv6.conf.ap0.disable_ipv6=*

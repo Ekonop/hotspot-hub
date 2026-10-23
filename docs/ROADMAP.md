@@ -60,9 +60,9 @@
 - [ ] **Atomic profile updates** — backup profile before modifying, restore on failure.
 
 ### C. Security
-- [ ] **Least-privilege sudoers** — scope sudoers to only required commands.
-- [ ] **No shell injection** — audit all subprocess calls for injection (currently uses list args, good).
-- [ ] **Secrets handling** — ensure PSK never logged or displayed.
+- [x] **Least-privilege sudoers** — scope sudoers to only required commands.
+- [x] **No shell injection** — audit all subprocess calls for injection (currently uses list args, good).
+- [x] **Secrets handling** — ensure PSK never logged or displayed.
 - [ ] **Firewall rules review** — verify UFW rules are minimal.
 
 ### D. Code quality
@@ -70,7 +70,7 @@
 - [x] **Unit tests** — test parsing functions (iface_info, station_dump, etc.) with mock data.
 - [x] **Linting** — ruff/flake8 + black formatting.
 - [x] **CI/CD** — GitHub Actions for lint + package build.
-- [ ] **Error handling** — replace bare `except Exception` with specific exceptions.
+- [x] **Error handling** — replace bare `except Exception` with specific exceptions.
 
 ---
 
