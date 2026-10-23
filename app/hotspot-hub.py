@@ -29,6 +29,7 @@ from PyQt6.QtCore import (
     QTime,
     QTimer,
     QVariantAnimation,
+    pyqtProperty,
     pyqtSlot,
 )
 
@@ -1210,6 +1211,20 @@ def get_theme_stylesheet(palette: QPalette | None = None) -> str:
             font-weight: 700;
             color: {win_text};
         }}
+        QLabel[shellSubtitle="true"] {{
+            font-family: 'Manrope', 'Noto Sans', 'DejaVu Sans', sans-serif;
+            font-size: 11px;
+            color: {text_muted};
+        }}
+        QLabel[headerState="true"] {{
+            font-family: 'Manrope', 'Noto Sans', 'DejaVu Sans', sans-serif;
+            font-size: 12px;
+            font-weight: 700;
+        }}
+        QFrame[hairline="true"] {{
+            background-color: {card_border};
+            border: none;
+        }}
         QLabel[sectionLabel="true"] {{
             font-family: 'Manrope', 'Noto Sans', 'DejaVu Sans', sans-serif;
             font-size: 10.5px;
@@ -1524,14 +1539,16 @@ class AnimatedToggle(QCheckBox):
         self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
         self.toggled.connect(self._animate_to_state)
 
-    def offset(self) -> float:
-        """Current knob x-offset (animated property)."""
+    def _get_offset(self) -> float:
+        """Current knob x-offset (animated Qt property)."""
         return self._offset
 
-    def setOffset(self, value: float) -> None:
+    def _set_offset(self, value: float) -> None:
         """Animated property setter; repaints on change."""
         self._offset = max(self.KNOB_M, min(self.SIZE_W - self.KNOB_D - self.KNOB_M, value))
         self.update()
+
+    offset = pyqtProperty(float, _get_offset, _set_offset)  # noqa: N815 - animated by QPropertyAnimation
 
     def _animate_to_state(self, checked: bool) -> None:
         """Slide the knob to the on/off position."""
@@ -2490,26 +2507,62 @@ class DropdownPanel(QWidget):
         self.setObjectName("dropdownCanvas")
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, False)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setMinimumWidth(380)
-        self.setMinimumHeight(320)
-        # Note: Maximum width constraint removed to allow window resizing
+        # Roomier canvas: bigger minimum and a generous default size. The
+        # window stays freely resizable (QSizeGrip bottom-right).
+        self.setMinimumWidth(420)
+        self.setMinimumHeight(440)
+        self.resize(500, 780)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(16, 16, 16, 16)
+        root.setContentsMargins(16, 14, 16, 12)
         root.setSpacing(10)
+
+        # ---- Shell header: icon + title block, live state pill, close ----
         top = QHBoxLayout()
-        top.setContentsMargins(0, 4, 0, 8)
+        top.setContentsMargins(2, 0, 0, 0)
         top.setSpacing(10)
+
+        icon_lbl = QLabel()
+        icon_pix = get_base_icon().pixmap(22, 22)
+        if not icon_pix.isNull():
+            icon_lbl.setPixmap(icon_pix)
+        icon_lbl.setFixedSize(22, 22)
+        top.addWidget(icon_lbl)
+
+        title_box = QVBoxLayout()
+        title_box.setSpacing(0)
         header = QLabel("Hotspot Hub")
         header.setProperty("headingLabel", True)
         header.setFont(get_app_font(pixel_size=16, bold=True))
+        subtitle = QLabel("network tray control")
+        subtitle.setProperty("shellSubtitle", True)
+        title_box.addWidget(header)
+        title_box.addWidget(subtitle)
+        top.addLayout(title_box, 1)
+
+        # Live state pill: stays visible even when the cards are scrolled
+        self.header_lamp = IndicatorLamp(self)
+        self.header_state = QLabel("STANDBY")
+        self.header_state.setProperty("headerState", True)
+        self.header_state.setFont(get_app_font(pixel_size=12, bold=True))
+        pill = QHBoxLayout()
+        pill.setSpacing(6)
+        pill.addWidget(self.header_lamp)
+        pill.addWidget(self.header_state)
+        top.addLayout(pill)
+
         close_btn = QPushButton("✕")
         close_btn.setObjectName("closeBtn")
-        close_btn.setFixedSize(32, 32)
+        close_btn.setFixedSize(30, 30)
         close_btn.clicked.connect(self.hide)
-        top.addWidget(header, 1)
         top.addWidget(close_btn)
         root.addLayout(top)
+
+        # Hairline separator under the header
+        hair = QFrame()
+        hair.setProperty("hairline", True)
+        hair.setFixedHeight(1)
+        root.addWidget(hair)
 
         self.sections: list[PanelSection] = []
 
@@ -2529,12 +2582,12 @@ class DropdownPanel(QWidget):
 
         # Bottom row with hint label and resize grip at bottom-right
         bottom_bar = QHBoxLayout()
-        bottom_bar.setContentsMargins(0, 0, 0, 0)
+        bottom_bar.setContentsMargins(2, 0, 0, 0)
         hint = QLabel("Right-click the tray icon for quick actions · Quit there.")
         hint.setWordWrap(True)
         hint.setProperty("mutedLabel", True)
         self.size_grip = QSizeGrip(self)
-        self.size_grip.setToolTip("Resize panel")
+        self.size_grip.setToolTip("Drag to resize")
         bottom_bar.addWidget(hint, 1)
         bottom_bar.addWidget(self.size_grip, 0, Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight)
         root.addLayout(bottom_bar)
@@ -2553,16 +2606,17 @@ class DropdownPanel(QWidget):
         self._in_change_event: bool = False
         self._last_applied_theme: str | None = None
         self.apply_theme()
+        self._update_header_state()
 
     def save_settings(self) -> None:
         """Save window geometry to QSettings."""
         settings = QSettings("hotspot-hub", "hotspot-hub")
-        settings.setValue("panel_geometry", self.saveGeometry())
+        settings.setValue("panel_geometry_v2", self.saveGeometry())
 
     def restore_settings(self) -> None:
-        """Restore window geometry from QSettings."""
+        """Restore window geometry from QSettings (v2 key ignores old small sizes)."""
         settings = QSettings("hotspot-hub", "hotspot-hub")
-        geo = settings.value("panel_geometry")
+        geo = settings.value("panel_geometry_v2")
         if geo is not None:
             self.restoreGeometry(geo)
 
@@ -2616,12 +2670,27 @@ class DropdownPanel(QWidget):
         container_layout.addStretch(1)
 
     def refresh_all(self) -> None:
-        """Refresh all registered panel sections."""
+        """Refresh header state pill and all registered panel sections."""
+        self._update_header_state()
         for s in self.sections:
             try:
                 s.refresh()
             except Exception:
                 pass
+
+    def _update_header_state(self) -> None:
+        """Synchronize the shell's live state pill (lamp + word) with the system."""
+        try:
+            state = "error" if not self.controller.ap0_available else self.controller.detect_state()
+        except Exception:
+            state = "off"
+        self.header_lamp.set_state(state)
+        color = QColor({"on": "#22c55e", "off": "#94a3b8", "error": "#ef4444"}.get(state, "#94a3b8"))
+        if state == "off" and not is_dark_mode(self.palette()):
+            color = QColor("#5b6472")
+        word = {"on": "ACTIVE", "off": "STANDBY", "error": "FAULT"}.get(state, "STANDBY")
+        self.header_state.setText(word)
+        self.header_state.setStyleSheet(f"color: {color.name()}; font-weight: 700;")
 
     def refresh_bandwidth(self) -> None:
         """Refresh only the bandwidth section on periodic background timer."""

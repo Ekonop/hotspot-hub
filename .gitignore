@@ -21,3 +21,6 @@ packaging/arch/*.log
 *~
 .vscode/
 .idea/
+
+# AppImage build artifacts (built locally, not committed)
+packaging/appimage/*.AppImage

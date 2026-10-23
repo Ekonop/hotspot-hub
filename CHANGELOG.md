@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     engraved letter-spaced section labels, per-section status chips
     (SYNC, LIVE, IDLE), pill chips with state colours.
   - Panel show animation: fade-in 160 ms (OutCubic).
+  - **Shell redesign**: header bar with app icon + title/subtitle block and a
+    live state pill (lamp + ACTIVE/STANDBY/FAULT) that stays visible while the
+    cards scroll; hairline separator under the header; roomier canvas
+    (min 420x440, default 500x780, freely resizable via the size grip;
+    geometry key bumped to panel_geometry_v2 so old small sizes don't stick).
   - Removed developer-facing hint text from the UI bottom bar.
   - Buttons: default/quiet/primary variants; focus = accent ring;
     consistent hover/pressed states across dialogs.
