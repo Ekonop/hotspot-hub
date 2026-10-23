@@ -1446,6 +1446,25 @@ STATUS_COLORS: dict[str, QColor] = {
 _STATUS_ICON_CACHE: dict[tuple[str, int], QIcon] = {}
 
 
+def asset_path(name: str) -> Path | None:
+    """Resolve a bundled asset (icons/ or assets/) across install layouts.
+
+    Checks, in order: repo working tree, AppImage bundle, system install
+    (/usr/share/hotspot-hub). Returns None if the asset is unavailable.
+    """
+    repo = Path(__file__).resolve().parent.parent
+    for base in (
+        repo / "assets",
+        repo / "icons",
+        Path("/usr/share/hotspot-hub") / "assets",
+        Path("/usr/share/hotspot-hub") / "icons",
+    ):
+        p = base / name
+        if p.is_file():
+            return p
+    return None
+
+
 def get_base_icon() -> QIcon:
     """Return the base QIcon from hotspot-hub.svg or theme fallback."""
     icon_paths = [
@@ -2255,10 +2274,22 @@ class ClientsDialog(QDialog):
         self.summary_label.setText(summary)
 
         if not stations:
+            empty_box = QVBoxLayout()
+            empty_box.setSpacing(8)
+            empty_box.setContentsMargins(0, 26, 0, 8)
+            art = asset_path("clients-empty.svg")
+            if art:
+                pix = QPixmap(str(art))
+                if not pix.isNull():
+                    img = QLabel()
+                    img.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                    img.setPixmap(pix.scaledToWidth(240, Qt.TransformationMode.SmoothTransformation))
+                    empty_box.addWidget(img)
             empty = QLabel(f"No clients (or AP interface {AP_IF} is down).")
             empty.setProperty("mutedLabel", True)
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.clients_layout.addWidget(empty)
+            empty_box.addWidget(empty)
+            self.clients_layout.addLayout(empty_box)
         else:
             for mac, sig in stations:
                 row = QWidget()

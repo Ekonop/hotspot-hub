@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.4.0] - 2026-10-24
 
+### Added
+- New app icon: hub-node broadcast mark on a deep slate tile (works on light
+  and dark trays; the live status dot overlays it at bottom-right).
+- `assets/` bundle: `banner.svg` (README hero with mark + wordmark + status
+  chips) and `clients-empty.svg` (illustrated empty state in the Clients
+  dialog when no stations are connected).
+- `asset_path()` resolver: finds bundled assets across repo / AppImage /
+  system install layouts; install.sh and the AppImage build ship `assets/`.
+
 ### Changed
 - **UI redesign (instrument-deck, per oil-ui direction)** — see `docs/UI-REDESIGN.md`:
   - Hero card: indicator lamp, big state word (ACTIVE / STANDBY / FAULT),

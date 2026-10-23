@@ -4,7 +4,7 @@ KDE system-tray app for concurrent Wi-Fi hotspot (STA/AP, single radio),
 WARP toggle, and channel-sync control on Arch/CachyOS (Plasma Wayland,
 MediaTek MT7922).
 
-![icon](icons/hotspot-hub.svg)
+![Hotspot Hub](assets/banner.svg)
 
 ![Dropdown canvas](docs/screenshots/dropdown.png)
 
@@ -64,7 +64,9 @@ MediaTek MT7922).
   subclasses, registered in `DropdownPanel._build_sections()` (marked EXTENSION POINT).
 - `cli/hotspot-hub-cli.py` — CLI tool with all subcommands above.
 - `helpers/` — `hotspot-on.sh` / `hotspot-off.sh` (idempotent, `sudo -n`).
-- `icons/hotspot-hub.svg` — app icon.
+- `icons/hotspot-hub.svg` — app icon (hub-node broadcast mark).
+- `assets/` — UI assets: `banner.svg` (README hero) and
+  `clients-empty.svg` (empty state in the Clients dialog).
 - `src/` — system files: channel-sync, NM dispatcher, sysctl, sudoers,
   systemd user service.
 - `scripts/setup-profile.sh` — create/retune `Hotspot-Shared` NM profile.

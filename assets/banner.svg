@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360">
+  <defs>
+    <radialGradient id="glowTeal" cx="0.16" cy="0.28" r="0.75">
+      <stop offset="0" stop-color="#38bdf8" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#38bdf8" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowGreen" cx="0.9" cy="0.75" r="0.7">
+      <stop offset="0" stop-color="#34d399" stop-opacity="0.10"/>
+      <stop offset="1" stop-color="#34d399" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="tile" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#26334f"/>
+      <stop offset="1" stop-color="#0f1626"/>
+    </linearGradient>
+    <linearGradient id="arc" x1="0.2" y1="0" x2="0.8" y2="1">
+      <stop offset="0" stop-color="#f2f6fc"/>
+      <stop offset="1" stop-color="#b9c9e2"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Canvas -->
+  <rect width="1200" height="360" fill="#0d1424"/>
+  <rect width="1200" height="360" fill="url(#glowTeal)"/>
+  <rect width="1200" height="360" fill="url(#glowGreen)"/>
+  <line x1="0" y1="359" x2="1200" y2="359" stroke="#38bdf8" stroke-opacity="0.35" stroke-width="2"/>
+
+  <!-- App mark (scaled 64->150) -->
+  <g transform="translate(78 105) scale(2.05)">
+    <rect x="1.5" y="1.5" width="61" height="61" rx="15" fill="url(#tile)"/>
+    <rect x="1.5" y="1.5" width="61" height="61" rx="15" fill="none" stroke="#ffffff" stroke-opacity="0.12" stroke-width="1.5"/>
+    <g fill="none" stroke="url(#arc)" stroke-linecap="round">
+      <path d="M13.98 34.89 A 22 22 0 0 0 50.02 34.89" stroke-width="5" opacity="0.55"/>
+      <path d="M20.53 39.47 A 14 14 0 0 0 43.47 39.47" stroke-width="5" opacity="0.80"/>
+      <path d="M26.27 43.48 A 7 7 0 0 0 37.73 43.48" stroke-width="4.5" opacity="1"/>
+    </g>
+    <circle cx="32" cy="47.5" r="4.6" fill="#eef3fa"/>
+    <circle cx="32" cy="47.5" r="2.1" fill="#38bdf8"/>
+  </g>
+
+  <!-- Wordmark -->
+  <text x="250" y="158" font-family="system-ui, -apple-system, 'Segoe UI', Ubuntu, 'Noto Sans', sans-serif" font-size="56" font-weight="700" fill="#eef2f8">Hotspot Hub</text>
+  <text x="252" y="206" font-family="system-ui, -apple-system, 'Segoe UI', Ubuntu, 'Noto Sans', sans-serif" font-size="24" fill="#8fa0ba">Concurrent STA + AP hotspot · WARP · channel-sync</text>
+  <text x="252" y="240" font-family="system-ui, -apple-system, 'Segoe UI', Ubuntu, 'Noto Sans', sans-serif" font-size="17" fill="#5c6b85">KDE tray control for Plasma Wayland (MediaTek MT7922)</text>
+
+  <!-- Status chips -->
+  <g font-family="system-ui, -apple-system, 'Segoe UI', Ubuntu, 'Noto Sans', sans-serif" font-size="17" font-weight="600">
+    <rect x="866" y="128" width="252" height="42" rx="21" fill="#34d399" fill-opacity="0.10" stroke="#34d399" stroke-opacity="0.45" stroke-width="1.5"/>
+    <circle cx="894" cy="149" r="5.5" fill="#34d399"/>
+    <text x="910" y="155" fill="#d1fae5">HOTSPOT ACTIVE</text>
+
+    <rect x="866" y="182" width="252" height="42" rx="21" fill="#38bdf8" fill-opacity="0.10" stroke="#38bdf8" stroke-opacity="0.45" stroke-width="1.5"/>
+    <circle cx="894" cy="203" r="5.5" fill="#38bdf8"/>
+    <text x="910" y="209" fill="#e0f2fe">WARP TOGGLE</text>
+
+    <rect x="866" y="236" width="252" height="42" rx="21" fill="#a5b4fc" fill-opacity="0.10" stroke="#a5b4fc" stroke-opacity="0.45" stroke-width="1.5"/>
+    <circle cx="894" cy="257" r="5.5" fill="#a5b4fc"/>
+    <text x="910" y="263" fill="#eef2ff">CHANNEL SYNC</text>
+  </g>
+</svg>

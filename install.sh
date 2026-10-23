@@ -22,6 +22,9 @@ echo "==> Installing Hotspot Hub files..."
 sudo install -Dm755 "$ROOT/app/hotspot-hub.py" /usr/bin/hotspot-hub
 sudo install -Dm755 "$ROOT/cli/hotspot-hub-cli.py" /usr/bin/hotspot-hub-cli
 sudo install -Dm644 "$ROOT/app/hotspot-hub.py" /usr/share/hotspot-hub/app/hotspot-hub.py
+for f in "$ROOT"/assets/*; do
+  [ -f "$f" ] && sudo install -Dm644 "$f" "/usr/share/hotspot-hub/assets/$(basename "$f")"
+done
 sudo install -Dm755 "$ROOT/helpers/hotspot-on.sh" /usr/share/hotspot-hub/helpers/hotspot-on.sh
 sudo install -Dm755 "$ROOT/helpers/hotspot-off.sh" /usr/share/hotspot-hub/helpers/hotspot-off.sh
 sudo install -Dm755 "$ROOT/src/hotspot-channelsync.sh" /usr/local/bin/hotspot-channelsync.sh
