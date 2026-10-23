@@ -891,12 +891,11 @@ def _color_to_rgba(color: QColor, alpha: float) -> str:
 
 
 def get_theme_stylesheet(palette: QPalette | None = None) -> str:
-    """Generate dynamic glassmorphism stylesheet matching dark/light mode and Plasma theme colors.
+    """Generate dynamic stylesheet matching dark/light mode and Plasma theme colors.
 
     Uses KColorScheme (when available) or QPalette for Plasma theme colors.
-    Applies semi-transparent backgrounds (rgba with 85% opacity), subtle borders
-    (1px with 20% opacity), 12px border radius, subtle box shadows, and Plasma
-    accent color for highlights.
+    Applies solid backgrounds with full opacity, subtle borders, 12px border radius,
+    and Plasma accent color for highlights.
     """
     pal = palette or QApplication.palette()
     dark = is_dark_mode(pal)
@@ -929,35 +928,29 @@ def get_theme_stylesheet(palette: QPalette | None = None) -> str:
     accent = accent_col.name()
 
     if dark:
-        # Dark mode glassmorphism
         card_base = base_col if base_col.name() != win_col.name() else QColor("#24282f")
-        canvas_base = win_col if win_col.lightness() < 110 else QColor("#1e222a")
         card_hover_base = card_base.lighter(118)
-        border_base = QColor(255, 255, 255)
+        border_base = QColor("#3a414e")
         text_muted = "#a0a0a0"
-        shadow_css = "rgba(0, 0, 0, 0.35)"
         btn_bg_base = btn_col if btn_col.name() != win_col.name() else QColor("#323844")
     else:
-        # Light mode glassmorphism
         card_base = base_col if base_col.name() != win_col.name() else QColor("#ffffff")
-        canvas_base = win_col if win_col.lightness() > 180 else QColor("#f8fafc")
         card_hover_base = QColor("#ffffff") if card_base.lightness() > 240 else card_base.lighter(106)
-        border_base = QColor(0, 0, 0)
+        border_base = QColor("#cbd5e1")
         text_muted = "#64748b"
-        shadow_css = "rgba(0, 0, 0, 0.10)"
         btn_bg_base = btn_col if btn_col.name() != win_col.name() else QColor("#f1f5f9")
 
-    # Glassmorphism: 85% opacity backgrounds, 20% opacity borders, 12px radius
-    canvas_bg = _color_to_rgba(canvas_base, 0.85)
-    canvas_border = _color_to_rgba(border_base, 0.20)
-    card_bg = _color_to_rgba(card_base, 0.85)
-    card_hover_bg = _color_to_rgba(card_hover_base, 0.90 if dark else 0.95)
-    card_border = _color_to_rgba(border_base, 0.20)
-    card_hover_border = _color_to_rgba(accent_col, 0.50)  # Plasma accent highlight
+    # Solid colors with full opacity for canvas, cards, and buttons
+    canvas_bg = win_col.name()
+    canvas_border = border_base.name()
+    card_bg = card_base.name()
+    card_hover_bg = card_hover_base.name()
+    card_border = border_base.name()
+    card_hover_border = accent  # Plasma accent highlight
 
-    btn_bg = _color_to_rgba(btn_bg_base, 0.85)
-    btn_hover_bg = _color_to_rgba(btn_bg_base.lighter(112), 0.92)
-    btn_pressed_bg = _color_to_rgba(btn_bg_base.darker(110) if dark else btn_bg_base.darker(105), 0.95)
+    btn_bg = btn_bg_base.name()
+    btn_hover_bg = btn_bg_base.lighter(112).name()
+    btn_pressed_bg = (btn_bg_base.darker(110) if dark else btn_bg_base.darker(105)).name()
 
     return f"""
         QWidget#dropdownCanvas {{
@@ -974,7 +967,6 @@ def get_theme_stylesheet(palette: QPalette | None = None) -> str:
             border: 1px solid {card_border};
             border-radius: 12px;
             padding: 12px;
-            box-shadow: 0 4px 12px {shadow_css};
         }}
         QFrame[panelCard="true"]:hover {{
             background-color: {card_hover_bg};
@@ -1002,10 +994,19 @@ def get_theme_stylesheet(palette: QPalette | None = None) -> str:
             color: {btn_text};
             border: 1px solid {card_border};
             border-radius: 6px;
-            padding: 5px 10px;
-            min-height: 22px;
+            padding: 6px 12px;
+            min-height: 30px;
             font-family: 'Manrope', 'Noto Sans', 'DejaVu Sans', sans-serif;
             font-size: 13px;
+        }}
+        QPushButton#closeBtn {{
+            padding: 0px;
+            font-size: 14px;
+            font-weight: bold;
+            min-height: 36px;
+            max-height: 36px;
+            min-width: 36px;
+            max-width: 36px;
         }}
         QPushButton:hover {{
             background-color: {btn_hover_bg};
@@ -1222,7 +1223,7 @@ class PanelSection(QFrame):
         # Consistent 12px padding
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(12, 12, 12, 12)
-        self.layout.setSpacing(6)
+        self.layout.setSpacing(8)
 
         # Header typography: 15px bold Manrope
         self.head = QLabel(f"<b>{self.title}</b>")
@@ -1231,7 +1232,7 @@ class PanelSection(QFrame):
         self.layout.addWidget(self.head)
 
         self.body = QVBoxLayout()
-        self.body.setSpacing(6)
+        self.body.setSpacing(8)
         self.layout.addLayout(self.body)
         self.build_body()
 
@@ -1258,10 +1259,21 @@ class PanelSection(QFrame):
         super().leaveEvent(event)
 
     def changeEvent(self, event: QEvent) -> None:
-        """Update shadow and styles when palette or theme changes."""
-        if event.type() in (QEvent.Type.PaletteChange, QEvent.Type.ApplicationPaletteChange):
-            self._update_shadow(hovered=self.underMouse())
-        super().changeEvent(event)
+        """Update shadow and styles when palette or theme changes with recursion guard.
+
+        Args:
+            event: Qt event passed to widget.
+        """
+        if getattr(self, "_in_change_event", False):
+            super().changeEvent(event)
+            return
+        self._in_change_event = True
+        try:
+            if event.type() in (QEvent.Type.PaletteChange, QEvent.Type.ApplicationPaletteChange):
+                self._update_shadow(hovered=self.underMouse())
+            super().changeEvent(event)
+        finally:
+            self._in_change_event = False
 
     def build_body(self) -> None:
         """Create widgets. Override in subclass."""
@@ -1270,10 +1282,15 @@ class PanelSection(QFrame):
         """Update widgets from live state. Override in subclass."""
 
     def row(self, *widgets: QWidget) -> QHBoxLayout:
-        """Add a horizontal row of widgets to the section layout."""
+        """Add a horizontal row of widgets to the section layout.
+
+        Ensures buttons in rows have consistent sizing with min-height 28px.
+        """
         h = QHBoxLayout()
         h.setSpacing(6)
         for w in widgets:
+            if isinstance(w, QPushButton):
+                w.setMinimumHeight(28)
             h.addWidget(w)
         self.body.addLayout(h)
         return h
@@ -1804,21 +1821,23 @@ class DropdownPanel(QWidget):
         self.controller = controller
         self.setObjectName("dropdownCanvas")
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, False)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setMinimumWidth(340)
         self.setMinimumHeight(240)
         # Note: Maximum width constraint removed to allow window resizing
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(12, 12, 12, 12)
-        root.setSpacing(8)
+        root.setContentsMargins(16, 16, 16, 16)
+        root.setSpacing(10)
         top = QHBoxLayout()
+        top.setContentsMargins(0, 4, 0, 8)
+        top.setSpacing(10)
         header = QLabel("<b>Hotspot Hub</b> — dropdown canvas")
         header.setProperty("headingLabel", True)
-        header.setFont(get_app_font(pixel_size=15, bold=True))
+        header.setFont(get_app_font(pixel_size=16, bold=True))
         close_btn = QPushButton("✕")
-        close_btn.setFixedWidth(32)
+        close_btn.setObjectName("closeBtn")
+        close_btn.setFixedSize(36, 36)
         close_btn.clicked.connect(self.hide)
         top.addWidget(header, 1)
         top.addWidget(close_btn)
@@ -1841,7 +1860,9 @@ class DropdownPanel(QWidget):
         root.addLayout(bottom_bar)
 
         self.restore_settings()
-        self._applying_theme = False
+        self._applying_theme: bool = False
+        self._in_change_event: bool = False
+        self._last_applied_theme: str | None = None
         self.apply_theme()
 
     def save_settings(self) -> None:
@@ -1857,21 +1878,37 @@ class DropdownPanel(QWidget):
             self.restoreGeometry(geo)
 
     def apply_theme(self) -> None:
-        """Apply dynamic stylesheet adhering to palette and dark mode."""
+        """Apply dynamic stylesheet adhering to palette and dark mode.
+
+        Guards against recursive re-application and no-op redundant style changes.
+        """
         if self._applying_theme:
             return
         self._applying_theme = True
         try:
-            self.setStyleSheet(get_theme_stylesheet(self.palette()))
+            new_theme = get_theme_stylesheet(self.palette())
+            if self._last_applied_theme != new_theme:
+                self._last_applied_theme = new_theme
+                self.setStyleSheet(new_theme)
         finally:
             self._applying_theme = False
 
     def changeEvent(self, event: QEvent) -> None:
-        """Re-apply styling when system theme or palette changes."""
-        if event.type() in (QEvent.Type.PaletteChange, QEvent.Type.ApplicationPaletteChange):
-            if not self._applying_theme:
+        """Re-apply styling when system theme or palette changes with recursion guard.
+
+        Args:
+            event: Qt event passed to the widget.
+        """
+        if self._in_change_event or self._applying_theme:
+            super().changeEvent(event)
+            return
+        self._in_change_event = True
+        try:
+            if event.type() in (QEvent.Type.PaletteChange, QEvent.Type.ApplicationPaletteChange):
                 self.apply_theme()
-        super().changeEvent(event)
+            super().changeEvent(event)
+        finally:
+            self._in_change_event = False
 
     def _build_sections(self, root: QVBoxLayout) -> None:
         """Instantiate and register panel section cards into the layout."""
