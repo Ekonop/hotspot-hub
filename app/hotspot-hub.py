@@ -19,14 +19,24 @@ from pathlib import Path
 from typing import Any
 
 from PyQt6.QtCore import QEvent, QRectF, QSettings, QTimer, Qt
-from PyQt6.QtGui import (QAction, QBrush, QColor, QCursor, QFocusEvent, QIcon,
-                         QKeySequence, QPainter, QPalette, QPen, QPixmap,
-                         QShortcut)
+from PyQt6.QtGui import (QAction, QBrush, QColor, QCursor, QEnterEvent, QFocusEvent,
+                         QFont, QIcon, QKeySequence, QPainter, QPalette, QPen,
+                         QPixmap, QShortcut)
 from PyQt6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox,
-                             QDialog, QFrame, QGroupBox, QHBoxLayout, QLabel,
-                             QLineEdit, QListWidget, QMenu, QMessageBox,
-                             QPushButton, QRadioButton, QScrollArea, QSizeGrip,
+                             QDialog, QFrame, QGraphicsDropShadowEffect,
+                             QGroupBox, QHBoxLayout, QLabel, QLineEdit,
+                             QListWidget, QMenu, QMessageBox, QPushButton,
+                             QRadioButton, QScrollArea, QSizeGrip,
                              QSystemTrayIcon, QTabWidget, QVBoxLayout, QWidget)
+
+# Optional KColorScheme support (PyKF6 / PyKF5)
+try:
+    from PyKF6.KColorScheme import KColorScheme  # type: ignore
+except ImportError:
+    try:
+        from PyKF5.KColorScheme import KColorScheme  # type: ignore
+    except ImportError:
+        KColorScheme = None  # Fallback to QPalette
 
 AP_IF = os.environ.get("HOTSPOT_HUB_AP_IF", "ap0")
 STA_IF = os.environ.get("HOTSPOT_HUB_STA_IF", "wlan0")
@@ -827,86 +837,207 @@ def set_autostart(enabled: bool) -> bool:
         return False
 
 
+def get_app_font(pixel_size: int = 13, bold: bool = False) -> QFont:
+    """Return primary application font (Manrope) with fallback chain."""
+    font = QFont("Manrope")
+    font.setFamilies(["Manrope", "Noto Sans", "DejaVu Sans", "sans-serif"])
+    font.setPixelSize(pixel_size)
+    if bold:
+        font.setBold(True)
+    return font
+
+
+def get_monospace_font(pixel_size: int = 12, bold: bool = False) -> QFont:
+    """Return monospace font (JetBrains Mono) with fallback chain for IPs, MACs, and metrics."""
+    font = QFont("JetBrains Mono")
+    font.setFamilies(["JetBrains Mono", "DejaVu Sans Mono", "monospace"])
+    font.setPixelSize(pixel_size)
+    if bold:
+        font.setBold(True)
+    return font
+
+
+def init_application_fonts(app: QApplication | None = None) -> QFont:
+    """Configure and apply the primary application font to QApplication.
+
+    Sets application font to Manrope (13px body) with fallback to Noto Sans,
+    DejaVu Sans, sans-serif. Monospace labels (IPs, MACs, metrics) use JetBrains Mono (12px).
+    """
+    font = get_app_font(pixel_size=13)
+    target_app = app or QApplication.instance()
+    if target_app:
+        target_app.setFont(font)
+    return font
+
+
 def is_dark_mode(palette: QPalette | None = None) -> bool:
-    """Detect if dark mode is active via QPalette lightness."""
+    """Detect if dark mode is active via QPalette lightness or KColorScheme."""
     pal = palette or QApplication.palette()
     win_col = pal.color(QPalette.ColorRole.Window)
     text_col = pal.color(QPalette.ColorRole.WindowText)
+    if KColorScheme is not None:
+        try:
+            scheme = KColorScheme(QPalette.ColorGroup.Active, KColorScheme.ColorSet.Window)
+            win_col = scheme.background().color()
+            text_col = scheme.foreground().color()
+        except Exception:
+            pass
     return win_col.lightness() < 128 or text_col.lightness() > win_col.lightness()
 
 
+def _color_to_rgba(color: QColor, alpha: float) -> str:
+    """Format QColor and float alpha (0.0 - 1.0) into CSS rgba(...) string."""
+    return f"rgba({color.red()}, {color.green()}, {color.blue()}, {alpha:.2f})"
+
+
 def get_theme_stylesheet(palette: QPalette | None = None) -> str:
-    """Generate dynamic stylesheet matching dark/light mode and Plasma theme colors."""
+    """Generate dynamic glassmorphism stylesheet matching dark/light mode and Plasma theme colors.
+
+    Uses KColorScheme (when available) or QPalette for Plasma theme colors.
+    Applies semi-transparent backgrounds (rgba with 85% opacity), subtle borders
+    (1px with 20% opacity), 12px border radius, subtle box shadows, and Plasma
+    accent color for highlights.
+    """
     pal = palette or QApplication.palette()
     dark = is_dark_mode(pal)
 
-    win_bg = pal.color(QPalette.ColorRole.Window).name()
-    win_text = pal.color(QPalette.ColorRole.WindowText).name()
-    base_bg = pal.color(QPalette.ColorRole.Base).name()
-    btn_bg = pal.color(QPalette.ColorRole.Button).name()
-    btn_text = pal.color(QPalette.ColorRole.ButtonText).name()
-    accent = pal.color(QPalette.ColorRole.Highlight).name()
-    mid_border = pal.color(QPalette.ColorRole.Mid).name()
+    win_col = pal.color(QPalette.ColorRole.Window)
+    win_text_col = pal.color(QPalette.ColorRole.WindowText)
+    base_col = pal.color(QPalette.ColorRole.Base)
+    btn_col = pal.color(QPalette.ColorRole.Button)
+    btn_text_col = pal.color(QPalette.ColorRole.ButtonText)
+    accent_col = pal.color(QPalette.ColorRole.Highlight)
+
+    # Allow KColorScheme override if available
+    if KColorScheme is not None:
+        try:
+            scheme_win = KColorScheme(QPalette.ColorGroup.Active, KColorScheme.ColorSet.Window)
+            win_col = scheme_win.background().color()
+            win_text_col = scheme_win.foreground().color()
+            scheme_view = KColorScheme(QPalette.ColorGroup.Active, KColorScheme.ColorSet.View)
+            base_col = scheme_view.background().color()
+            scheme_btn = KColorScheme(QPalette.ColorGroup.Active, KColorScheme.ColorSet.Button)
+            btn_col = scheme_btn.background().color()
+            btn_text_col = scheme_btn.foreground().color()
+            scheme_sel = KColorScheme(QPalette.ColorGroup.Active, KColorScheme.ColorSet.Selection)
+            accent_col = scheme_sel.background().color()
+        except Exception:
+            pass
+
+    win_text = win_text_col.name()
+    btn_text = btn_text_col.name()
+    accent = accent_col.name()
 
     if dark:
-        card_bg = base_bg if base_bg != win_bg else "#24282f"
-        card_border = mid_border if mid_border != win_bg else "#3f444e"
-        btn_bg_style = btn_bg if btn_bg != win_bg else "#383e4a"
-        btn_hover = accent
+        # Dark mode glassmorphism
+        card_base = base_col if base_col.name() != win_col.name() else QColor("#24282f")
+        canvas_base = win_col if win_col.lightness() < 110 else QColor("#1e222a")
+        card_hover_base = card_base.lighter(118)
+        border_base = QColor(255, 255, 255)
         text_muted = "#a0a0a0"
+        shadow_css = "rgba(0, 0, 0, 0.35)"
+        btn_bg_base = btn_col if btn_col.name() != win_col.name() else QColor("#323844")
     else:
-        card_bg = base_bg if base_bg != win_bg else "#ffffff"
-        card_border = mid_border if mid_border != win_bg else "#cbd5e1"
-        btn_bg_style = btn_bg if btn_bg != win_bg else "#f1f5f9"
-        btn_hover = accent
+        # Light mode glassmorphism
+        card_base = base_col if base_col.name() != win_col.name() else QColor("#ffffff")
+        canvas_base = win_col if win_col.lightness() > 180 else QColor("#f8fafc")
+        card_hover_base = QColor("#ffffff") if card_base.lightness() > 240 else card_base.lighter(106)
+        border_base = QColor(0, 0, 0)
         text_muted = "#64748b"
+        shadow_css = "rgba(0, 0, 0, 0.10)"
+        btn_bg_base = btn_col if btn_col.name() != win_col.name() else QColor("#f1f5f9")
+
+    # Glassmorphism: 85% opacity backgrounds, 20% opacity borders, 12px radius
+    canvas_bg = _color_to_rgba(canvas_base, 0.85)
+    canvas_border = _color_to_rgba(border_base, 0.20)
+    card_bg = _color_to_rgba(card_base, 0.85)
+    card_hover_bg = _color_to_rgba(card_hover_base, 0.90 if dark else 0.95)
+    card_border = _color_to_rgba(border_base, 0.20)
+    card_hover_border = _color_to_rgba(accent_col, 0.50)  # Plasma accent highlight
+
+    btn_bg = _color_to_rgba(btn_bg_base, 0.85)
+    btn_hover_bg = _color_to_rgba(btn_bg_base.lighter(112), 0.92)
+    btn_pressed_bg = _color_to_rgba(btn_bg_base.darker(110) if dark else btn_bg_base.darker(105), 0.95)
 
     return f"""
         QWidget#dropdownCanvas {{
-            background-color: {win_bg};
+            background-color: {canvas_bg};
             color: {win_text};
-            border: 1px solid {card_border};
-            border-radius: 8px;
+            border: 1px solid {canvas_border};
+            border-radius: 12px;
+            font-family: 'Manrope', 'Noto Sans', 'DejaVu Sans', sans-serif;
+            font-size: 13px;
         }}
         QFrame[panelCard="true"] {{
             background-color: {card_bg};
             color: {win_text};
             border: 1px solid {card_border};
-            border-radius: 6px;
+            border-radius: 12px;
+            padding: 12px;
+            box-shadow: 0 4px 12px {shadow_css};
+        }}
+        QFrame[panelCard="true"]:hover {{
+            background-color: {card_hover_bg};
+            border: 1px solid {card_hover_border};
         }}
         QLabel {{
             color: {win_text};
+            font-family: 'Manrope', 'Noto Sans', 'DejaVu Sans', sans-serif;
+            font-size: 13px;
+        }}
+        QLabel[headingLabel="true"] {{
+            font-family: 'Manrope', 'Noto Sans', 'DejaVu Sans', sans-serif;
+            font-size: 15px;
+            font-weight: bold;
+            color: {win_text};
+        }}
+        QLabel[metricLabel="true"],
+        .metricLabel {{
+            font-family: 'JetBrains Mono', 'DejaVu Sans Mono', monospace;
+            font-size: 12px;
+            color: {win_text};
         }}
         QPushButton {{
-            background-color: {btn_bg_style};
+            background-color: {btn_bg};
             color: {btn_text};
             border: 1px solid {card_border};
-            border-radius: 4px;
-            padding: 4px 8px;
+            border-radius: 6px;
+            padding: 5px 10px;
             min-height: 22px;
-            font-size: 12px;
+            font-family: 'Manrope', 'Noto Sans', 'DejaVu Sans', sans-serif;
+            font-size: 13px;
         }}
         QPushButton:hover {{
-            background-color: {btn_bg_style};
-            border-color: {btn_hover};
+            background-color: {btn_hover_bg};
+            border-color: {accent};
         }}
         QPushButton:pressed {{
-            background-color: {card_border};
+            background-color: {btn_pressed_bg};
+        }}
+        QPushButton:focus {{
+            border-color: {accent};
+            outline: none;
         }}
         QPushButton:disabled {{
             color: {text_muted};
             border-color: transparent;
+            background-color: transparent;
         }}
         QCheckBox {{
             color: {win_text};
+            font-family: 'Manrope', 'Noto Sans', 'DejaVu Sans', sans-serif;
+            font-size: 13px;
             spacing: 6px;
         }}
         QCheckBox::indicator {{
-            width: 14px;
-            height: 14px;
-            border-radius: 3px;
+            width: 15px;
+            height: 15px;
+            border-radius: 4px;
             border: 1px solid {card_border};
             background-color: {card_bg};
+        }}
+        QCheckBox::indicator:hover {{
+            border-color: {accent};
         }}
         QCheckBox::indicator:checked {{
             background-color: {accent};
@@ -920,8 +1051,13 @@ def get_theme_stylesheet(palette: QPalette | None = None) -> str:
             background-color: {card_bg};
             color: {win_text};
             border: 1px solid {card_border};
-            border-radius: 4px;
-            padding: 3px 6px;
+            border-radius: 6px;
+            padding: 4px 8px;
+            font-family: 'Manrope', 'Noto Sans', 'DejaVu Sans', sans-serif;
+            font-size: 13px;
+        }}
+        QComboBox:focus, QLineEdit:focus, QListWidget:focus {{
+            border-color: {accent};
         }}
         QComboBox::drop-down {{
             border: none;
@@ -929,27 +1065,34 @@ def get_theme_stylesheet(palette: QPalette | None = None) -> str:
         }}
         QTabWidget::pane {{
             border: 1px solid {card_border};
-            border-radius: 4px;
+            border-radius: 8px;
             background-color: {card_bg};
         }}
         QTabBar::tab {{
-            background-color: {btn_bg_style};
+            background-color: {btn_bg};
             color: {win_text};
-            padding: 4px 10px;
-            border-top-left-radius: 4px;
-            border-top-right-radius: 4px;
+            padding: 5px 12px;
+            border-top-left-radius: 6px;
+            border-top-right-radius: 6px;
             margin-right: 2px;
+            font-family: 'Manrope', 'Noto Sans', 'DejaVu Sans', sans-serif;
+            font-size: 13px;
+        }}
+        QTabBar::tab:hover {{
+            border-color: {accent};
         }}
         QTabBar::tab:selected {{
             background-color: {card_bg};
             border: 1px solid {card_border};
-            border-bottom-color: {card_bg};
+            border-bottom: 2px solid {accent};
         }}
         QGroupBox {{
             color: {win_text};
+            font-family: 'Manrope', 'Noto Sans', 'DejaVu Sans', sans-serif;
             font-weight: bold;
+            font-size: 13px;
             border: 1px solid {card_border};
-            border-radius: 6px;
+            border-radius: 8px;
             margin-top: 8px;
             padding-top: 10px;
         }}
@@ -961,7 +1104,13 @@ def get_theme_stylesheet(palette: QPalette | None = None) -> str:
         }}
         QRadioButton {{
             color: {win_text};
+            font-family: 'Manrope', 'Noto Sans', 'DejaVu Sans', sans-serif;
+            font-size: 13px;
             spacing: 6px;
+        }}
+        QRadioButton::indicator:checked {{
+            background-color: {accent};
+            border-color: {accent};
         }}
     """
 
@@ -1048,7 +1197,10 @@ def make_status_icon(state: str, size: int = 64) -> QIcon:
 # instance in DropdownPanel._build_sections().
 # ---------------------------------------------------------------------------
 class PanelSection(QFrame):
-    """Base card for the dropdown canvas. Subclass + override refresh()."""
+    """Base card for the dropdown canvas with glassmorphism styling.
+
+    Subclass + override refresh().
+    """
     title = "Section"
 
     def __init__(self, controller: HotspotPanel, parent: QWidget | None = None) -> None:
@@ -1057,15 +1209,59 @@ class PanelSection(QFrame):
         self.controller = controller
         self.setProperty("panelCard", True)
         self.setFrameShape(QFrame.Shape.StyledPanel)
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+
+        # Subtle box shadow for glassmorphism card
+        self._shadow = QGraphicsDropShadowEffect(self)
+        self._shadow.setBlurRadius(14)
+        self._shadow.setOffset(0, 3)
+        self._update_shadow(hovered=False)
+        self.setGraphicsEffect(self._shadow)
+
+        # Consistent 12px padding
         self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(10, 8, 10, 8)
+        self.layout.setContentsMargins(12, 12, 12, 12)
         self.layout.setSpacing(6)
-        head = QLabel(f"<b>{self.title}</b>")
-        self.layout.addWidget(head)
+
+        # Header typography: 15px bold Manrope
+        self.head = QLabel(f"<b>{self.title}</b>")
+        self.head.setProperty("headingLabel", True)
+        self.head.setFont(get_app_font(pixel_size=15, bold=True))
+        self.layout.addWidget(self.head)
+
         self.body = QVBoxLayout()
-        self.body.setSpacing(4)
+        self.body.setSpacing(6)
         self.layout.addLayout(self.body)
         self.build_body()
+
+    def _update_shadow(self, hovered: bool = False) -> None:
+        """Update shadow parameters according to theme mode and hover state."""
+        dark = is_dark_mode(self.palette())
+        if hovered:
+            self._shadow.setBlurRadius(18)
+            self._shadow.setOffset(0, 4)
+            self._shadow.setColor(QColor(0, 0, 0, 70 if dark else 35))
+        else:
+            self._shadow.setBlurRadius(14)
+            self._shadow.setOffset(0, 3)
+            self._shadow.setColor(QColor(0, 0, 0, 45 if dark else 20))
+
+    def enterEvent(self, event: QEnterEvent) -> None:
+        """Handle mouse enter to slightly elevate shadow on hover."""
+        self._update_shadow(hovered=True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event: QEvent) -> None:
+        """Handle mouse leave to restore normal card shadow."""
+        self._update_shadow(hovered=False)
+        super().leaveEvent(event)
+
+    def changeEvent(self, event: QEvent) -> None:
+        """Update shadow and styles when palette or theme changes."""
+        if event.type() in (QEvent.Type.PaletteChange, QEvent.Type.ApplicationPaletteChange):
+            self._update_shadow(hovered=self.underMouse())
+        super().changeEvent(event)
 
     def build_body(self) -> None:
         """Create widgets. Override in subclass."""
@@ -1090,6 +1286,8 @@ class HotspotSection(PanelSection):
         """Build Hotspot section widgets and connect button handlers."""
         self.info = QLabel("…")
         self.info.setWordWrap(True)
+        self.info.setProperty("metricLabel", True)
+        self.info.setFont(get_monospace_font(pixel_size=12))
         self.body.addWidget(self.info)
 
         # Band selector row
@@ -1197,6 +1395,8 @@ class BandwidthSection(PanelSection):
         """Create widgets for bandwidth monitor."""
         self.info = QLabel("…")
         self.info.setWordWrap(True)
+        self.info.setProperty("metricLabel", True)
+        self.info.setFont(get_monospace_font(pixel_size=12))
         self.body.addWidget(self.info)
 
     def refresh(self) -> None:
@@ -1231,6 +1431,8 @@ class SystemSection(PanelSection):
     def build_body(self) -> None:
         """Build System section widgets, autostart toggle, and connect action buttons."""
         self.info = QLabel("…")
+        self.info.setProperty("metricLabel", True)
+        self.info.setFont(get_monospace_font(pixel_size=12))
         self.body.addWidget(self.info)
         self.btn_sync = QPushButton("Restart channel-sync")
         self.btn_route = QPushButton("Fix client routing")
@@ -1299,12 +1501,15 @@ class ClientsDialog(QDialog):
         self.controller = controller
         self.setWindowTitle(f"Connected Clients ({AP_IF})")
         self.setMinimumWidth(440)
+        self.setStyleSheet(get_theme_stylesheet(self.palette()))
 
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
         layout.setContentsMargins(12, 12, 12, 12)
 
         self.summary_label = QLabel("…")
+        self.summary_label.setProperty("metricLabel", True)
+        self.summary_label.setFont(get_monospace_font(pixel_size=12))
         layout.addWidget(self.summary_label)
 
         self.clients_container = QWidget()
@@ -1361,6 +1566,8 @@ class ClientsDialog(QDialog):
                 row_layout.setSpacing(8)
 
                 info = QLabel(f"{mac}  ({sig or 'signal ?'})")
+                info.setProperty("metricLabel", True)
+                info.setFont(get_monospace_font(pixel_size=12))
 
                 # Allow button
                 btn_allow = QPushButton("+ Allow")
@@ -1403,6 +1610,7 @@ class MacFilterDialog(QDialog):
         self.setWindowTitle("MAC Address Filter")
         self.setMinimumWidth(460)
         self.setMinimumHeight(440)
+        self.setStyleSheet(get_theme_stylesheet(self.palette()))
 
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
@@ -1434,12 +1642,15 @@ class MacFilterDialog(QDialog):
         lay_allow = QVBoxLayout(tab_allow)
         lay_allow.setContentsMargins(8, 8, 8, 8)
         self.list_allowed = QListWidget()
+        self.list_allowed.setFont(get_monospace_font(pixel_size=12))
+        self.list_allowed.setProperty("metricLabel", True)
         for mac in sorted(self.controller.allowed_macs):
             self.list_allowed.addItem(mac)
         lay_allow.addWidget(self.list_allowed)
 
         add_allow_row = QHBoxLayout()
         self.input_allow = QLineEdit()
+        self.input_allow.setFont(get_monospace_font(pixel_size=12))
         self.input_allow.setPlaceholderText("00:11:22:33:44:55")
         btn_add_allow = QPushButton("Add MAC")
         btn_add_allow.clicked.connect(self._add_allowed_mac)
@@ -1463,12 +1674,15 @@ class MacFilterDialog(QDialog):
         lay_deny = QVBoxLayout(tab_deny)
         lay_deny.setContentsMargins(8, 8, 8, 8)
         self.list_blocked = QListWidget()
+        self.list_blocked.setFont(get_monospace_font(pixel_size=12))
+        self.list_blocked.setProperty("metricLabel", True)
         for mac in sorted(self.controller.blocked_macs):
             self.list_blocked.addItem(mac)
         lay_deny.addWidget(self.list_blocked)
 
         add_deny_row = QHBoxLayout()
         self.input_deny = QLineEdit()
+        self.input_deny.setFont(get_monospace_font(pixel_size=12))
         self.input_deny.setPlaceholderText("00:11:22:33:44:55")
         btn_add_deny = QPushButton("Add MAC")
         btn_add_deny.clicked.connect(self._add_blocked_mac)
@@ -1590,15 +1804,19 @@ class DropdownPanel(QWidget):
         self.controller = controller
         self.setObjectName("dropdownCanvas")
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, False)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setMinimumWidth(340)
         self.setMinimumHeight(240)
         # Note: Maximum width constraint removed to allow window resizing
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(10, 10, 10, 10)
+        root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(8)
         top = QHBoxLayout()
         header = QLabel("<b>Hotspot Hub</b> — dropdown canvas")
+        header.setProperty("headingLabel", True)
+        header.setFont(get_app_font(pixel_size=15, bold=True))
         close_btn = QPushButton("✕")
         close_btn.setFixedWidth(32)
         close_btn.clicked.connect(self.hide)
@@ -1710,6 +1928,9 @@ class HotspotPanel:
         """Initialize Qt application, tray icon, context menu, and refresh timer."""
         self.app = QApplication.instance() or QApplication(sys.argv)
         self.app.setQuitOnLastWindowClosed(False)
+
+        # Font integration: set application font to Manrope (primary) with fallbacks
+        init_application_fonts(self.app)
         try:  # silence "Icon theme gnome not found" on KDE; prefer breeze
             if QIcon.themeName() in ("", "gnome"):
                 QIcon.setThemeName("breeze")
@@ -2183,6 +2404,7 @@ class HotspotPanel:
 
         dialog = QDialog(self.panel if self.panel.isVisible() else None)
         dialog.setWindowTitle("Hotspot QR Code")
+        dialog.setStyleSheet(get_theme_stylesheet(dialog.palette()))
         dlg_layout = QVBoxLayout(dialog)
         dlg_layout.setSpacing(10)
         dlg_layout.setContentsMargins(16, 16, 16, 16)
