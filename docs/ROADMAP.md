@@ -6,13 +6,14 @@
 - VPN bypass at pref 50 (self-repairing)
 - Arch packaging + direct install
 - Docs: README, CONFIGURATION, ARCHITECTURE, TROUBLESHOOTING
+- Features: QR code, client kick, connect/disconnect notifications, type hints, status indicator on tray icon
 
 ---
 
 ## 1. Features to add
 
 ### A. UI/UX
-- [ ] **Status indicator on tray icon** — change icon color based on hotspot state (green=on, grey=off, red=error).
+- [x] **Status indicator on tray icon** — change icon color based on hotspot state (green=on, grey=off, red=error). ✅
 - [x] **Client list with kick button** — show connected clients with MAC/IP/signal, allow disconnecting a client.
 - [x] **QR code for SSID/PSK** — generate and display a QR code for easy client onboarding.
 - [ ] **Bandwidth monitor** — show real-time up/down throughput per client and total.
@@ -65,7 +66,7 @@
 - [ ] **Firewall rules review** — verify UFW rules are minimal.
 
 ### D. Code quality
-- [ ] **Type hints** — add Python type annotations.
+- [ ] **Type hints** — add Python type annotations. ✅ (done via agy)
 - [ ] **Unit tests** — test parsing functions (iface_info, station_dump, etc.) with mock data.
 - [ ] **Linting** — ruff/flake8 + black formatting.
 - [ ] **CI/CD** — GitHub Actions for lint + package build.
@@ -80,6 +81,7 @@
 - [ ] **WPA3 detection** — hardcoded WPA2; should probe firmware capability.
 - [ ] **icon theme fallback** — `QIcon.fromTheme` may not find hotspot-hub icon on all systems.
 - [ ] **Wayland popup** — uses Qt.Tool (no grab); focus-out hide may be unreliable.
+- [x] **Hardcoded phy0** — fixed, now auto-detects WiFi PHY. ✅
 
 ---
 
@@ -104,13 +106,16 @@
 
 ## Priority order (suggested)
 
-1. **High**: Client list with kick, QR code, notification on connect
-2. **Medium**: Bandwidth monitor, multi-profile, scheduled hotspot
-3. **Low**: Flatpak, AUR, metrics export, IPv6
+1. **High**: Status indicator, CLI tool, bandwidth monitor, dark mode, auto-start
+2. **Medium**: Reduce poll, lazy refresh, cache, retry, graceful degradation, health check, persistent logs
+3. **Low**: MAC filtering, throttling, 5GHz, WPA3, multi-profile, guest, scheduled, battery-aware, D-Bus, Plasma applet, metrics
 
 ---
 
-## How to contribute
+## Implementation Notes
 
-See `CONTRIBUTING.md`. Extension point: `DropdownPanel._build_sections()` in
-`app/hotspot-hub.py`. Add a `PanelSection` subclass and register it there.
+- All features should maintain the `PanelSection` extension point pattern.
+- Use `priv()` for privileged operations.
+- Use env vars for configuration (consistent with existing pattern).
+- Test on CachyOS/Arch with MediaTek MT7922.
+- Commit after each feature.

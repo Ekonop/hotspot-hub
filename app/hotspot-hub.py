@@ -14,8 +14,9 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
-from PyQt6.QtCore import QTimer, Qt
-from PyQt6.QtGui import QAction, QCursor, QFocusEvent, QIcon, QPixmap
+from PyQt6.QtCore import QRectF, QTimer, Qt
+from PyQt6.QtGui import (QAction, QBrush, QColor, QCursor, QFocusEvent, QIcon,
+                         QPainter, QPen, QPixmap)
 from PyQt6.QtWidgets import (QApplication, QDialog, QFrame, QHBoxLayout, QLabel,
                              QMenu, QMessageBox, QPushButton, QScrollArea,
                              QSystemTrayIcon, QVBoxLayout, QWidget)
@@ -192,6 +193,82 @@ def lease_count() -> str:
     if rc == 0 and out:
         return str(sum(1 for ln in out.splitlines() if ln.strip()))
     return "0 (no leases yet)"
+
+
+STATUS_COLORS: dict[str, QColor] = {
+    "on": QColor("#22c55e"),      # green: hotspot active
+    "green": QColor("#22c55e"),
+    "off": QColor("#94a3b8"),     # grey: hotspot inactive
+    "grey": QColor("#94a3b8"),
+    "gray": QColor("#94a3b8"),
+    "error": QColor("#ef4444"),   # red: error state
+    "red": QColor("#ef4444"),
+}
+
+_STATUS_ICON_CACHE: dict[tuple[str, int], QIcon] = {}
+
+
+def get_base_icon() -> QIcon:
+    """Return the base QIcon from hotspot-hub.svg or theme fallback."""
+    icon_paths = [
+        Path(__file__).resolve().parent.parent / "icons" / "hotspot-hub.svg",
+        Path("/usr/share/icons/hicolor/scalable/apps/hotspot-hub.svg"),
+    ]
+    for p in icon_paths:
+        if p.exists():
+            icon = QIcon(str(p))
+            if not icon.isNull():
+                return icon
+    return QIcon.fromTheme(
+        "hotspot-hub",
+        QIcon.fromTheme("network-wireless-hotspot", QIcon.fromTheme("network-wireless"))
+    )
+
+
+def make_status_icon(state: str, size: int = 64) -> QIcon:
+    """Generate a colored tray icon (green=hotspot on, grey=off, red=error) using QPixmap painting.
+
+    The base icon is hotspot-hub.svg (or fallback network-wireless-hotspot).
+    Tint it with a colored overlay circle in the bottom-right corner.
+    """
+    cache_key = (state.lower(), size)
+    if cache_key in _STATUS_ICON_CACHE:
+        return _STATUS_ICON_CACHE[cache_key]
+
+    color = STATUS_COLORS.get(state.lower(), STATUS_COLORS["off"])
+    base_icon = get_base_icon()
+
+    icon = QIcon()
+    sizes = (size,) if size != 64 else (22, 24, 32, 48, 64)
+    for s in sizes:
+        base_pix = base_icon.pixmap(s, s)
+        if base_pix.isNull():
+            fallback = QIcon.fromTheme(
+                "network-wireless-hotspot",
+                QIcon.fromTheme("network-wireless")
+            )
+            base_pix = fallback.pixmap(s, s)
+
+        pix = QPixmap(s, s)
+        pix.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pix)
+        try:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            if not base_pix.isNull():
+                painter.drawPixmap(0, 0, base_pix)
+            d = max(6.0, s * 0.32)
+            margin = max(1.0, s * 0.05)
+            x = s - d - margin
+            y = s - d - margin
+            painter.setPen(QPen(QColor(15, 23, 42, 220), max(1.0, s * 0.035)))
+            painter.setBrush(QBrush(color))
+            painter.drawEllipse(QRectF(x, y, d, d))
+        finally:
+            painter.end()
+        icon.addPixmap(pix)
+
+    _STATUS_ICON_CACHE[cache_key] = icon
+    return icon
 
 
 # ---------------------------------------------------------------------------
@@ -469,10 +546,19 @@ class HotspotPanel:
             pass
         if not QSystemTrayIcon.isSystemTrayAvailable():
             print("WARNING: no system tray detected", file=sys.stderr)
-        icon = QIcon.fromTheme("hotspot-hub",
-                               QIcon.fromTheme("network-wireless-hotspot",
-                                               QIcon.fromTheme("network-wireless")))
-        self.tray = QSystemTrayIcon(icon, self.app)
+        self.fallback_icon = QIcon.fromTheme(
+            "hotspot-hub",
+            QIcon.fromTheme("network-wireless-hotspot",
+                            QIcon.fromTheme("network-wireless"))
+        )
+        self.current_state: str = "off"
+        self.state: str = "off"
+        self._last_error: str | None = None
+        initial_icon = make_status_icon(self.current_state)
+        self.tray = QSystemTrayIcon(
+            initial_icon if not initial_icon.isNull() else self.fallback_icon,
+            self.app
+        )
         self.menu = QMenu()  # right-click fallback menu
         self.tray.setContextMenu(self.menu)
         self.panel = DropdownPanel(self)
@@ -524,13 +610,66 @@ class HotspotPanel:
         self.panel.raise_()
         self.panel.activateWindow()
 
+    def detect_state(self) -> str:
+        """Detect current hotspot state: 'on' (active), 'off' (inactive), or 'error'."""
+        try:
+            # Red: error if ap0 is missing
+            ap0_exists = Path(f"/sys/class/net/{AP_IF}").exists() or bool(iface_info(AP_IF))
+            if not ap0_exists:
+                return "error"
+
+            # Red: error if nmcli failed
+            rc, out = run_rc(["nmcli", "-t", "-f", "NAME,DEVICE", "con", "show", "--active"], timeout=5)
+            if rc != 0:
+                return "error"
+
+            active_map: dict[str, str] = {}
+            for line in out.splitlines():
+                if ":" in line:
+                    n, _, d = line.rpartition(":")
+                    active_map[n.strip()] = d.strip()
+
+            # Green: hotspot active (Hotspot-Shared on ap0)
+            if active_map.get(HOTSPOT_CON) == AP_IF:
+                self._last_error = None
+                return "on"
+
+            # Red: error if last command failed
+            if self._last_error:
+                return "error"
+
+            # Grey: hotspot inactive
+            return "off"
+        except Exception:
+            return "error"
+
+    def _update_tray_icon(self) -> None:
+        """Update tray icon based on current hotspot state, with fallback."""
+        try:
+            icon = make_status_icon(self.current_state)
+            if icon.isNull():
+                icon = self.fallback_icon
+            self.tray.setIcon(icon)
+        except Exception:
+            self.tray.setIcon(self.fallback_icon)
+
     def refresh(self) -> None:
-        """Refresh tray tooltip, status action text, and visible panel sections."""
+        """Refresh tray tooltip, status indicator icon, and visible panel sections."""
+        status_err = ""
         try:
             sta, ap, n = hotspot_state()
             text = f"{sta} | {ap} | clients {n} | WARP {warp_status()}"
         except Exception as e:
+            status_err = str(e)
             text = f"Status error: {e}"
+
+        if status_err:
+            self.current_state = "error"
+        else:
+            self.current_state = self.detect_state()
+        self.state = self.current_state
+
+        self._update_tray_icon()
         self.status_action.setText(text[:160])
         self.tray.setToolTip("Hotspot Hub\n" + text)
         if self.panel.isVisible():
@@ -554,28 +693,46 @@ class HotspotPanel:
         """Ensure ap0 exists and activate hotspot connection."""
         ok, msg = ensure_ap0()
         if not ok:
-            return self.notify("Hotspot On failed", msg)
+            self._last_error = msg
+            self.notify("Hotspot On failed", msg)
+            self.refresh()
+            return
         rc, out = self._nm_up()
-        self.notify("Hotspot On", "Hotspot-Shared activated on ap0." if rc == 0
-                    else f"Hotspot On failed: {(out[-300:] or 'nmcli failed')}")
+        if rc == 0:
+            self._last_error = None
+            self.notify("Hotspot On", "Hotspot-Shared activated on ap0.")
+        else:
+            self._last_error = out[-300:] or "nmcli failed"
+            self.notify("Hotspot On", f"Hotspot On failed: {self._last_error}")
         self.refresh()
 
     def hotspot_off(self) -> None:
         """Deactivate hotspot connection."""
         rc, out = run_rc(["nmcli", "con", "down", HOTSPOT_CON], timeout=30)
-        self.notify("Hotspot Off", "Hotspot-Shared deactivated." if rc == 0
-                    else (out[-300:] or "nmcli down failed"))
+        if rc == 0:
+            self._last_error = None
+            self.notify("Hotspot Off", "Hotspot-Shared deactivated.")
+        else:
+            self._last_error = out[-300:] or "nmcli down failed"
+            self.notify("Hotspot Off", self._last_error)
         self.refresh()
 
     def hotspot_restart(self) -> None:
         """Cycle hotspot connection off and on."""
         ok, msg = ensure_ap0()
         if not ok:
-            return self.notify("Hotspot Restart failed", msg)
+            self._last_error = msg
+            self.notify("Hotspot Restart failed", msg)
+            self.refresh()
+            return
         run_rc(["nmcli", "con", "down", HOTSPOT_CON], timeout=30)
         rc, out = self._nm_up()
-        self.notify("Hotspot Restart", "Hotspot-Shared restarted." if rc == 0
-                    else f"Restart failed: {(out[-300:] or 'nmcli failed')}")
+        if rc == 0:
+            self._last_error = None
+            self.notify("Hotspot Restart", "Hotspot-Shared restarted.")
+        else:
+            self._last_error = out[-300:] or "nmcli failed"
+            self.notify("Hotspot Restart", f"Restart failed: {self._last_error}")
         self.refresh()
 
     def _poll_stations(self) -> None:
