@@ -19,15 +19,15 @@ from pathlib import Path
 from typing import Any
 
 from PyQt6.QtCore import QEvent, QRectF, QSettings, QTimer, Qt
-from PyQt6.QtGui import (QAction, QBrush, QColor, QCursor, QEnterEvent, QFocusEvent,
+from PyQt6.QtGui import (QAction, QBrush, QColor, QCursor, QFocusEvent,
                          QFont, QIcon, QKeySequence, QPainter, QPalette, QPen,
                          QPixmap, QShortcut)
 from PyQt6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox,
-                             QDialog, QFrame, QGraphicsDropShadowEffect,
-                             QGroupBox, QHBoxLayout, QLabel, QLineEdit,
-                             QListWidget, QMenu, QMessageBox, QPushButton,
-                             QRadioButton, QScrollArea, QSizeGrip,
-                             QSystemTrayIcon, QTabWidget, QVBoxLayout, QWidget)
+                             QDialog, QFrame, QGroupBox, QHBoxLayout, QLabel,
+                             QLineEdit, QListWidget, QMenu, QMessageBox,
+                             QPushButton, QRadioButton, QScrollArea, QSizeGrip,
+                             QSizePolicy, QSystemTrayIcon, QTabWidget,
+                             QVBoxLayout, QWidget)
 
 # Optional KColorScheme support (PyKF6 / PyKF5)
 try:
@@ -966,7 +966,6 @@ def get_theme_stylesheet(palette: QPalette | None = None) -> str:
             color: {win_text};
             border: 1px solid {card_border};
             border-radius: 12px;
-            padding: 12px;
         }}
         QFrame[panelCard="true"]:hover {{
             background-color: {card_hover_bg};
@@ -1212,13 +1211,7 @@ class PanelSection(QFrame):
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-
-        # Subtle box shadow for glassmorphism card
-        self._shadow = QGraphicsDropShadowEffect(self)
-        self._shadow.setBlurRadius(14)
-        self._shadow.setOffset(0, 3)
-        self._update_shadow(hovered=False)
-        self.setGraphicsEffect(self._shadow)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
         # Consistent 12px padding
         self.layout = QVBoxLayout(self)
@@ -1236,30 +1229,8 @@ class PanelSection(QFrame):
         self.layout.addLayout(self.body)
         self.build_body()
 
-    def _update_shadow(self, hovered: bool = False) -> None:
-        """Update shadow parameters according to theme mode and hover state."""
-        dark = is_dark_mode(self.palette())
-        if hovered:
-            self._shadow.setBlurRadius(18)
-            self._shadow.setOffset(0, 4)
-            self._shadow.setColor(QColor(0, 0, 0, 70 if dark else 35))
-        else:
-            self._shadow.setBlurRadius(14)
-            self._shadow.setOffset(0, 3)
-            self._shadow.setColor(QColor(0, 0, 0, 45 if dark else 20))
-
-    def enterEvent(self, event: QEnterEvent) -> None:
-        """Handle mouse enter to slightly elevate shadow on hover."""
-        self._update_shadow(hovered=True)
-        super().enterEvent(event)
-
-    def leaveEvent(self, event: QEvent) -> None:
-        """Handle mouse leave to restore normal card shadow."""
-        self._update_shadow(hovered=False)
-        super().leaveEvent(event)
-
     def changeEvent(self, event: QEvent) -> None:
-        """Update shadow and styles when palette or theme changes with recursion guard.
+        """Handle widget change events with recursion guard.
 
         Args:
             event: Qt event passed to widget.
@@ -1269,8 +1240,6 @@ class PanelSection(QFrame):
             return
         self._in_change_event = True
         try:
-            if event.type() in (QEvent.Type.PaletteChange, QEvent.Type.ApplicationPaletteChange):
-                self._update_shadow(hovered=self.underMouse())
             super().changeEvent(event)
         finally:
             self._in_change_event = False
@@ -1822,8 +1791,8 @@ class DropdownPanel(QWidget):
         self.setObjectName("dropdownCanvas")
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, False)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setMinimumWidth(340)
-        self.setMinimumHeight(240)
+        self.setMinimumWidth(380)
+        self.setMinimumHeight(320)
         # Note: Maximum width constraint removed to allow window resizing
 
         root = QVBoxLayout(self)
@@ -1844,7 +1813,21 @@ class DropdownPanel(QWidget):
         root.addLayout(top)
 
         self.sections: list[PanelSection] = []
-        self._build_sections(root)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("QScrollArea{background:transparent;border:none;} QScrollArea>QWidget>QWidget{background:transparent;}")
+
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(10)
+
+        self._build_sections(container_layout)
+
+        scroll.setWidget(container)
+        root.addWidget(scroll, 1)
 
         # Bottom row with hint label and resize grip at bottom-right
         bottom_bar = QHBoxLayout()
@@ -1910,13 +1893,17 @@ class DropdownPanel(QWidget):
         finally:
             self._in_change_event = False
 
-    def _build_sections(self, root: QVBoxLayout) -> None:
-        """Instantiate and register panel section cards into the layout."""
+    def _build_sections(self, container_layout: QVBoxLayout) -> None:
+        """Instantiate and register panel section cards into the layout.
+
+        Args:
+            container_layout: Layout of the scroll area container widget.
+        """
         # EXTENSION POINT: append future PanelSection instances here.
         for cls in (HotspotSection, WarpSection, BandwidthSection, SystemSection):
             sec = cls(self.controller, self)
             self.sections.append(sec)
-            root.addWidget(sec)
+            container_layout.addWidget(sec)
 
     def refresh_all(self) -> None:
         """Refresh all registered panel sections."""
