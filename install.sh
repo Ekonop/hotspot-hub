@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # install.sh - end-to-end installer for Hotspot Hub (Arch/CachyOS).
-# Usage: ./install.sh [--no-profile] [--no-ufw] [--no-enable]
+# Usage: ./install.sh [--no-profile] [--no-ufw] [--no-enable] [--no-autostart]
 # Idempotent. Prompts for NM profile passphrase on fresh installs.
 set -u
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-NO_PROFILE=0; NO_UFW=0; NO_ENABLE=0
+NO_PROFILE=0; NO_UFW=0; NO_ENABLE=0; NO_AUTOSTART=0
 for a in "$@"; do
   case "$a" in
     --no-profile) NO_PROFILE=1;;
     --no-ufw) NO_UFW=1;;
     --no-enable) NO_ENABLE=1;;
+    --no-autostart) NO_AUTOSTART=1;;
     -h|--help) sed -n '1,4p' "$0"; exit 0;;
     *) echo "Unknown arg: $a" >&2; exit 2;;
   esac
@@ -19,6 +20,8 @@ need install; need nmcli; need iw
 
 echo "==> Installing Hotspot Hub files..."
 sudo install -Dm755 "$ROOT/app/hotspot-hub.py" /usr/bin/hotspot-hub
+sudo install -Dm755 "$ROOT/cli/hotspot-hub-cli.py" /usr/bin/hotspot-hub-cli
+sudo install -Dm644 "$ROOT/app/hotspot-hub.py" /usr/share/hotspot-hub/app/hotspot-hub.py
 sudo install -Dm755 "$ROOT/helpers/hotspot-on.sh" /usr/share/hotspot-hub/helpers/hotspot-on.sh
 sudo install -Dm755 "$ROOT/helpers/hotspot-off.sh" /usr/share/hotspot-hub/helpers/hotspot-off.sh
 sudo install -Dm755 "$ROOT/src/hotspot-channelsync.sh" /usr/local/bin/hotspot-channelsync.sh
@@ -54,7 +57,12 @@ if [ "$NO_PROFILE" = 0 ]; then
   bash "$ROOT/scripts/setup-profile.sh"
 fi
 
-mkdir -p ~/.config/autostart
-cp -f "$ROOT/hotspot-hub.desktop" ~/.config/autostart/hotspot-hub.desktop
+if [ "$NO_AUTOSTART" = 0 ]; then
+  echo "==> Configuring autostart..."
+  mkdir -p ~/.config/autostart
+  cp -f "$ROOT/hotspot-hub.desktop" ~/.config/autostart/hotspot-hub.desktop
+else
+  echo "==> Skipping autostart (--no-autostart)."
+fi
 # Point autostart at installed binary + icon (desktop file already does).
 echo "Installed. Launch: hotspot-hub &  Docs: ~/doc/hotspot-system/"

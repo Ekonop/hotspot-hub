@@ -5,6 +5,7 @@ APP = hotspot-hub
 
 check:
 	python3 -m py_compile app/hotspot-hub.py
+	python3 -m py_compile cli/hotspot-hub-cli.py
 	bash -n install.sh
 	bash -n uninstall.sh
 	bash -n scripts/setup-profile.sh

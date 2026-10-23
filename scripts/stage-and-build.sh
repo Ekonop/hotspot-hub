@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEST="$ROOT/packaging/arch"
 copy() { cp -f "$ROOT/$1" "$DEST/$2"; }
 copy app/hotspot-hub.py hotspot-hub.py
+copy cli/hotspot-hub-cli.py hotspot-hub-cli.py
 copy helpers/hotspot-on.sh hotspot-on.sh
 copy helpers/hotspot-off.sh hotspot-off.sh
 copy src/hotspot-channelsync.sh hotspot-channelsync.sh

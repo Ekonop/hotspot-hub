@@ -6,7 +6,7 @@
 - VPN bypass at pref 50 (self-repairing)
 - Arch packaging + direct install
 - Docs: README, CONFIGURATION, ARCHITECTURE, TROUBLESHOOTING
-- Features: QR code, client kick, connect/disconnect notifications, type hints, status indicator on tray icon
+- Features: QR code, client kick, connect/disconnect notifications, type hints, status indicator on tray icon, CLI tool, bandwidth monitor, dark mode, auto-start toggle, keyboard shortcut
 
 ---
 
@@ -16,9 +16,9 @@
 - [x] **Status indicator on tray icon** — change icon color based on hotspot state (green=on, grey=off, red=error). ✅
 - [x] **Client list with kick button** — show connected clients with MAC/IP/signal, allow disconnecting a client.
 - [x] **QR code for SSID/PSK** — generate and display a QR code for easy client onboarding.
-- [ ] **Bandwidth monitor** — show real-time up/down throughput per client and total.
-- [ ] **Dark mode support** — respect Plasma theme (already partial).
-- [ ] **Keyboard shortcuts** — global shortcut to toggle hotspot on/off.
+- [x] **Bandwidth monitor** — show real-time throughput on interfaces (wlan0 and ap0). ✅
+- [x] **Dark mode support** — detect dark mode via QPalette and adapt cards, text, and buttons to Plasma theme colors. ✅
+- [x] **Keyboard shortcuts** — global shortcut (Ctrl+Alt+H, configurable) to toggle hotspot on/off. ✅
 
 ### B. Functionality
 - [ ] **Multi-profile support** — allow multiple hotspot profiles (different SSIDs), switch between them.
@@ -33,10 +33,10 @@
 
 ### C. Integration
 - [ ] **D-Bus interface** — expose hotspot state/control via D-Bus for other apps/scripts.
-- [ ] **CLI tool** — `hotspot-hub status`, `hotspot-hub on/off`, `hotspot-hub clients`.
+- [x] **CLI tool** — `hotspot-hub-cli status`, `on`, `off`, `restart`, `clients`, `kick <mac>`, `qr`. ✅
 - [ ] **Plasma applet** — native QML plasmoid instead of PyQt6 tray (better Wayland integration).
 - [x] **Notification on client connect/disconnect** — desktop notification.
-- [ ] **Auto-start on boot** — optional, configurable.
+- [x] **Auto-start on boot** — optional, configurable via checkbox and `--no-autostart` installer flag. ✅
 
 ### D. Monitoring/Logging
 - [ ] **Persistent logs** — structured logging to file with rotation.

@@ -10,16 +10,19 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
-from PyQt6.QtCore import QRectF, QTimer, Qt
+from PyQt6.QtCore import QEvent, QRectF, QTimer, Qt
 from PyQt6.QtGui import (QAction, QBrush, QColor, QCursor, QFocusEvent, QIcon,
-                         QPainter, QPen, QPixmap)
-from PyQt6.QtWidgets import (QApplication, QDialog, QFrame, QHBoxLayout, QLabel,
-                             QMenu, QMessageBox, QPushButton, QScrollArea,
-                             QSystemTrayIcon, QVBoxLayout, QWidget)
+                         QKeySequence, QPainter, QPalette, QPen, QPixmap,
+                         QShortcut)
+from PyQt6.QtWidgets import (QApplication, QCheckBox, QDialog, QFrame,
+                             QHBoxLayout, QLabel, QMenu, QMessageBox,
+                             QPushButton, QScrollArea, QSystemTrayIcon,
+                             QVBoxLayout, QWidget)
 
 AP_IF = os.environ.get("HOTSPOT_HUB_AP_IF", "ap0")
 STA_IF = os.environ.get("HOTSPOT_HUB_STA_IF", "wlan0")
@@ -195,6 +198,212 @@ def lease_count() -> str:
     return "0 (no leases yet)"
 
 
+def hotspot_start() -> tuple[bool, str]:
+    """Ensure ap0 exists and activate hotspot connection. Return (ok, message)."""
+    ok, msg = ensure_ap0()
+    if not ok:
+        return False, msg
+    rc, out = run_rc(["nmcli", "con", "up", HOTSPOT_CON], timeout=30)
+    if rc == 0:
+        return True, f"{HOTSPOT_CON} activated on {AP_IF}"
+    return False, out[-300:] or "nmcli failed"
+
+
+def hotspot_stop() -> tuple[bool, str]:
+    """Deactivate hotspot connection. Return (ok, message)."""
+    rc, out = run_rc(["nmcli", "con", "down", HOTSPOT_CON], timeout=30)
+    if rc == 0:
+        return True, f"{HOTSPOT_CON} deactivated"
+    return False, out[-300:] or "nmcli down failed"
+
+
+def hotspot_cycle() -> tuple[bool, str]:
+    """Cycle hotspot connection off and on. Return (ok, message)."""
+    ok, msg = ensure_ap0()
+    if not ok:
+        return False, msg
+    run_rc(["nmcli", "con", "down", HOTSPOT_CON], timeout=30)
+    rc, out = run_rc(["nmcli", "con", "up", HOTSPOT_CON], timeout=30)
+    if rc == 0:
+        return True, f"{HOTSPOT_CON} restarted on {AP_IF}"
+    return False, out[-300:] or "nmcli failed"
+
+
+def kick_client(mac: str) -> tuple[bool, str]:
+    """Disconnect a station via `iw dev <AP_IF> station del <mac>`."""
+    rc, out = priv(["iw", "dev", AP_IF, "station", "del", mac])
+    if rc == 0:
+        return True, f"Station {mac} disconnected"
+    return False, f"Failed to disconnect {mac}: {(out[-200:] or 'iw failed')}"
+
+
+def read_net_dev_bytes() -> dict[str, tuple[int, int]]:
+    """Read /proc/net/dev and return {interface: (rx_bytes, tx_bytes)}."""
+    stats: dict[str, tuple[int, int]] = {}
+    try:
+        with open("/proc/net/dev", "r", encoding="utf-8") as f:
+            for line in f:
+                if ":" not in line:
+                    continue
+                iface, _, data = line.partition(":")
+                parts = data.split()
+                if len(parts) >= 9:
+                    try:
+                        rx = int(parts[0])
+                        tx = int(parts[8])
+                        stats[iface.strip()] = (rx, tx)
+                    except ValueError:
+                        continue
+    except OSError:
+        pass
+    return stats
+
+
+def format_rate(bytes_per_sec: float) -> str:
+    """Format bytes per second into MB/s rate string (e.g. 1.2MB/s)."""
+    if bytes_per_sec <= 0:
+        return "0.0MB/s"
+    mb_s = bytes_per_sec / (1024 * 1024)
+    if mb_s >= 1024:
+        return f"{mb_s / 1024:.1f}GB/s"
+    return f"{mb_s:.1f}MB/s"
+
+
+def autostart_desktop_path() -> Path:
+    """Return path to autostart desktop file (~/.config/autostart/hotspot-hub.desktop)."""
+    return Path.home() / ".config" / "autostart" / "hotspot-hub.desktop"
+
+
+def is_autostart_enabled() -> bool:
+    """Check if autostart desktop entry exists and is enabled."""
+    return autostart_desktop_path().is_file()
+
+
+def set_autostart(enabled: bool) -> bool:
+    """Enable or disable autostart by creating or deleting desktop entry."""
+    target = autostart_desktop_path()
+    try:
+        if enabled:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            for src in (
+                Path(__file__).resolve().parent.parent / "hotspot-hub.desktop",
+                Path("/usr/share/applications/hotspot-hub.desktop"),
+            ):
+                if src.is_file():
+                    shutil.copyfile(src, target)
+                    target.chmod(0o755)
+                    return True
+            content = (
+                "[Desktop Entry]\n"
+                "Type=Application\n"
+                "Name=Hotspot Hub\n"
+                "Comment=Tray control for concurrent Wi-Fi hotspot, WARP and channel-sync\n"
+                "Exec=hotspot-hub\n"
+                "Icon=hotspot-hub\n"
+                "Terminal=false\n"
+                "Categories=Network;\n"
+                "StartupNotify=false\n"
+                "X-GNOME-Autostart-enabled=true\n"
+            )
+            target.write_text(content, encoding="utf-8")
+            target.chmod(0o755)
+            return True
+        else:
+            if target.exists():
+                target.unlink()
+            return True
+    except OSError:
+        return False
+
+
+def is_dark_mode(palette: QPalette | None = None) -> bool:
+    """Detect if dark mode is active via QPalette lightness."""
+    pal = palette or QApplication.palette()
+    win_col = pal.color(QPalette.ColorRole.Window)
+    text_col = pal.color(QPalette.ColorRole.WindowText)
+    return win_col.lightness() < 128 or text_col.lightness() > win_col.lightness()
+
+
+def get_theme_stylesheet(palette: QPalette | None = None) -> str:
+    """Generate dynamic stylesheet matching dark/light mode and Plasma theme colors."""
+    pal = palette or QApplication.palette()
+    dark = is_dark_mode(pal)
+
+    win_bg = pal.color(QPalette.ColorRole.Window).name()
+    win_text = pal.color(QPalette.ColorRole.WindowText).name()
+    base_bg = pal.color(QPalette.ColorRole.Base).name()
+    btn_bg = pal.color(QPalette.ColorRole.Button).name()
+    btn_text = pal.color(QPalette.ColorRole.ButtonText).name()
+    accent = pal.color(QPalette.ColorRole.Highlight).name()
+    mid_border = pal.color(QPalette.ColorRole.Mid).name()
+
+    if dark:
+        card_bg = base_bg if base_bg != win_bg else "#24282f"
+        card_border = mid_border if mid_border != win_bg else "#3f444e"
+        btn_bg_style = btn_bg if btn_bg != win_bg else "#383e4a"
+        btn_hover = accent
+        text_muted = "#a0a0a0"
+    else:
+        card_bg = base_bg if base_bg != win_bg else "#ffffff"
+        card_border = mid_border if mid_border != win_bg else "#cbd5e1"
+        btn_bg_style = btn_bg if btn_bg != win_bg else "#f1f5f9"
+        btn_hover = accent
+        text_muted = "#64748b"
+
+    return f"""
+        QWidget#dropdownCanvas {{
+            background-color: {win_bg};
+            color: {win_text};
+            border: 1px solid {card_border};
+            border-radius: 8px;
+        }}
+        QFrame[panelCard="true"] {{
+            background-color: {card_bg};
+            color: {win_text};
+            border: 1px solid {card_border};
+            border-radius: 6px;
+        }}
+        QLabel {{
+            color: {win_text};
+        }}
+        QPushButton {{
+            background-color: {btn_bg_style};
+            color: {btn_text};
+            border: 1px solid {card_border};
+            border-radius: 4px;
+            padding: 4px 8px;
+            min-height: 22px;
+            font-size: 12px;
+        }}
+        QPushButton:hover {{
+            background-color: {btn_bg_style};
+            border-color: {btn_hover};
+        }}
+        QPushButton:pressed {{
+            background-color: {card_border};
+        }}
+        QPushButton:disabled {{
+            color: {text_muted};
+            border-color: transparent;
+        }}
+        QCheckBox {{
+            color: {win_text};
+            spacing: 6px;
+        }}
+        QCheckBox::indicator {{
+            width: 14px;
+            height: 14px;
+            border-radius: 3px;
+            border: 1px solid {card_border};
+            background-color: {card_bg};
+        }}
+        QCheckBox::indicator:checked {{
+            background-color: {accent};
+            border-color: {accent};
+        }}
+    """
+
+
 STATUS_COLORS: dict[str, QColor] = {
     "on": QColor("#22c55e"),      # green: hotspot active
     "green": QColor("#22c55e"),
@@ -284,6 +493,7 @@ class PanelSection(QFrame):
         """Initialize the panel section with controller reference and setup layout."""
         super().__init__(parent)
         self.controller = controller
+        self.setProperty("panelCard", True)
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(10, 8, 10, 8)
@@ -359,11 +569,53 @@ class WarpSection(PanelSection):
         self.info.setText(f"Status: {warp_status()}")
 
 
+class BandwidthSection(PanelSection):
+    """Bandwidth monitor card displaying RX/TX throughput for STA and AP."""
+    title = "Bandwidth"
+
+    def __init__(self, controller: HotspotPanel, parent: QWidget | None = None) -> None:
+        """Initialize bandwidth section with cached interface byte counters."""
+        self._last_stats: dict[str, tuple[int, int]] = read_net_dev_bytes()
+        self._last_time: float = time.monotonic()
+        super().__init__(controller, parent)
+
+    def build_body(self) -> None:
+        """Create widgets for bandwidth monitor."""
+        self.info = QLabel("…")
+        self.info.setWordWrap(True)
+        self.body.addWidget(self.info)
+
+    def refresh(self) -> None:
+        """Update bandwidth throughput calculated from /proc/net/dev deltas."""
+        now = time.monotonic()
+        stats = read_net_dev_bytes()
+        dt = now - self._last_time if self._last_time > 0 else 5.0
+        if dt <= 0:
+            dt = 5.0
+
+        def _rate_str(iface: str) -> str:
+            if iface not in stats:
+                return f"{iface}: down"
+            rx, tx = stats[iface]
+            if iface not in self._last_stats:
+                return f"{iface}: ↓{format_rate(0)} ↑{format_rate(0)}"
+            prev_rx, prev_tx = self._last_stats[iface]
+            rx_rate = max(0.0, (rx - prev_rx) / dt) if rx >= prev_rx else 0.0
+            tx_rate = max(0.0, (tx - prev_tx) / dt) if tx >= prev_tx else 0.0
+            return f"{iface}: ↓{format_rate(rx_rate)} ↑{format_rate(tx_rate)}"
+
+        wlan_part = _rate_str(STA_IF)
+        ap_part = _rate_str(AP_IF)
+        self.info.setText(f"{wlan_part} | {ap_part}")
+        self._last_stats = stats
+        self._last_time = now
+
+
 class SystemSection(PanelSection):
     title = "System"
 
     def build_body(self) -> None:
-        """Build System section widgets and connect action buttons."""
+        """Build System section widgets, autostart toggle, and connect action buttons."""
         self.info = QLabel("…")
         self.body.addWidget(self.info)
         self.btn_sync = QPushButton("Restart channel-sync")
@@ -375,8 +627,21 @@ class SystemSection(PanelSection):
         self.row(self.btn_sync, self.btn_route)
         self.row(self.btn_docs)
 
+        self.chk_autostart = QCheckBox("Start on boot")
+        self.chk_autostart.setChecked(is_autostart_enabled())
+        self.chk_autostart.toggled.connect(self._toggle_autostart)
+        self.body.addWidget(self.chk_autostart)
+
+    def _toggle_autostart(self, checked: bool) -> None:
+        """Handle autostart checkbox toggle."""
+        ok = set_autostart(checked)
+        if not ok:
+            self.chk_autostart.blockSignals(True)
+            self.chk_autostart.setChecked(is_autostart_enabled())
+            self.chk_autostart.blockSignals(False)
+
     def refresh(self) -> None:
-        """Update channel-sync service status, VPN bypass state, and channels."""
+        """Update channel-sync service status, VPN bypass state, channels, and autostart state."""
         _, out = run_rc(["systemctl", "is-active",
                          "hotspot-channelsync.service"], timeout=10)
         state = out.strip().splitlines()[0] if out else "unknown"
@@ -385,6 +650,9 @@ class SystemSection(PanelSection):
         self.info.setText(f"channel-sync: {state} | VPN bypass: {bypass}\n"
                           f"wlan0 ch{sta.get('channel', '?')} | "
                           f"ap0 ch{ap.get('channel', '?')}")
+        self.chk_autostart.blockSignals(True)
+        self.chk_autostart.setChecked(is_autostart_enabled())
+        self.chk_autostart.blockSignals(False)
 
 
 class ClientsDialog(QDialog):
@@ -487,6 +755,7 @@ class DropdownPanel(QWidget):
             Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint |
             Qt.WindowType.WindowStaysOnTopHint)
         self.controller = controller
+        self.setObjectName("dropdownCanvas")
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, False)
         self.setMinimumWidth(340)
         self.setMaximumWidth(420)
@@ -508,11 +777,22 @@ class DropdownPanel(QWidget):
         hint.setWordWrap(True)
         hint.setEnabled(False)
         root.addWidget(hint)
+        self.apply_theme()
+
+    def apply_theme(self) -> None:
+        """Apply dynamic stylesheet adhering to palette and dark mode."""
+        self.setStyleSheet(get_theme_stylesheet(self.palette()))
+
+    def changeEvent(self, event: QEvent) -> None:
+        """Re-apply styling when system theme or palette changes."""
+        if event.type() in (QEvent.Type.PaletteChange, QEvent.Type.ApplicationPaletteChange):
+            self.apply_theme()
+        super().changeEvent(event)
 
     def _build_sections(self, root: QVBoxLayout) -> None:
         """Instantiate and register panel section cards into the layout."""
         # EXTENSION POINT: append future PanelSection instances here.
-        for cls in (HotspotSection, WarpSection, SystemSection):
+        for cls in (HotspotSection, WarpSection, BandwidthSection, SystemSection):
             sec = cls(self.controller, self)
             self.sections.append(sec)
             root.addWidget(sec)
@@ -524,6 +804,15 @@ class DropdownPanel(QWidget):
                 s.refresh()
             except Exception:
                 pass
+
+    def refresh_bandwidth(self) -> None:
+        """Refresh only the bandwidth section on periodic background timer."""
+        for s in self.sections:
+            if isinstance(s, BandwidthSection):
+                try:
+                    s.refresh()
+                except Exception:
+                    pass
 
     def focusOutEvent(self, event: QFocusEvent) -> None:
         """Hide panel when focus is lost and cursor is outside the window."""
@@ -537,7 +826,7 @@ class DropdownPanel(QWidget):
 class HotspotPanel:
     def __init__(self) -> None:
         """Initialize Qt application, tray icon, context menu, and refresh timer."""
-        self.app = QApplication(sys.argv)
+        self.app = QApplication.instance() or QApplication(sys.argv)
         self.app.setQuitOnLastWindowClosed(False)
         try:  # silence "Icon theme gnome not found" on KDE; prefer breeze
             if QIcon.themeName() in ("", "gnome"):
@@ -564,6 +853,15 @@ class HotspotPanel:
         self.panel = DropdownPanel(self)
         self._build_menu()
         self.tray.activated.connect(self._on_tray_activated)
+
+        # Global keyboard shortcut for toggling hotspot
+        self.shortcut = None
+        shortcut_key = os.environ.get("HOTSPOT_HUB_SHORTCUT", "Ctrl+Alt+H").strip()
+        if shortcut_key and shortcut_key.lower() not in ("none", "disabled", "off", "0"):
+            self.shortcut = QShortcut(QKeySequence(shortcut_key), self.panel)
+            self.shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+            self.shortcut.activated.connect(self.toggle_hotspot)
+
         self.timer = QTimer()  # auto-refresh tooltip + menu + panel every 5 s
         self.timer.timeout.connect(self.refresh)
         self.timer.start(5000)
@@ -573,6 +871,13 @@ class HotspotPanel:
         self.client_timer.start(10000)
         self.refresh()
         self.tray.show()
+
+    def toggle_hotspot(self) -> None:
+        """Toggle hotspot state between on and off."""
+        if self.detect_state() == "on":
+            self.hotspot_off()
+        else:
+            self.hotspot_on()
 
     def _act(self, label: str, slot: Callable[..., Any], disabled: bool = False) -> QAction:
         """Add an action item to the context menu and return it."""
@@ -672,6 +977,7 @@ class HotspotPanel:
         self._update_tray_icon()
         self.status_action.setText(text[:160])
         self.tray.setToolTip("Hotspot Hub\n" + text)
+        self.panel.refresh_bandwidth()
         if self.panel.isVisible():
             self.panel.refresh_all()
 
@@ -691,48 +997,35 @@ class HotspotPanel:
 
     def hotspot_on(self) -> None:
         """Ensure ap0 exists and activate hotspot connection."""
-        ok, msg = ensure_ap0()
-        if not ok:
+        ok, msg = hotspot_start()
+        if ok:
+            self._last_error = None
+            self.notify("Hotspot On", f"{HOTSPOT_CON} activated on {AP_IF}.")
+        else:
             self._last_error = msg
             self.notify("Hotspot On failed", msg)
-            self.refresh()
-            return
-        rc, out = self._nm_up()
-        if rc == 0:
-            self._last_error = None
-            self.notify("Hotspot On", "Hotspot-Shared activated on ap0.")
-        else:
-            self._last_error = out[-300:] or "nmcli failed"
-            self.notify("Hotspot On", f"Hotspot On failed: {self._last_error}")
         self.refresh()
 
     def hotspot_off(self) -> None:
         """Deactivate hotspot connection."""
-        rc, out = run_rc(["nmcli", "con", "down", HOTSPOT_CON], timeout=30)
-        if rc == 0:
+        ok, msg = hotspot_stop()
+        if ok:
             self._last_error = None
-            self.notify("Hotspot Off", "Hotspot-Shared deactivated.")
+            self.notify("Hotspot Off", f"{HOTSPOT_CON} deactivated.")
         else:
-            self._last_error = out[-300:] or "nmcli down failed"
-            self.notify("Hotspot Off", self._last_error)
+            self._last_error = msg
+            self.notify("Hotspot Off", msg)
         self.refresh()
 
     def hotspot_restart(self) -> None:
         """Cycle hotspot connection off and on."""
-        ok, msg = ensure_ap0()
-        if not ok:
-            self._last_error = msg
-            self.notify("Hotspot Restart failed", msg)
-            self.refresh()
-            return
-        run_rc(["nmcli", "con", "down", HOTSPOT_CON], timeout=30)
-        rc, out = self._nm_up()
-        if rc == 0:
+        ok, msg = hotspot_cycle()
+        if ok:
             self._last_error = None
-            self.notify("Hotspot Restart", "Hotspot-Shared restarted.")
+            self.notify("Hotspot Restart", f"{HOTSPOT_CON} restarted.")
         else:
-            self._last_error = out[-300:] or "nmcli failed"
-            self.notify("Hotspot Restart", f"Restart failed: {self._last_error}")
+            self._last_error = msg
+            self.notify("Hotspot Restart", f"Restart failed: {msg}")
         self.refresh()
 
     def _poll_stations(self) -> None:
@@ -759,11 +1052,13 @@ class HotspotPanel:
 
     def disconnect_client(self, mac: str) -> tuple[int, str]:
         """Disconnect a station via `iw dev ap0 station del <mac>` and refresh."""
-        rc, out = priv(["iw", "dev", AP_IF, "station", "del", mac])
-        if rc == 0:
-            self.notify("Client Disconnected", f"Station {mac} disconnected.")
+        ok, msg = kick_client(mac)
+        if ok:
+            self.notify("Client Disconnected", msg)
+            rc, out = 0, msg
         else:
-            self.notify("Disconnect Failed", f"Failed to disconnect {mac}: {(out[-200:] or 'iw failed')}")
+            self.notify("Disconnect Failed", msg)
+            rc, out = 1, msg
         self.refresh()
         self._poll_stations()
         return rc, out

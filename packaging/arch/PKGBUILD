@@ -11,6 +11,7 @@ depends=('python-pyqt6' 'networkmanager' 'iw' 'iproute2' 'polkit')
 optdepends=('warp-cli: Cloudflare WARP status/toggle in tray'
             'ufw: firewall rules for hotspot DHCP/NAT')
 source=('hotspot-hub.py'
+        'hotspot-hub-cli.py'
         'hotspot-on.sh'
         'hotspot-off.sh'
         'hotspot-channelsync.sh'
@@ -21,11 +22,13 @@ source=('hotspot-hub.py'
         'hotspot-hub.svg'
         'hotspot-hub.desktop'
         'setup-profile.sh')
-sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 package() {
   cd "$srcdir"
   install -Dm755 hotspot-hub.py "$pkgdir/usr/bin/hotspot-hub"
+  install -Dm755 hotspot-hub-cli.py "$pkgdir/usr/bin/hotspot-hub-cli"
+  install -Dm644 hotspot-hub.py "$pkgdir/usr/share/hotspot-hub/app/hotspot-hub.py"
   install -Dm755 hotspot-on.sh "$pkgdir/usr/share/hotspot-hub/helpers/hotspot-on.sh"
   install -Dm755 hotspot-off.sh "$pkgdir/usr/share/hotspot-hub/helpers/hotspot-off.sh"
   install -Dm755 hotspot-channelsync.sh "$pkgdir/usr/local/bin/hotspot-channelsync.sh"

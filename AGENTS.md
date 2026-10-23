@@ -7,6 +7,7 @@ MediaTek MT7922).
 ## Quick orientation
 
 - **Main app:** `app/hotspot-hub.py` (PyQt6 tray + dropdown canvas)
+- **CLI tool:** `cli/hotspot-hub-cli.py` (CLI interface: status/on/off/restart/clients/kick/qr)
 - **Helpers:** `helpers/hotspot-on.sh`, `helpers/hotspot-off.sh`
 - **System files:** `src/` (channel-sync, NM dispatcher, sysctl, sudoers)
 - **Scripts:** `scripts/setup-profile.sh`, `scripts/stage-and-build.sh`

@@ -6,6 +6,7 @@ PURGE=0
 [ "${1:-}" = "--purge" ] && PURGE=1
 sudo systemctl disable --now hotspot-channelsync.service 2>/dev/null || true
 sudo rm -f /usr/bin/hotspot-hub \
+  /usr/bin/hotspot-hub-cli \
   /usr/local/bin/hotspot-channelsync.sh \
   /etc/NetworkManager/dispatcher.d/90-hotspot-channelsync \
   /etc/systemd/system/hotspot-channelsync.service \

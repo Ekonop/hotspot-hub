@@ -9,6 +9,7 @@ All names are generic. Defaults work for a typical single-radio laptop
 | AP interface | `HOTSPOT_HUB_AP_IF` | `ap0` |
 | NM hotspot profile | `HOTSPOT_HUB_CON` | `Hotspot-Shared` |
 | Docs path (Open Documentation) | `HOTSPOT_HUB_DOCS` | `~/doc/hotspot-system/README.md`, else repo `docs/README.md` |
+| Toggle shortcut | `HOTSPOT_HUB_SHORTCUT` | `Ctrl+Alt+H` |
 
 The channel-sync script honors `STA_IF`, `AP_IF`, `HOTSPOT_CON` the same way.
 

@@ -9,9 +9,12 @@ MediaTek MT7922).
 ## Layout
 
 - `app/hotspot-hub.py` — tray app with dropdown canvas (`DropdownPanel`).
-  Left-click opens cards (**Hotspot**, **WARP**, **System**); right-click
+  Left-click opens cards (**Hotspot**, **WARP**, **Bandwidth**, **System**); right-click
   shows the classic menu. Add future mods as `PanelSection` subclasses,
   registered in `DropdownPanel._build_sections()` (marked EXTENSION POINT).
+  Supports dynamic dark mode adhering to Plasma theme colors, and global shortcut (`Ctrl+Alt+H`).
+- `cli/hotspot-hub-cli.py` — CLI tool (`hotspot-hub-cli`) with subcommands:
+  `status`, `on`, `off`, `restart`, `clients`, `kick <mac>`, `qr`.
 - `helpers/` — `hotspot-on.sh` / `hotspot-off.sh` (idempotent, `sudo -n`).
 - `icons/hotspot-hub.svg` — app icon (blue hotspot glyph + amber node).
 - `src/` — system files: `hotspot-channelsync.sh`,
@@ -33,7 +36,7 @@ No plaintext passwords anywhere.
 hotspot-hub &
 ```
 
-Options: `./install.sh --no-profile --no-ufw --no-enable`
+Options: `./install.sh --no-profile --no-ufw --no-enable --no-autostart`
 
 ## Arch package
 
