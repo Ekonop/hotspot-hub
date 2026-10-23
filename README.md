@@ -12,8 +12,10 @@ MediaTek MT7922).
 
 ### Hotspot Control
 - **Concurrent STA + AP** on a single radio (virtual `ap0` on `wlan0` PHY).
-- **On / Off / Restart** buttons plus animated status indicator on the tray icon
-  (green = on, grey = off, red = error).
+- **Instrument-deck dropdown**: hero card with indicator lamp, big state word
+  (ACTIVE / STANDBY / FAULT), one-line readout (SSID · channel · clients ·
+  leases · security) and an animated **master switch** replacing the On/Off
+  button pair. Tray icon stays color-coded (green = on, grey = off, red = error).
 - **Channel sync** keeps AP on STA's channel (10s fallback + NM dispatcher events).
 - **VPN/WARP bypass** at policy-routing priority 50 (self-repairing).
 - **Manual stop respected**: stopping the hotspot no longer auto-restarts via the
@@ -57,7 +59,8 @@ MediaTek MT7922).
 
 - `app/hotspot-hub.py` — tray app with dropdown canvas (`DropdownPanel`).
   Left-click opens cards (**Hotspot**, **WARP**, **Bandwidth**, **System**);
-  right-click shows the classic menu. Add future mods as `PanelSection`
+  right-click shows the classic menu. UI design decisions and visual roles are
+  documented in `docs/UI-REDESIGN.md`. Add future mods as `PanelSection`
   subclasses, registered in `DropdownPanel._build_sections()` (marked EXTENSION POINT).
 - `cli/hotspot-hub-cli.py` — CLI tool with all subcommands above.
 - `helpers/` — `hotspot-on.sh` / `hotspot-off.sh` (idempotent, `sudo -n`).

@@ -19,7 +19,18 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
-from PyQt6.QtCore import QEvent, QRectF, QSettings, Qt, QTime, QTimer, pyqtSlot
+from PyQt6.QtCore import (
+    QEasingCurve,
+    QEvent,
+    QPropertyAnimation,
+    QRectF,
+    QSettings,
+    Qt,
+    QTime,
+    QTimer,
+    QVariantAnimation,
+    pyqtSlot,
+)
 
 try:
     from PyQt6.QtDBus import QDBusAbstractAdaptor, QDBusConnection
@@ -47,6 +58,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
     QFrame,
+    QGraphicsOpacityEffect,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -1033,7 +1045,7 @@ def get_app_font(pixel_size: int = 13, bold: bool = False) -> QFont:
     """Return primary application font (Manrope) with fallback chain."""
     font = QFont("Manrope")
     font.setFamilies(["Manrope", "Noto Sans", "DejaVu Sans", "sans-serif"])
-    font.setPixelSize(pixel_size)
+    font.setPixelSize(int(pixel_size))
     if bold:
         font.setBold(True)
     return font
@@ -1043,7 +1055,7 @@ def get_monospace_font(pixel_size: int = 12, bold: bool = False) -> QFont:
     """Return monospace font (JetBrains Mono) with fallback chain for IPs, MACs, and metrics."""
     font = QFont("JetBrains Mono")
     font.setFamilies(["JetBrains Mono", "DejaVu Sans Mono", "monospace"])
-    font.setPixelSize(pixel_size)
+    font.setPixelSize(int(pixel_size))
     if bold:
         font.setBold(True)
     return font
@@ -1082,12 +1094,21 @@ def _color_to_rgba(color: QColor, alpha: float) -> str:
     return f"rgba({color.red()}, {color.green()}, {color.blue()}, {alpha:.2f})"
 
 
-def get_theme_stylesheet(palette: QPalette | None = None) -> str:
-    """Generate dynamic stylesheet matching dark/light mode and Plasma theme colors.
+def _mix(c1: QColor, c2: QColor, t: float) -> QColor:
+    """Linear mix of two colours: t=0 -> c1, t=1 -> c2."""
+    return QColor(
+        round(c1.red() + (c2.red() - c1.red()) * t),
+        round(c1.green() + (c2.green() - c1.green()) * t),
+        round(c1.blue() + (c2.blue() - c1.blue()) * t),
+    )
 
-    Uses KColorScheme (when available) or QPalette for Plasma theme colors.
-    Applies solid backgrounds with full opacity, subtle borders, 12px border radius,
-    and Plasma accent color for highlights.
+
+def get_theme_stylesheet(palette: QPalette | None = None) -> str:
+    """Generate the instrument-deck stylesheet matching dark/light Plasma theme colors.
+
+    Design tokens (see docs/UI-REDESIGN.md): 16px canvas, 14px cards, 8px
+    controls, 1px borders, semantic state colors, Plasma accent for
+    interactive elements. Solid backgrounds with full opacity.
     """
     pal = palette or QApplication.palette()
     dark = is_dark_mode(pal)
@@ -1121,35 +1142,41 @@ def get_theme_stylesheet(palette: QPalette | None = None) -> str:
 
     if dark:
         card_base = base_col if base_col.name() != win_col.name() else QColor("#24282f")
-        card_hover_base = card_base.lighter(118)
+        card_hover_base = QColor("#2b3039")
         border_base = QColor("#3a414e")
-        text_muted = "#a0a0a0"
+        text_muted = "#9aa4b2"
         btn_bg_base = btn_col if btn_col.name() != win_col.name() else QColor("#323844")
+        hero_tint = _mix(card_base, accent_col, 0.10)
+        scroll_handle = QColor("#4a5363")
     else:
         card_base = base_col if base_col.name() != win_col.name() else QColor("#ffffff")
-        card_hover_base = QColor("#ffffff") if card_base.lightness() > 240 else card_base.lighter(106)
-        border_base = QColor("#cbd5e1")
-        text_muted = "#64748b"
+        card_hover_base = QColor("#f6f8fb")
+        border_base = QColor("#d7dee8")
+        text_muted = "#5b6472"
         btn_bg_base = btn_col if btn_col.name() != win_col.name() else QColor("#f1f5f9")
+        hero_tint = _mix(card_base, accent_col, 0.06)
+        scroll_handle = QColor("#c3ccd9")
 
-    # Solid colors with full opacity for canvas, cards, and buttons
     canvas_bg = win_col.name()
     canvas_border = border_base.name()
     card_bg = card_base.name()
     card_hover_bg = card_hover_base.name()
     card_border = border_base.name()
-    card_hover_border = accent  # Plasma accent highlight
-
     btn_bg = btn_bg_base.name()
     btn_hover_bg = btn_bg_base.lighter(112).name()
     btn_pressed_bg = (btn_bg_base.darker(110) if dark else btn_bg_base.darker(105)).name()
+    hero_bg = hero_tint.name()
+
+    # Contrasting text colour for accent-filled surfaces (primary buttons).
+    accent_brightness = accent_col.lightness()
+    accent_text = "#ffffff" if accent_brightness < 160 else "#111827"
 
     return f"""
         QWidget#dropdownCanvas {{
             background-color: {canvas_bg};
             color: {win_text};
             border: 1px solid {canvas_border};
-            border-radius: 12px;
+            border-radius: 16px;
             font-family: 'Manrope', 'Noto Sans', 'DejaVu Sans', sans-serif;
             font-size: 13px;
         }}
@@ -1157,11 +1184,20 @@ def get_theme_stylesheet(palette: QPalette | None = None) -> str:
             background-color: {card_bg};
             color: {win_text};
             border: 1px solid {card_border};
-            border-radius: 12px;
+            border-radius: 14px;
         }}
         QFrame[panelCard="true"]:hover {{
             background-color: {card_hover_bg};
-            border: 1px solid {card_hover_border};
+            border: 1px solid {accent};
+        }}
+        QFrame[heroCard="true"] {{
+            background-color: {hero_bg};
+            color: {win_text};
+            border: 1px solid {card_border};
+            border-radius: 14px;
+        }}
+        QFrame[heroCard="true"]:hover {{
+            border: 1px solid {accent};
         }}
         QLabel {{
             color: {win_text};
@@ -1171,8 +1207,17 @@ def get_theme_stylesheet(palette: QPalette | None = None) -> str:
         QLabel[headingLabel="true"] {{
             font-family: 'Manrope', 'Noto Sans', 'DejaVu Sans', sans-serif;
             font-size: 15px;
-            font-weight: bold;
+            font-weight: 700;
             color: {win_text};
+        }}
+        QLabel[sectionLabel="true"] {{
+            font-family: 'Manrope', 'Noto Sans', 'DejaVu Sans', sans-serif;
+            font-size: 10.5px;
+            font-weight: 700;
+            color: {text_muted};
+        }}
+        QLabel[mutedLabel="true"], .mutedLabel {{
+            color: {text_muted};
         }}
         QLabel[metricLabel="true"],
         .metricLabel {{
@@ -1180,24 +1225,57 @@ def get_theme_stylesheet(palette: QPalette | None = None) -> str:
             font-size: 12px;
             color: {win_text};
         }}
+        QLabel[heroMetric="true"],
+        .heroMetric {{
+            font-family: 'JetBrains Mono', 'DejaVu Sans Mono', monospace;
+            font-size: 15px;
+            font-weight: 600;
+            color: {win_text};
+        }}
+        QLabel[heroState="true"] {{
+            font-family: 'Manrope', 'Noto Sans', 'DejaVu Sans', sans-serif;
+            font-size: 20px;
+            font-weight: 800;
+        }}
         QPushButton {{
             background-color: {btn_bg};
             color: {btn_text};
             border: 1px solid {card_border};
-            border-radius: 6px;
-            padding: 6px 12px;
+            border-radius: 8px;
+            padding: 6px 14px;
             min-height: 30px;
             font-family: 'Manrope', 'Noto Sans', 'DejaVu Sans', sans-serif;
             font-size: 13px;
+            font-weight: 600;
         }}
         QPushButton#closeBtn {{
             padding: 0px;
             font-size: 14px;
-            font-weight: bold;
-            min-height: 36px;
-            max-height: 36px;
-            min-width: 36px;
-            max-width: 36px;
+            font-weight: 600;
+            min-height: 32px;
+            max-height: 32px;
+            min-width: 32px;
+            max-width: 32px;
+            border-radius: 8px;
+        }}
+        QPushButton[quiet="true"] {{
+            background-color: transparent;
+            border: 1px solid transparent;
+            color: {btn_text};
+        }}
+        QPushButton[quiet="true"]:hover {{
+            background-color: {btn_hover_bg};
+            border-color: transparent;
+        }}
+        QPushButton[primary="true"] {{
+            background-color: {accent};
+            color: {accent_text};
+            border: 1px solid {accent};
+            font-weight: 700;
+        }}
+        QPushButton[primary="true"]:hover {{
+            background-color: {accent_col.lighter(106).name()};
+            border-color: {accent_col.lighter(112).name()};
         }}
         QPushButton:hover {{
             background-color: {btn_hover_bg};
@@ -1219,12 +1297,12 @@ def get_theme_stylesheet(palette: QPalette | None = None) -> str:
             color: {win_text};
             font-family: 'Manrope', 'Noto Sans', 'DejaVu Sans', sans-serif;
             font-size: 13px;
-            spacing: 6px;
+            spacing: 7px;
         }}
         QCheckBox::indicator {{
-            width: 15px;
-            height: 15px;
-            border-radius: 4px;
+            width: 16px;
+            height: 16px;
+            border-radius: 5px;
             border: 1px solid {card_border};
             background-color: {card_bg};
         }}
@@ -1239,36 +1317,46 @@ def get_theme_stylesheet(palette: QPalette | None = None) -> str:
             width: 16px;
             height: 16px;
         }}
-        QComboBox, QLineEdit, QListWidget {{
+        QComboBox, QLineEdit, QListWidget, QTimeEdit, QSpinBox {{
             background-color: {card_bg};
             color: {win_text};
             border: 1px solid {card_border};
-            border-radius: 6px;
-            padding: 4px 8px;
+            border-radius: 8px;
+            padding: 4px 9px;
             font-family: 'Manrope', 'Noto Sans', 'DejaVu Sans', sans-serif;
             font-size: 13px;
         }}
-        QComboBox:focus, QLineEdit:focus, QListWidget:focus {{
+        QComboBox:focus, QLineEdit:focus, QListWidget:focus, QTimeEdit:focus, QSpinBox:focus {{
             border-color: {accent};
         }}
         QComboBox::drop-down {{
             border: none;
-            width: 20px;
+            width: 22px;
+        }}
+        QComboBox QAbstractItemView {{
+            background-color: {card_bg};
+            color: {win_text};
+            border: 1px solid {card_border};
+            border-radius: 8px;
+            selection-background-color: {accent};
+            selection-color: {accent_text};
+            padding: 4px;
         }}
         QTabWidget::pane {{
             border: 1px solid {card_border};
-            border-radius: 8px;
+            border-radius: 10px;
             background-color: {card_bg};
         }}
         QTabBar::tab {{
             background-color: {btn_bg};
             color: {win_text};
-            padding: 5px 12px;
-            border-top-left-radius: 6px;
-            border-top-right-radius: 6px;
-            margin-right: 2px;
+            padding: 6px 14px;
+            border-top-left-radius: 8px;
+            border-top-right-radius: 8px;
+            margin-right: 3px;
             font-family: 'Manrope', 'Noto Sans', 'DejaVu Sans', sans-serif;
             font-size: 13px;
+            font-weight: 600;
         }}
         QTabBar::tab:hover {{
             border-color: {accent};
@@ -1281,7 +1369,7 @@ def get_theme_stylesheet(palette: QPalette | None = None) -> str:
         QGroupBox {{
             color: {win_text};
             font-family: 'Manrope', 'Noto Sans', 'DejaVu Sans', sans-serif;
-            font-weight: bold;
+            font-weight: 700;
             font-size: 13px;
             border: 1px solid {card_border};
             border-radius: 8px;
@@ -1298,11 +1386,34 @@ def get_theme_stylesheet(palette: QPalette | None = None) -> str:
             color: {win_text};
             font-family: 'Manrope', 'Noto Sans', 'DejaVu Sans', sans-serif;
             font-size: 13px;
-            spacing: 6px;
+            spacing: 7px;
         }}
         QRadioButton::indicator:checked {{
             background-color: {accent};
             border-color: {accent};
+        }}
+        QScrollArea {{
+            background: transparent;
+            border: none;
+        }}
+        QScrollBar:vertical {{
+            background: transparent;
+            width: 8px;
+            margin: 2px;
+        }}
+        QScrollBar::handle:vertical {{
+            background: {scroll_handle.name()};
+            border-radius: 4px;
+            min-height: 28px;
+        }}
+        QScrollBar::handle:vertical:hover {{
+            background: {accent};
+        }}
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+            height: 0;
+        }}
+        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+            background: transparent;
         }}
     """
 
@@ -1386,6 +1497,173 @@ def make_status_icon(state: str, size: int = 64) -> QIcon:
 
 
 # ---------------------------------------------------------------------------
+# Widgets: instrument-deck controls.
+# - AnimatedToggle: the master switch (custom-painted QCheckBox).
+# - IndicatorLamp: breathing status lamp.
+# ---------------------------------------------------------------------------
+class AnimatedToggle(QCheckBox):
+    """Pill-shaped master switch with an animated knob (56x30).
+
+    The knob slides 180ms (OutCubic) on toggle; while pressed it shrinks
+    slightly to feel mechanical; checked track uses the Plasma accent.
+    """
+
+    SIZE_W = 56
+    SIZE_H = 30
+    KNOB_D = 22
+    KNOB_M = 4
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        """Initialize toggle and its slide animation."""
+        super().__init__(parent)
+        self.setFixedSize(self.SIZE_W, self.SIZE_H)
+        self._offset = self.KNOB_M
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._anim = QPropertyAnimation(self, b"offset", self)
+        self._anim.setDuration(180)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.toggled.connect(self._animate_to_state)
+
+    def offset(self) -> float:
+        """Current knob x-offset (animated property)."""
+        return self._offset
+
+    def setOffset(self, value: float) -> None:
+        """Animated property setter; repaints on change."""
+        self._offset = max(self.KNOB_M, min(self.SIZE_W - self.KNOB_D - self.KNOB_M, value))
+        self.update()
+
+    def _animate_to_state(self, checked: bool) -> None:
+        """Slide the knob to the on/off position."""
+        self._anim.stop()
+        self._anim.setStartValue(self._offset)
+        self._anim.setEndValue(self.SIZE_W - self.KNOB_D - self.KNOB_M if checked else self.KNOB_M)
+        self._anim.start()
+
+    def paintEvent(self, event: Any) -> None:
+        """Paint track + knob with palette-aware colors."""
+        del event
+        pal = self.palette()
+        accent = pal.color(QPalette.ColorRole.Highlight)
+        text_col = pal.color(QPalette.ColorRole.WindowText)
+        knob_color = QColor("#ffffff") if accent.lightness() < 160 else QColor("#1f2937")
+        checked = self.isChecked()
+
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        try:
+            rect = QRectF(0.5, 0.5, self.width() - 1.0, self.height() - 1.0)
+            radius = rect.height() / 2.0
+
+            # Track
+            if checked:
+                track = QColor(accent)
+            else:
+                track = QColor(text_col)
+                track.setAlpha(34)
+            if self.isDown():
+                track = track.darker(108)
+            p.setPen(QPen(QColor(text_col) if not checked else QColor(accent).darker(115), 1))
+            p.setBrush(QBrush(track))
+            p.drawRoundedRect(rect, radius, radius)
+
+            # Knob (shrinks while pressed), with a soft drop shadow
+            knob_d = self.KNOB_D - (1.5 if self.isDown() else 0.0)
+            kx = self._offset + (1.5 if self.isDown() else 0.0)
+            ky = (self.height() - knob_d) / 2.0
+            shadow = QColor(0, 0, 0, 70)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(shadow))
+            p.drawEllipse(QRectF(kx, ky + 1.5, knob_d, knob_d))
+            p.setBrush(QBrush(knob_color))
+            p.drawEllipse(QRectF(kx, ky, knob_d, knob_d))
+
+            # Focus ring
+            if self.hasFocus():
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                p.setPen(QPen(accent, 2))
+                p.drawRoundedRect(QRectF(0.5, 0.5, self.width() - 1.0, self.height() - 1.0), radius, radius)
+        finally:
+            p.end()
+
+    def changeEvent(self, event: QEvent) -> None:
+        """Repaint on palette changes."""
+        if event.type() in (QEvent.Type.PaletteChange, QEvent.Type.ApplicationPaletteChange):
+            self.update()
+        super().changeEvent(event)
+
+
+class IndicatorLamp(QWidget):
+    """Small status lamp. While 'on' the halo breathes (1.6s loop).
+
+    set_state('on'|'off'|'error') sets the colour; only the live state pulses.
+    """
+
+    STATE_COLORS = {
+        "on": QColor("#22c55e"),
+        "off": QColor("#94a3b8"),
+        "error": QColor("#ef4444"),
+    }
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        """Initialize lamp with a looping pulse animation (starts stopped)."""
+        super().__init__(parent)
+        self.setFixedSize(16, 16)
+        self._state = "off"
+        self._color = QColor(self.STATE_COLORS["off"])
+        self._pulse = 0.0
+        self._anim = QVariantAnimation(self)
+        self._anim.setStartValue(0.0)
+        self._anim.setEndValue(1.0)
+        self._anim.setDuration(1600)
+        self._anim.setLoopCount(-1)
+        self._anim.valueChanged.connect(self._on_pulse)
+
+    def _on_pulse(self, value: float) -> None:
+        """Advance pulse phase and redraw."""
+        self._pulse = float(value)
+        self.update()
+
+    def set_state(self, state: str) -> None:
+        """Set lamp state and start/stop the breathing loop."""
+        self._state = state
+        self._color = QColor(self.STATE_COLORS.get(state, self.STATE_COLORS["off"]))
+        if state == "on":
+            if not self._anim.state() == QVariantAnimation.State.Running:
+                self._anim.start()
+        else:
+            self._anim.stop()
+            self._pulse = 0.0
+        self.update()
+
+    def paintEvent(self, event: Any) -> None:
+        """Paint core dot + breathing halo."""
+        del event
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        try:
+            c = self.width() / 2.0
+            # Halo: translucent ring that breathes while live
+            halo_alpha = 60 if self._state == "on" else 0
+            if self._state == "on":
+                halo_alpha = int(50 + 55 * self._pulse)
+            halo_r = 5.2 + 1.6 * self._pulse * (1 if self._state == "on" else 0)
+            halo = QColor(self._color)
+            halo.setAlpha(min(255, halo_alpha))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(halo))
+            p.drawEllipse(QRectF(c - halo_r, c - halo_r, halo_r * 2, halo_r * 2))
+
+            # Core dot
+            core = QColor(self._color)
+            core.setAlpha(255 if self._state != "off" else 165)
+            p.setBrush(QBrush(core))
+            p.drawEllipse(QRectF(c - 3.4, c - 3.4, 6.8, 6.8))
+        finally:
+            p.end()
+
+
+# ---------------------------------------------------------------------------
 # Dropdown canvas: extensible sections.
 # To add future mods: subclass PanelSection, implement refresh(), append an
 # instance in DropdownPanel._build_sections().
@@ -1412,16 +1690,48 @@ class PanelSection(QFrame):
         self.layout.setContentsMargins(12, 12, 12, 12)
         self.layout.setSpacing(8)
 
-        # Header typography: 15px bold Manrope
-        self.head = QLabel(f"<b>{self.title}</b>")
-        self.head.setProperty("headingLabel", True)
-        self.head.setFont(get_app_font(pixel_size=15, bold=True))
-        self.layout.addWidget(self.head)
+        # Header: engraved section label (letter-spaced) + optional status chip
+        self.head_row = QHBoxLayout()
+        self.head_row.setSpacing(8)
+        self.head = QLabel(self.title.upper())
+        self.head.setProperty("sectionLabel", True)
+        head_font = get_app_font(pixel_size=10.5, bold=True)
+        head_font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.2)
+        self.head.setFont(head_font)
+        self.head_row.addWidget(self.head)
+        self.head_row.addStretch(1)
+        self.chip = QLabel("")
+        self.chip.setProperty("statusChip", True)
+        chip_font = get_app_font(pixel_size=11, bold=True)
+        chip_font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 0.4)
+        self.chip.setFont(chip_font)
+        self.chip.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.chip.hide()
+        self.head_row.addWidget(self.chip, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.layout.addLayout(self.head_row)
 
         self.body = QVBoxLayout()
         self.body.setSpacing(8)
         self.layout.addLayout(self.body)
         self.build_body()
+
+    def set_chip(self, text: str, color: QColor) -> None:
+        """Show (or hide when empty) a pill status chip on the section header."""
+        if not text:
+            self.chip.hide()
+            return
+        self.chip.setText(text)
+        c = QColor(color)
+        text_c = QColor(c)
+        if c.lightness() < 120:
+            text_c = c.lighter(160)
+        self.chip.setStyleSheet(
+            f"color: {text_c.name()};"
+            f"background-color: rgba({c.red()},{c.green()},{c.blue()},0.16);"
+            f"border: 1px solid rgba({c.red()},{c.green()},{c.blue()},0.5);"
+            "border-radius: 9px; padding: 1px 9px;"
+        )
+        self.chip.show()
 
     def changeEvent(self, event: QEvent) -> None:
         """Handle widget change events with recursion guard.
@@ -1460,39 +1770,84 @@ class PanelSection(QFrame):
 
 
 class HotspotSection(PanelSection):
+    """Hero card: indicator lamp + state word + instrument readout + master switch."""
+
     title = "Hotspot"
+    STATE_WORDS = {"on": "ACTIVE", "off": "STANDBY", "error": "FAULT"}
+    STATE_COLORS = {
+        "on": QColor("#22c55e"),
+        "off": QColor("#94a3b8"),
+        "error": QColor("#ef4444"),
+    }
+
+    def __init__(self, controller: HotspotPanel, parent: QWidget | None = None) -> None:
+        """Initialize hero card; set hero surface property before layout is built."""
+        super().__init__(controller, parent)
+        self.setProperty("heroCard", True)
+        self.style().unpolish(self)
+        self.style().polish(self)
 
     def build_body(self) -> None:
-        """Build Hotspot section widgets and connect button handlers."""
-        self.info = QLabel("…")
-        self.info.setWordWrap(True)
-        self.info.setProperty("metricLabel", True)
-        self.info.setFont(get_monospace_font(pixel_size=12))
-        self.body.addWidget(self.info)
+        """Build the hero: lamp + state word, readout, master switch, secondary actions."""
+        # Row 1: lamp + state word + band selector on the right
+        state_row = QHBoxLayout()
+        state_row.setSpacing(10)
+        self.lamp = IndicatorLamp(self)
+        self.state_lbl = QLabel("STANDBY")
+        self.state_lbl.setProperty("heroState", True)
+        self.state_lbl.setFont(get_app_font(pixel_size=20, bold=True))
+        state_row.addWidget(self.lamp)
+        state_row.addWidget(self.state_lbl)
+        state_row.addStretch(1)
 
-        # Band selector row
-        band_row = QHBoxLayout()
-        band_row.setSpacing(6)
-        band_lbl = QLabel("Band:")
+        band_lbl = QLabel("Band")
+        band_lbl.setProperty("mutedLabel", True)
         self.combo_band = QComboBox()
         self.combo_band.addItems(["Auto", "2.4GHz", "5GHz"])
+        self.combo_band.setFixedWidth(96)
         self.combo_band.currentTextChanged.connect(self._on_band_changed)
-        band_row.addWidget(band_lbl)
-        band_row.addWidget(self.combo_band, 1)
-        self.body.addLayout(band_row)
+        state_row.addWidget(band_lbl)
+        state_row.addWidget(self.combo_band)
+        self.body.addLayout(state_row)
 
-        self.btn_on = QPushButton("On")
-        self.btn_off = QPushButton("Off")
+        # Row 2: one-line instrument readout
+        self.readout = QLabel("…")
+        self.readout.setWordWrap(True)
+        self.readout.setProperty("heroMetric", True)
+        self.readout.setFont(get_monospace_font(pixel_size=15))
+        self.body.addWidget(self.readout)
+
+        # Row 3: master switch + state caption + restart
+        master_row = QHBoxLayout()
+        master_row.setSpacing(10)
+        self.toggle = AnimatedToggle(self)
+        self.toggle.toggled.connect(self._on_toggle)
+        self.toggle_lbl = QLabel("Off")
+        self.toggle_lbl.setProperty("mutedLabel", True)
+        self.toggle_lbl.setFont(get_app_font(pixel_size=13, bold=True))
+        master_row.addWidget(self.toggle)
+        master_row.addWidget(self.toggle_lbl)
+        master_row.addStretch(1)
         self.btn_restart = QPushButton("Restart")
-        self.btn_clients = QPushButton("Clients…")
-        self.btn_qr = QPushButton("QR Code")
-        self.btn_on.clicked.connect(self.controller.hotspot_on)
-        self.btn_off.clicked.connect(self.controller.hotspot_off)
+        self.btn_restart.setProperty("quiet", True)
         self.btn_restart.clicked.connect(self.controller.hotspot_restart)
+        master_row.addWidget(self.btn_restart)
+        self.body.addLayout(master_row)
+
+        # Row 4: secondary actions
+        self.btn_clients = QPushButton("Clients")
+        self.btn_qr = QPushButton("QR Code")
+        self.btn_clients.setProperty("quiet", True)
+        self.btn_qr.setProperty("quiet", True)
         self.btn_clients.clicked.connect(self.controller.show_clients)
         self.btn_qr.clicked.connect(self.controller.show_qr_code)
-        self.row(self.btn_on, self.btn_off, self.btn_restart)
         self.row(self.btn_clients, self.btn_qr)
+
+    def _on_toggle(self, checked: bool) -> None:
+        """Flip the master switch: toggle hotspot matching the new knob position."""
+        if checked == (self.controller.detect_state() == "on"):
+            return
+        self.controller.toggle_hotspot()
 
     def _on_band_changed(self, band_name: str) -> None:
         """Handle user selection of Wi-Fi band."""
@@ -1511,28 +1866,50 @@ class HotspotSection(PanelSection):
             self.combo_band.blockSignals(False)
 
     def refresh(self) -> None:
-        """Update hotspot and station status labels from live system state and toggle controls."""
+        """Update lamp, state word, readout, and master switch from live state."""
         ap0_ok = self.controller.ap0_available
-        self.btn_on.setEnabled(ap0_ok)
-        self.btn_off.setEnabled(ap0_ok)
-        self.btn_restart.setEnabled(ap0_ok)
-        self.btn_clients.setEnabled(ap0_ok)
-        self.btn_qr.setEnabled(ap0_ok)
-        self.combo_band.setEnabled(ap0_ok)
+        state = "error" if not ap0_ok else self.controller.detect_state()
+        for w in (self.combo_band, self.btn_restart, self.btn_clients, self.btn_qr):
+            w.setEnabled(ap0_ok)
 
+        # Lamp + state word
+        self.lamp.set_state(state)
+        state_color = self.STATE_COLORS.get(state, self.STATE_COLORS["off"])
+        if state == "off" and not is_dark_mode(self.palette()):
+            state_color = QColor("#5b6472")
+        self.state_lbl.setText(self.STATE_WORDS.get(state, "STANDBY"))
+        self.state_lbl.setStyleSheet(f"color: {state_color.name()};")
+        self.toggle_lbl.setText("On" if state == "on" else "Off")
+        self.toggle_lbl.setStyleSheet(
+            f"color: {state_color.name()};" if state == "on" else "")
+
+        # Readout + toggle position
         if not ap0_ok:
-            self.info.setText(
-                f"Interface {AP_IF} is unavailable.\n"
-                "Hotspot controls disabled."
-            )
+            self.readout.setText(f"{AP_IF} unavailable — hotspot controls disabled")
+            self.toggle.setEnabled(False)
+            self.toggle.blockSignals(True)
+            self.toggle.setChecked(False)
+            self.toggle.blockSignals(False)
             return
 
+        self.toggle.setEnabled(True)
         try:
             sec = get_hotspot_security()
-            sta, ap, n = hotspot_state()
-            self.info.setText(f"{sta}\n{ap} [{sec}] | clients {n} | leases {lease_count()}")
+            _, _, n = hotspot_state()
+            ap = iface_info(AP_IF)
+            ssid = ap.get("ssid") or HOTSPOT_CON
+            ch = ap.get("channel") or "?"
+            leases = str(lease_count()).split()[0]
+            self.readout.setText(
+                f"{ssid} · ch{ch} · {n} client{'s' if n != 1 else ''} · "
+                f"{leases} lease{'s' if leases != '1' else ''} · {sec}"
+            )
         except Exception as e:
-            self.info.setText(f"Status error: {e}")
+            self.readout.setText(f"Status error: {e}")
+
+        self.toggle.blockSignals(True)
+        self.toggle.setChecked(state == "on")
+        self.toggle.blockSignals(False)
 
         # Keep band dropdown in sync with controller config
         cfg_band = self.controller.config.get("band", "Auto")
@@ -1548,7 +1925,9 @@ class WarpSection(PanelSection):
 
     def build_body(self) -> None:
         """Build Cloudflare WARP section widgets and connect button handlers."""
-        self.info = QLabel("…")
+        self.info = QLabel("Status: unknown")
+        self.info.setProperty("metricLabel", True)
+        self.info.setFont(get_monospace_font(pixel_size=12))
         self.body.addWidget(self.info)
         self.btn_on = QPushButton("Connect")
         self.btn_off = QPushButton("Disconnect")
@@ -1557,8 +1936,16 @@ class WarpSection(PanelSection):
         self.row(self.btn_on, self.btn_off)
 
     def refresh(self) -> None:
-        """Update Cloudflare WARP connection status label."""
-        self.info.setText(f"Status: {warp_status()}")
+        """Update Cloudflare WARP connection status label and chip."""
+        st = warp_status()
+        low = st.lower()
+        self.info.setText(f"Status: {st}")
+        if "connected" in low:
+            self.set_chip("LIVE", QColor("#22c55e"))
+        elif "not installed" in low:
+            self.set_chip("MISSING", QColor("#94a3b8"))
+        else:
+            self.set_chip("OFF", QColor("#94a3b8"))
 
 
 class BandwidthSection(PanelSection):
@@ -1575,8 +1962,8 @@ class BandwidthSection(PanelSection):
         """Create widgets for bandwidth monitor."""
         self.info = QLabel("…")
         self.info.setWordWrap(True)
-        self.info.setProperty("metricLabel", True)
-        self.info.setFont(get_monospace_font(pixel_size=12))
+        self.info.setProperty("heroMetric", True)
+        self.info.setFont(get_monospace_font(pixel_size=14))
         self.body.addWidget(self.info)
 
     def refresh(self) -> None:
@@ -1587,22 +1974,24 @@ class BandwidthSection(PanelSection):
         if dt <= 0:
             dt = 5.0
 
-        def _rate_str(iface: str) -> str:
-            if iface not in stats:
-                return f"{iface}: down"
+        def _rates(iface: str) -> str:
+            if iface not in stats or iface not in self._last_stats:
+                return f"↓{format_rate(0)} ↑{format_rate(0)}"
             rx, tx = stats[iface]
-            if iface not in self._last_stats:
-                return f"{iface}: ↓{format_rate(0)} ↑{format_rate(0)}"
             prev_rx, prev_tx = self._last_stats[iface]
             rx_rate = max(0.0, (rx - prev_rx) / dt) if rx >= prev_rx else 0.0
             tx_rate = max(0.0, (tx - prev_tx) / dt) if tx >= prev_tx else 0.0
-            return f"{iface}: ↓{format_rate(rx_rate)} ↑{format_rate(tx_rate)}"
+            return f"↓{format_rate(rx_rate)} ↑{format_rate(tx_rate)}"
 
-        wlan_part = _rate_str(STA_IF)
-        ap_part = _rate_str(AP_IF)
-        self.info.setText(f"{wlan_part} | {ap_part}")
+        self.info.setText(f"{STA_IF}  {_rates(STA_IF)}\n{AP_IF}  {_rates(AP_IF)}")
         self._last_stats = stats
         self._last_time = now
+        try:
+            live = self.controller.detect_state() == "on"
+        except Exception:
+            live = False
+        self.set_chip("LIVE" if live else "IDLE",
+                      QColor("#22c55e") if live else QColor("#94a3b8"))
 
 
 class SystemSection(PanelSection):
@@ -1614,9 +2003,9 @@ class SystemSection(PanelSection):
         self.info.setProperty("metricLabel", True)
         self.info.setFont(get_monospace_font(pixel_size=12))
         self.body.addWidget(self.info)
-        self.btn_sync = QPushButton("Restart channel-sync")
-        self.btn_route = QPushButton("Fix client routing")
-        self.btn_mac_filter = QPushButton("MAC Filter…")
+        self.btn_sync = QPushButton("Restart sync")
+        self.btn_route = QPushButton("Fix routing")
+        self.btn_mac_filter = QPushButton("MAC Filter")
         self.btn_docs = QPushButton("Docs")
         self.btn_sync.clicked.connect(self.controller.sync_restart)
         self.btn_route.clicked.connect(self.controller.fix_routing)
@@ -1657,7 +2046,11 @@ class SystemSection(PanelSection):
         self.time_sched_off.setTime(t_off if t_off.isValid() else QTime(22, 0))
         self.time_sched_off.timeChanged.connect(self._time_sched_changed)
 
-        self.row(self.chk_schedule, QLabel("On:"), self.time_sched_on, QLabel("Off:"), self.time_sched_off)
+        sched_on_lbl = QLabel("On:")
+        sched_on_lbl.setProperty("mutedLabel", True)
+        sched_off_lbl = QLabel("Off:")
+        sched_off_lbl.setProperty("mutedLabel", True)
+        self.row(self.chk_schedule, sched_on_lbl, self.time_sched_on, sched_off_lbl, self.time_sched_off)
 
         # Battery saver toggle and threshold
         self.chk_battery = QCheckBox("Battery saver")
@@ -1726,15 +2119,17 @@ class SystemSection(PanelSection):
         bypass = "on" if vpn_bypass_on() else "OFF"
         mf_enabled = self.controller.config.get("mac_filter_enabled", False)
         mf_mode = self.controller.config.get("mac_filter_mode", "allow")
-        mf_status = (
-            f"Active ({mf_mode})" if mf_enabled else "OFF"
-        ) + f" ({len(self.controller.allowed_macs)} allowed, {len(self.controller.blocked_macs)} blocked)"
+        mf_status = (f"Active {mf_mode}" if mf_enabled else "OFF") + \
+            f" · {len(self.controller.allowed_macs)} allowed · {len(self.controller.blocked_macs)} blocked"
 
-        lines = [f"channel-sync: {state} | VPN bypass: {bypass}"]
+        sync_live = state == "active"
+        self.set_chip("SYNC" if sync_live else "SYNC OFF",
+                      QColor("#22c55e") if sync_live else QColor("#ef4444"))
+
+        lines = [f"VPN bypass: {bypass} · MAC filter: {mf_status}"]
         if DISABLED_FLAG.exists():
             lines.append("Hotspot: manually stopped")
-        lines.append(f"MAC filter: {mf_status}")
-        lines.append(f"wlan0 ch{sta.get('channel', '?')} | ap0 ch{ap.get('channel', '?')}")
+        lines.append(f"{STA_IF} ch{sta.get('channel', '?')} | {AP_IF} ch{ap.get('channel', '?')}")
         self.info.setText("\n".join(lines))
         self.chk_autostart.blockSignals(True)
         self.chk_autostart.setChecked(is_autostart_enabled())
@@ -1844,7 +2239,8 @@ class ClientsDialog(QDialog):
 
         if not stations:
             empty = QLabel(f"No clients (or AP interface {AP_IF} is down).")
-            empty.setStyleSheet("color: gray;")
+            empty.setProperty("mutedLabel", True)
+            empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.clients_layout.addWidget(empty)
         else:
             for mac, sig in stations:
@@ -1991,6 +2387,7 @@ class MacFilterDialog(QDialog):
         # Bottom buttons
         bottom = QHBoxLayout()
         btn_save = QPushButton("Save & Apply")
+        btn_save.setProperty("primary", True)
         btn_save.clicked.connect(self._save_and_apply)
         btn_cancel = QPushButton("Cancel")
         btn_cancel.clicked.connect(self.reject)
@@ -2103,12 +2500,12 @@ class DropdownPanel(QWidget):
         top = QHBoxLayout()
         top.setContentsMargins(0, 4, 0, 8)
         top.setSpacing(10)
-        header = QLabel("<b>Hotspot Hub</b> — dropdown canvas")
+        header = QLabel("Hotspot Hub")
         header.setProperty("headingLabel", True)
         header.setFont(get_app_font(pixel_size=16, bold=True))
         close_btn = QPushButton("✕")
         close_btn.setObjectName("closeBtn")
-        close_btn.setFixedSize(36, 36)
+        close_btn.setFixedSize(32, 32)
         close_btn.clicked.connect(self.hide)
         top.addWidget(header, 1)
         top.addWidget(close_btn)
@@ -2119,7 +2516,6 @@ class DropdownPanel(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setStyleSheet("QScrollArea{background:transparent;border:none;} QScrollArea>QWidget>QWidget{background:transparent;}")
 
         container = QWidget()
         container_layout = QVBoxLayout(container)
@@ -2134,15 +2530,23 @@ class DropdownPanel(QWidget):
         # Bottom row with hint label and resize grip at bottom-right
         bottom_bar = QHBoxLayout()
         bottom_bar.setContentsMargins(0, 0, 0, 0)
-        hint = QLabel("Right-click tray for menu • Quit there. "
-                      "Add future mods as new PanelSection.")
+        hint = QLabel("Right-click the tray icon for quick actions · Quit there.")
         hint.setWordWrap(True)
-        hint.setEnabled(False)
+        hint.setProperty("mutedLabel", True)
         self.size_grip = QSizeGrip(self)
         self.size_grip.setToolTip("Resize panel")
         bottom_bar.addWidget(hint, 1)
         bottom_bar.addWidget(self.size_grip, 0, Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight)
         root.addLayout(bottom_bar)
+
+        # Show animation: fade in (160ms, OutCubic)
+        self._effect = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(self._effect)
+        self._fade = QPropertyAnimation(self._effect, b"opacity", self)
+        self._fade.setDuration(160)
+        self._fade.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._fade.setStartValue(0.0)
+        self._fade.setEndValue(1.0)
 
         self.restore_settings()
         self._applying_theme: bool = False
@@ -2229,8 +2633,11 @@ class DropdownPanel(QWidget):
                     pass
 
     def showEvent(self, event: Any) -> None:
-        """Resume refresh timer and update sections when panel is displayed."""
+        """Fade the panel in, resume refresh timer, and update sections."""
         super().showEvent(event)
+        self._effect.setOpacity(0.0)
+        self._fade.stop()
+        self._fade.start()
         self.controller.on_panel_shown()
 
     def hideEvent(self, event: Any) -> None:

@@ -5,6 +5,27 @@ All notable changes to Hotspot Hub are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-10-24
+
+### Changed
+- **UI redesign (instrument-deck, per oil-ui direction)** — see `docs/UI-REDESIGN.md`:
+  - Hero card: indicator lamp, big state word (ACTIVE / STANDBY / FAULT),
+    one-line instrument readout (SSID · channel · clients · leases · security).
+  - **Animated master switch** (`AnimatedToggle`) replaces the On/Off button pair;
+    knob slides 180 ms, pressed state shrinks the knob, checked track uses the
+    Plasma accent.
+  - **Breathing indicator lamp** (`IndicatorLamp`): halo pulses while the hotspot
+    is live; solid when off/fault.
+  - Design tokens: 16 px canvas / 14 px cards / 8 px controls, 1 px borders,
+    engraved letter-spaced section labels, per-section status chips
+    (SYNC, LIVE, IDLE), pill chips with state colours.
+  - Panel show animation: fade-in 160 ms (OutCubic).
+  - Removed developer-facing hint text from the UI bottom bar.
+  - Buttons: default/quiet/primary variants; focus = accent ring;
+    consistent hover/pressed states across dialogs.
+  - Clients / MAC filter / QR dialogs restyled to the same token set;
+    empty client state styled as a muted centered label.
+
 ## [0.3.0] - 2026-10-24
 
 ### Added

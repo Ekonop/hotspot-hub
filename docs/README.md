@@ -3,3 +3,4 @@
 - [Configuration](CONFIGURATION.md) — interfaces, env overrides, profile setup.
 - [Architecture](ARCHITECTURE.md) — STA+AP single-radio design, components.
 - [Troubleshooting](TROUBLESHOOTING.md) — common failures and fixes.
+- [UI Redesign](UI-REDESIGN.md) — design direction and visual roles of the tray panel.

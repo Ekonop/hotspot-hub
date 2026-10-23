@@ -31,6 +31,14 @@ app.processEvents()
 time.sleep(0.4)
 app.processEvents()
 
+# The show-fade animation may leave opacity < 1 in offscreen rendering;
+# force it to full before grabbing.
+if hasattr(dropdown, "_effect"):
+    dropdown._effect.setOpacity(1.0)
+app.processEvents()
+time.sleep(0.2)
+app.processEvents()
+
 pix = dropdown.grab()
 out = os.path.join(os.path.dirname(__file__), "ui_screenshot.png")
 pix.save(out)
