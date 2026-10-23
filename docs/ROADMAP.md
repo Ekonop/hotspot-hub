@@ -26,7 +26,7 @@
 - [x] **Scheduled hotspot** — auto on/off at specified times. ✅
 - [x] **Battery-aware** — auto-disable hotspot when battery low (integrate with the hibernate-at-5% work). ✅
 - [x] **Client MAC filtering** — allow/deny list for connected devices. ✅
-- [ ] **Bandwidth throttling** — per-client or total bandwidth limits via tc.
+- [x] **Bandwidth throttling** — per-client/total bandwidth limits via tc (CLI `throttle`). ✅
 - [x] **IPv6 support** — optional IPv6 on AP interface. ✅
 - [x] **5GHz band support** — currently only 2.4/5GHz auto; allow manual band selection. ✅
 - [x] **WPA3 support detection** — auto-detect firmware SAE capability instead of hardcoding WPA2. ✅
@@ -66,7 +66,7 @@
 - [x] **Firewall rules review** — verify UFW rules are minimal.
 
 ### D. Code quality
-- [ ] **Type hints** — add Python type annotations. ✅ (done via agy)
+- [x] **Type hints** — add Python type annotations. ✅ (done via agy)
 - [x] **Unit tests** — test parsing functions (iface_info, station_dump, etc.) with mock data.
 - [x] **Linting** — ruff/flake8 + black formatting.
 - [x] **CI/CD** — GitHub Actions for lint + package build.

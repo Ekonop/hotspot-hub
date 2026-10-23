@@ -159,6 +159,18 @@ def cmd_metrics(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_throttle(args: argparse.Namespace) -> int:
+    """Apply or clear a bandwidth limit (Mbps) on an interface via tc."""
+    iface = args.iface
+    rate = args.rate
+    if rate is None or rate <= 0:
+        ok, msg = hub.clear_bandwidth_limit(iface)
+    else:
+        ok, msg = hub.set_bandwidth_limit(iface, rate)
+    print(msg)
+    return 0 if ok else 1
+
+
 def cmd_on(args: argparse.Namespace) -> int:
     """Turn on hotspot."""
     print("Activating hotspot...")
@@ -434,6 +446,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_metrics.add_argument("-o", "--output", metavar="FILE",
                            help="Write metrics to FILE instead of stdout")
     p_metrics.set_defaults(func=cmd_metrics)
+
+    # throttle
+    p_throttle = subparsers.add_parser(
+        "throttle",
+        help="Apply or clear a bandwidth cap (Mbps) on an interface via tc")
+    p_throttle.add_argument("iface", help="Interface (e.g. ap0, wlan0)")
+    p_throttle.add_argument("rate", nargs="?", type=float, default=0.0,
+                            help="Rate limit in Mbps (0 or omit to clear)")
+    p_throttle.set_defaults(func=cmd_throttle)
 
     return parser
 

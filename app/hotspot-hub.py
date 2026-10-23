@@ -927,6 +927,53 @@ def format_rate(bytes_per_sec: float) -> str:
     return f"{mb_s:.1f}MB/s"
 
 
+def set_bandwidth_limit(iface: str, rate_mbps: float) -> tuple[bool, str]:
+    """Apply a total bandwidth cap (Mbps) on an interface using tc (token bucket filter).
+
+    Replaces any existing root qdisc on the interface. Use rate_mbps <= 0 to clear.
+
+    Args:
+        iface: Interface name (e.g. 'ap0', 'wlan0').
+        rate_mbps: Rate limit in Mbps; 0 or negative clears the limit.
+
+    Returns:
+        (ok, message) tuple.
+    """
+    if rate_mbps <= 0:
+        return clear_bandwidth_limit(iface)
+
+    # tc uses kbit/s; 1 Mbps = 1000 kbit/s
+    rate_kbit = int(rate_mbps * 1000)
+    burst_kb = max(16, rate_kbit // 8)
+    # Replace existing root qdisc with tbf
+    rc, out = priv(["tc", "qdisc", "replace", "dev", iface, "root", "tbf",
+                    "rate", f"{rate_kbit}kbit", "burst", f"{burst_kb}kb", "latency", "50ms"],
+                   timeout=15)
+    if rc == 0:
+        logger.info("Bandwidth limit set on %s: %s Mbps", iface, rate_mbps)
+        return True, f"Throttled {iface} to {rate_mbps} Mbps"
+    logger.error("Failed to set bandwidth limit on %s: %s", iface, out)
+    return False, out or "tc failed"
+
+
+def clear_bandwidth_limit(iface: str) -> tuple[bool, str]:
+    """Remove any bandwidth limit (root qdisc) from an interface.
+
+    Args:
+        iface: Interface name.
+
+    Returns:
+        (ok, message) tuple.
+    """
+    rc, out = priv(["tc", "qdisc", "del", "dev", iface, "root"], timeout=15)
+    # tc returns non-zero if there was no qdisc; treat as success.
+    if rc == 0 or "Cannot delete" in out or "No such file" in out:
+        logger.info("Bandwidth limit cleared on %s", iface)
+        return True, f"Cleared bandwidth limit on {iface}"
+    logger.error("Failed to clear bandwidth limit on %s: %s", iface, out)
+    return False, out or "tc failed"
+
+
 def autostart_desktop_path() -> Path:
     """Return path to autostart desktop file (~/.config/autostart/hotspot-hub.desktop)."""
     return Path.home() / ".config" / "autostart" / "hotspot-hub.desktop"
