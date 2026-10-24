@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.0] - 2026-10-25
 
+### Fixed
+- **Master toggle syncs on panel open** — the periodic refresh timer only ran
+  every 30 s, so the switch could show OFF (stale) while the hotspot was
+  already ON and clicks "did nothing" or turned the hotspot the wrong way.
+  The panel now refreshes (and floats the knob to the live state) before every
+  show.
+- **Tray flame geometry** — the flame glyph rendered as an 8×12 px blob;
+  it now fills the icon canvas as the brand mark in per-state color
+  (green = on, grey = off, red = error).
+
+
 ### Added
 - **Configure hotspot name & passphrase** from the UI. The hero card's new
   **Configure** pill opens a dialog that renames the SSID and/or changes the
