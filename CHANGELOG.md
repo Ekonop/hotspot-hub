@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.5.0] - 2026-10-25
 
 ### Fixed
+- **Master toggle: real mouse clicks now register.** This was the actual
+  reason the in-app switch "didn't work" (while the tray context menu did):
+  QCheckBox only treats its indicator box as clickable, and `hitButton()`
+  returned false for the whole right half of the pill — exactly where the
+  knob sits when the hotspot is ON, i.e. the very spot you click to turn it
+  off. Clicks were silently dropped; the widget never even toggled. The whole
+  pill is now the button (`AnimatedToggle.hitButton()` → `rect().contains`).
+  Verified with real mouse-event dispatch (`QTest.mouseClick`): click → box
+  flips → async off runs → hotspot down in ~2s and stays down.
+
+
 - **Master toggle now actually sticks.** Two layers were fighting it:
   `hotspot-channelsync.service` (a 10-second ticker that keeps the AP on the
   STA channel) was resurrecting a hotspot the moment you toggled it off —

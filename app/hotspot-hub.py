@@ -23,6 +23,7 @@ from PyQt6.QtCore import (
     QAbstractAnimation,
     QEasingCurve,
     QEvent,
+    QPoint,
     QPropertyAnimation,
     QRectF,
     QSettings,
@@ -1874,6 +1875,16 @@ class AnimatedToggle(QCheckBox):
         if self._anim.state() == QAbstractAnimation.State.Running:
             return self._offset
         return self.SIZE_W - self.KNOB_D - self.KNOB_M if self.isChecked() else self.KNOB_M
+
+    def hitButton(self, pos: QPoint) -> bool:
+        """The whole pill is the button.
+
+        QCheckBox only treats the indicator box as hit, so clicks on the
+        right half of the pill (exactly where the knob sits when the hotspot
+        is ON — the "turn it off" position) were silently dropped: real mouse
+        clicks never toggled the switch.
+        """
+        return self.rect().contains(pos)
 
     def paintEvent(self, event: Any) -> None:
         """Paint track + knob with palette-aware colors."""
