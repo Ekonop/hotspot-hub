@@ -2533,15 +2533,27 @@ class ClientsDialog(QDialog):
             empty_box.addWidget(empty)
             self.clients_layout.addLayout(empty_box)
         else:
+            leases = read_leases()
+            oui = _load_oui_vendors()
+            named = sum(1 for mac, _ in stations if client_device_name(mac, leases, oui))
+            if named:
+                summary = f"Stations: {len(stations)} ({named} named) | DHCP leases: {lease_count()}"
+                self.summary_label.setText(summary)
             for mac, sig in stations:
                 row = QWidget()
                 row_layout = QHBoxLayout(row)
                 row_layout.setContentsMargins(4, 2, 4, 2)
                 row_layout.setSpacing(8)
 
-                info = QLabel(f"{mac}  ({sig or 'signal ?'})")
+                name = client_device_name(mac, leases, oui)
+                if name:
+                    info = QLabel(f"{name}  ·  {mac}  ({sig or 'signal ?'})")
+                else:
+                    info = QLabel(f"{mac}  ({sig or 'signal ?'})")
                 info.setProperty("metricLabel", True)
                 info.setFont(get_monospace_font(pixel_size=12))
+                info.setToolTip(f"{mac}  {sig or ''}  {name or 'unnamed device'}".strip())
+                info.setWordWrap(True)
 
                 # Allow button
                 btn_allow = QPushButton("+ Allow")
