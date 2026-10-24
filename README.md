@@ -16,8 +16,9 @@ MediaTek MT7922).
   lamp, big state word (ACTIVE / STANDBY / FAULT), band selector, one-line
   readout (SSID · channel · clients · leases · security), an animated
   **master switch**, and a pill-button row (**Restart / Clients / QR Code**).
-  Below it: **WARP**, **Bandwidth**, **System**, and **Health** cards. Tray icon
-  stays color-coded (green = on, grey = off, red = error).
+  Below it: **WARP**, **Bandwidth**, **System**, and **Health** cards. The
+  **flame brand mark** is the app icon, the window icon, and the tray icon —
+  the tray flame is colored by state (green = on, grey = off, red = error).
 - **Channel sync** keeps AP on STA's channel (10s fallback + NM dispatcher events).
 - **VPN/WARP bypass** at policy-routing priority 50 (self-repairing).
 - **Manual stop respected**: stopping the hotspot no longer auto-restarts via the

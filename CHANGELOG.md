@@ -24,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   you assign a persistent friendly name (`~/.config/hotspot-hub/devicenames.json`),
   which overrides all automatic lookups. The dialog header counts named devices.
 
+- **QR dialog now displays the live passphrase** in plaintext (mono,
+  selectable) with a Copy button (`Copied ✓` transient feedback).
+- **Brand marks everywhere** — the system-tray icon is now the flame glyph
+  itself, painted per-state (green = on, grey = off, red = error) on a
+  transparent canvas (previously a tiny status dot on a dark tile that didn't
+  read as the logo at 22 px), and the app-wide window icon (dialogs, titlebars)
+  is set to the flame brand mark.
+
 ## [0.4.3] - 2026-10-25
 
 ### Fixed

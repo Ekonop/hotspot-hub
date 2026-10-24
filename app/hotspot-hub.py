@@ -51,6 +51,7 @@ from PyQt6.QtGui import (
     QIcon,
     QKeySequence,
     QPainter,
+    QPainterPath,
     QPalette,
     QPen,
     QPixmap,
@@ -1742,49 +1743,56 @@ def get_base_icon() -> QIcon:
 
 
 def make_status_icon(state: str, size: int = 64) -> QIcon:
-    """Generate a colored tray icon (green=hotspot on, grey=off, red=error) using QPixmap painting.
+    """Colored flame tray icon: green = on, grey = off, red = error.
 
-    The base icon is hotspot-hub.svg (or fallback network-wireless-hotspot).
-    Tint it with a colored overlay circle in the bottom-right corner.
+    The flame glyph (the brand mark from assets/flame.svg) is painted directly
+    with QPainter on a transparent canvas — no SVG/tile background, crisp at
+    any tray size, and the shape reads as the brand in every status color.
     """
     cache_key = (state.lower(), size)
     if cache_key in _STATUS_ICON_CACHE:
         return _STATUS_ICON_CACHE[cache_key]
 
     color = STATUS_COLORS.get(state.lower(), STATUS_COLORS["off"])
-    base_icon = get_base_icon()
-
     icon = QIcon()
     sizes = (size,) if size != 64 else (22, 24, 32, 48, 64)
     for s in sizes:
-        base_pix = base_icon.pixmap(s, s)
-        if base_pix.isNull():
-            fallback = QIcon.fromTheme(
-                "network-wireless-hotspot",
-                QIcon.fromTheme("network-wireless", QIcon.fromTheme("network-modem"))
-            )
-            base_pix = fallback.pixmap(s, s)
-
         pix = QPixmap(s, s)
         pix.fill(Qt.GlobalColor.transparent)
         painter = QPainter(pix)
         try:
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            if not base_pix.isNull():
-                painter.drawPixmap(0, 0, base_pix)
-            d = max(6.0, s * 0.32)
-            margin = max(1.0, s * 0.05)
-            x = s - d - margin
-            y = s - d - margin
-            painter.setPen(QPen(QColor(15, 23, 42, 220), max(1.0, s * 0.035)))
+            painter.translate(s * 0.5, s * 0.5)
+            painter.scale(s * 0.84, s * 0.84)
+            painter.translate(-0.5, -0.5)
+            painter.setPen(QPen(color.darker(125), 0.035))
             painter.setBrush(QBrush(color))
-            painter.drawEllipse(QRectF(x, y, d, d))
+            painter.drawPath(_FLAME_OUTER)
+            painter.setBrush(QBrush(color.lighter(140)))
+            painter.drawPath(_FLAME_INNER)
         finally:
             painter.end()
         icon.addPixmap(pix)
 
     _STATUS_ICON_CACHE[cache_key] = icon
     return icon
+
+
+# Flame glyph paths in a unit 0..1 box, transcribed from assets/flame.svg
+# (dual-lobe flame, warm inner core). Used by make_status_icon().
+_FLAME_OUTER = QPainterPath()
+_FLAME_OUTER.moveTo(0.5, 0.125)
+_FLAME_OUTER.cubicTo(0.59375, 0.28125, 0.71875, 0.34375, 0.71875, 0.53125)
+_FLAME_OUTER.arcTo(0.28125, 0.3125, 0.4375, 0.4375, 0.0, -180.0)
+_FLAME_OUTER.cubicTo(0.28125, 0.34375, 0.40625, 0.28125, 0.5, 0.125)
+_FLAME_OUTER.closeSubpath()
+
+_FLAME_INNER = QPainterPath()
+_FLAME_INNER.moveTo(0.5, 0.3125)
+_FLAME_INNER.cubicTo(0.5546875, 0.390625, 0.625, 0.4296875, 0.625, 0.5234375)
+_FLAME_INNER.arcTo(0.375, 0.3984375, 0.25, 0.25, 0.0, -180.0)
+_FLAME_INNER.cubicTo(0.375, 0.4296875, 0.4453125, 0.390625, 0.5, 0.3125)
+_FLAME_INNER.closeSubpath()
 
 
 # ---------------------------------------------------------------------------
@@ -3333,6 +3341,11 @@ class HotspotPanel:
             initial_icon if not initial_icon.isNull() else self.fallback_icon,
             self.app
         )
+        # App-wide window icon: the flame brand mark (dialog titlebars etc.)
+        try:
+            self.app.setWindowIcon(get_base_icon())
+        except Exception:
+            pass
 
         # Persistent configuration & MAC filtering state
         self.config: dict[str, Any] = load_app_config()
