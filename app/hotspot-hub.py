@@ -3843,6 +3843,24 @@ class HotspotPanel:
         info_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         dlg_layout.addWidget(info_lbl)
 
+        psk_row = QHBoxLayout()
+        psk_lbl = QLabel(f"<b>Password:</b> {psk}")
+        psk_lbl.setFont(get_monospace_font(pixel_size=13))
+        psk_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        psk_lbl.setToolTip("Current passphrase — select to copy")
+        psk_row.addWidget(psk_lbl, 1)
+
+        def _copy_psk() -> None:
+            QApplication.clipboard().setText(psk)
+            copy_btn.setText("Copied ✓")
+            QTimer.singleShot(1400, lambda: copy_btn.setText("Copy"))
+
+        copy_btn = QPushButton("Copy")
+        copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        copy_btn.clicked.connect(_copy_psk)
+        psk_row.addWidget(copy_btn)
+        dlg_layout.addLayout(psk_row)
+
         img_lbl = QLabel()
         img_lbl.setPixmap(pix)
         img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
