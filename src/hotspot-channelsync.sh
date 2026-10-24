@@ -52,6 +52,18 @@ if [ -f "$DISABLED_FLAG" ]; then
   exit 0
 fi
 
+# re-gate right before activating: the toggle-off path touches the flag just
+# before/after `nmcli down`, and a tick that already passed the top check can
+# otherwise resurrect a hotspot the user just turned off.
+up_hotspot() {
+  if [ -f "$DISABLED_FLAG" ]; then
+    log "Hotspot manually disabled at up-time, skipping"
+    return 1
+  fi
+  nmcli connection up "$HOTSPOT_CON"
+  return $?
+}
+
 # 2. read STA channel/freq
 WLAN_INFO=$(iw dev "$STA_IF" info 2>/dev/null)
 CH=$(echo "$WLAN_INFO" | awk '/channel/ {print $2}')
@@ -71,7 +83,7 @@ if [ "$CH" = "$CUR_CH" ] && [ "$BAND" = "$CUR_BAND" ]; then
   if ! nmcli -t -f NAME,DEVICE connection show --active | grep -q "^${HOTSPOT_CON}:${AP_IF}$"; then
     if sta_up; then
       log "Hotspot not active, bringing up on ch $CH $BAND"
-      nmcli connection up "$HOTSPOT_CON" 2>&1 | logger -t "$LOG_TAG"
+      up_hotspot 2>&1 | logger -t "$LOG_TAG"
     fi
   fi
   exit 0
@@ -80,7 +92,7 @@ fi
 log "STA moved to ch $CH freq $FREQ ($BAND), hotspot was ch $CUR_CH $CUR_BAND -> updating"
 nmcli connection modify "$HOTSPOT_CON" 802-11-wireless.channel "$CH" 802-11-wireless.band "$BAND"
 if sta_up; then
-  nmcli connection up "$HOTSPOT_CON" 2>&1 | logger -t "$LOG_TAG"
+  up_hotspot 2>&1 | logger -t "$LOG_TAG"
   log "Hotspot restarted on ch $CH $BAND"
 else
   log "$STA_IF not connected, profile updated, AP restart deferred"

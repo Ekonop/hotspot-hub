@@ -46,14 +46,14 @@ class FormatRateTests(unittest.TestCase):
     """Tests for format_rate byte-per-second formatting."""
 
     def test_zero_and_negative(self) -> None:
-        self.assertEqual(hub.format_rate(0), "0.0MB/s")
-        self.assertEqual(hub.format_rate(-5), "0.0MB/s")
+        self.assertEqual(hub.format_rate(0), "0 B/s")
+        self.assertEqual(hub.format_rate(-5), "0 B/s")
 
     def test_megabytes(self) -> None:
         # 1.5 MiB/s
         self.assertEqual(hub.format_rate(1_572_864), "1.5MB/s")
-        # Sub-MiB rounds to 0.0MB/s
-        self.assertEqual(hub.format_rate(1024), "0.0MB/s")
+        # Sub-MiB traffic now shows real units instead of rounding to 0.0MB/s
+        self.assertEqual(hub.format_rate(1024), "1.0kB/s")
 
     def test_gigabytes(self) -> None:
         # 2 GiB/s -> 2.0GB/s

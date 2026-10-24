@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.5.0] - 2026-10-25
 
 ### Fixed
+- **Master toggle now actually sticks.** Two layers were fighting it:
+  `hotspot-channelsync.service` (a 10-second ticker that keeps the AP on the
+  STA channel) was resurrecting a hotspot the moment you toggled it off —
+  `nmcli connection up` ran whenever wlan0 was associated, which on this
+  system is always. The disabled flag is now set *before* the `nmcli down`
+  (and unconditionally), and the channelsync script re-checks the flag right
+  before every activation. Live-verified: toggle off stays off through
+  multiple real 10s ticks; toggle on stays on.
+- **Bandwidth card now shows live speeds.** The monitor only sampled on the
+  30s timer (a 30-second average of bursty phone traffic ≈ 0), and the MB/s
+  formatter rounded anything under ~50 kB/s to "0.0MB/s". Added a 2s ticker
+  (runs only while the panel is visible), fresh-sample handling when the panel
+  reopens, and adaptive units (B/s · kB/s · MB/s · GB/s). Verified: 7.4 MB/s
+  down during an active download, kB/s during light traffic.
+
+
 - **Master toggle syncs on panel open** — the periodic refresh timer only ran
   every 30 s, so the switch could show OFF (stale) while the hotspot was
   already ON and clicks "did nothing" or turned the hotspot the wrong way.

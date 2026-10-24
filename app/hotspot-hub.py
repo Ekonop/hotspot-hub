@@ -1096,14 +1096,20 @@ def hotspot_start() -> tuple[bool, str]:
 
 
 def hotspot_stop() -> tuple[bool, str]:
-    """Deactivate hotspot connection and create disabled flag. Return (ok, message)."""
+    """Deactivate hotspot connection and create disabled flag. Return (ok, message).
+
+    The disabled flag gates hotspot-channelsync.service (a 10s ticker that
+    resurrects the AP whenever wlan0 STA is associated): it must be set BEFORE
+    the down and unconditionally, or the hotspot comes straight back on after
+    a toggle-off ("the toggle doesn't work").
+    """
     invalidate_cache()
     logger.info("hotspot_stop requested: deactivating %s", HOTSPOT_CON)
+    set_disabled_flag(True)
     rc, out = run_rc(["nmcli", "con", "down", HOTSPOT_CON], timeout=30)
     invalidate_cache()
     if rc == 0:
         logger.info("hotspot_stop succeeded")
-        set_disabled_flag(True)
         return True, f"{HOTSPOT_CON} deactivated"
     err = out[-300:] or "nmcli down failed"
     logger.error("hotspot_stop failed: %s", err)
@@ -1161,13 +1167,22 @@ def read_net_dev_bytes() -> dict[str, tuple[int, int]]:
 
 
 def format_rate(bytes_per_sec: float) -> str:
-    """Format bytes per second into MB/s rate string (e.g. 1.2MB/s)."""
+    """Format bytes/s with adaptive units (B/s, kB/s, MB/s, GB/s).
+
+    MB/s with one decimal rounds sub-50-kB/s traffic to "0.0MB/s", which
+    made the Bandwidth card look dead for typical phone/laptop traffic.
+    """
     if bytes_per_sec <= 0:
-        return "0.0MB/s"
-    mb_s = bytes_per_sec / (1024 * 1024)
-    if mb_s >= 1024:
-        return f"{mb_s / 1024:.1f}GB/s"
-    return f"{mb_s:.1f}MB/s"
+        return "0 B/s"
+    if bytes_per_sec < 1024:
+        return f"{bytes_per_sec:.0f} B/s"
+    kb_s = bytes_per_sec / 1024
+    if kb_s < 1024:
+        return f"{kb_s:.1f}kB/s"
+    mb_s = kb_s / 1024
+    if mb_s < 1024:
+        return f"{mb_s:.1f}MB/s"
+    return f"{mb_s / 1024:.1f}GB/s"
 
 
 def set_bandwidth_limit(iface: str, rate_mbps: float) -> tuple[bool, str]:
@@ -2316,6 +2331,14 @@ class BandwidthSection(PanelSection):
         now = time.monotonic()
         stats = read_net_dev_bytes()
         dt = now - self._last_time if self._last_time > 0 else 5.0
+        # The panel was hidden for a while: the next delta would span minutes/
+        # hours and average to zero. Resample instead of showing a bogus rate.
+        if dt > 15.0:
+            self._last_stats = stats
+            self._last_time = now
+            self.info.setText(f"{STA_IF}  sampling…\n{AP_IF}  sampling…")
+            self._set_live_chip()
+            return
         if dt <= 0:
             dt = 5.0
 
@@ -2331,6 +2354,10 @@ class BandwidthSection(PanelSection):
         self.info.setText(f"{STA_IF}  {_rates(STA_IF)}\n{AP_IF}  {_rates(AP_IF)}")
         self._last_stats = stats
         self._last_time = now
+        self._set_live_chip()
+
+    def _set_live_chip(self) -> None:
+        """Show the LIVE/IDLE chip based on current hotspot state."""
         try:
             live = self.controller.detect_state() == "on"
         except Exception:
@@ -3411,6 +3438,13 @@ class HotspotPanel:
         self.health_timer.start(60000)
         self._run_health_check()
 
+        # Fast bandwidth ticker (2s): live RX/TX speeds while the panel is
+        # visible. The 30s main timer alone made the Bandwidth card look dead
+        # (a 30-second average is ~0 for bursty phone traffic).
+        self.bw_timer = QTimer()
+        self.bw_timer.setInterval(2000)
+        self.bw_timer.timeout.connect(self._tick_bandwidth)
+
         self.refresh()
         self.tray.show()
 
@@ -3503,15 +3537,22 @@ class HotspotPanel:
         dlg.setStandardButtons(QMessageBox.StandardButton.Ok)
         dlg.exec()
 
+    def _tick_bandwidth(self) -> None:
+        """Refresh the Bandwidth card on the 2s ticker (panel must be visible)."""
+        if self.panel.isVisible():
+            self.panel.refresh_bandwidth()
+
     def on_panel_shown(self) -> None:
         """Resume main refresh timer and refresh panel when opened."""
         if not self.timer.isActive():
             self.timer.start(30000)
+        if not self.bw_timer.isActive():
+            self.bw_timer.start()
         self.refresh()
 
     def on_panel_hidden(self) -> None:
-        """Handle dropdown panel hidden event."""
-        pass
+        """Pause the live bandwidth ticker when the panel is hidden."""
+        self.bw_timer.stop()
 
     def check_schedule(self) -> None:
         """Check and enforce scheduled hotspot on/off times.
