@@ -12,10 +12,12 @@ MediaTek MT7922).
 
 ### Hotspot Control
 - **Concurrent STA + AP** on a single radio (virtual `ap0` on `wlan0` PHY).
-- **Instrument-deck dropdown**: hero card with indicator lamp, big state word
-  (ACTIVE / STANDBY / FAULT), one-line readout (SSID · channel · clients ·
-  leases · security) and an animated **master switch** replacing the On/Off
-  button pair. Tray icon stays color-coded (green = on, grey = off, red = error).
+- **Instrument-deck dropdown**: five stacked cards. Hero card with indicator
+  lamp, big state word (ACTIVE / STANDBY / FAULT), band selector, one-line
+  readout (SSID · channel · clients · leases · security), an animated
+  **master switch**, and a pill-button row (**Restart / Clients / QR Code**).
+  Below it: **WARP**, **Bandwidth**, **System**, and **Health** cards. Tray icon
+  stays color-coded (green = on, grey = off, red = error).
 - **Channel sync** keeps AP on STA's channel (10s fallback + NM dispatcher events).
 - **VPN/WARP bypass** at policy-routing priority 50 (self-repairing).
 - **Manual stop respected**: stopping the hotspot no longer auto-restarts via the
@@ -29,6 +31,9 @@ MediaTek MT7922).
 - **QR code** generation for SSID/PSK (via `qrencode`).
 
 ### Configuration
+- **Health card** — gateway reachability, AP state, DHCP lease summary with OK/
+  ISSUES chip, plus lifecycle controls: Start on boot, IPv6, scheduled on/off
+  (08:00/22:00), and battery-saver threshold.
 - **Multi-profile** support (list/add/switch/remove via CLI).
 - **Scheduled hotspot** — auto on/off at configured times.
 - **Battery-aware** auto-disable when battery ≤ threshold.
@@ -58,15 +63,16 @@ MediaTek MT7922).
 ## Layout
 
 - `app/hotspot-hub.py` — tray app with dropdown canvas (`DropdownPanel`).
-  Left-click opens cards (**Hotspot**, **WARP**, **Bandwidth**, **System**);
+  Left-click opens cards (**Hotspot**, **WARP**, **Bandwidth**, **System**,
+  **Health**);
   right-click shows the classic menu. UI design decisions and visual roles are
   documented in `docs/UI-REDESIGN.md`. Add future mods as `PanelSection`
   subclasses, registered in `DropdownPanel._build_sections()` (marked EXTENSION POINT).
 - `cli/hotspot-hub-cli.py` — CLI tool with all subcommands above.
 - `helpers/` — `hotspot-on.sh` / `hotspot-off.sh` (idempotent, `sudo -n`).
-- `icons/hotspot-hub.svg` — app icon (hub-node broadcast mark).
-- `assets/` — UI assets: `banner.svg` (README hero) and
-  `clients-empty.svg` (empty state in the Clients dialog).
+- `icons/hotspot-hub.svg` — app icon (flame brand mark on slate tile).
+- `assets/` — UI assets: `banner.svg` (README hero), `flame.svg` (brand
+  glyph), and `clients-empty.svg` (empty state in the Clients dialog).
 - `src/` — system files: channel-sync, NM dispatcher, sysctl, sudoers,
   systemd user service.
 - `scripts/setup-profile.sh` — create/retune `Hotspot-Shared` NM profile.

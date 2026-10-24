@@ -34,9 +34,40 @@ Direction and decisions for the 0.4.0 UI pass, following the oil-ui workflow.
 | Lamp | `IndicatorLamp` (custom widget, breathing halo) |
 | Buttons | default / `primary` (accent fill) / `quiet` (borderless, hover bg) |
 
+## 0.4.1 pass (five-card spec + flame brand + FAULT fix)
+
+Follow-up user spec on top of the 0.4.0 deck — adjustments, not a new direction:
+
+- **Flame brand mark** replaces the hub-node mark (`assets/flame.svg` +
+  `icons/hotspot-hub.svg`): dual-lobe flame, warm outer gradient
+  (`#fb923c → #dc2626`) with a gold inner core, on the same deep slate tile.
+  Used in the panel header, tray, and desktop icon.
+- **Fifth card: Health** — `GW <ip> reachable · AP UP · DHCP ok (n lease)`
+  mono readout with green `OK` / red `ISSUES` chip; the lifecycle controls
+  (Start on boot, IPv6, Scheduled 08:00/22:00, Battery saver + threshold)
+  moved here from System. The System card is now diagnostics-only
+  (VPN bypass · MAC filter · channels · four actions).
+- **Hero actions** are a three-button pill row: Restart / Clients / QR Code
+  (per spec: three buttons per card).
+- **Pill buttons**: `border-radius: 999px` on QPushButton — compact pill
+  grammar per the network-admin control panel spec.
+- **Blue master switch**: `AnimatedToggle` checked track is fixed brand blue
+  `#3b82f6` (network-admin convention) instead of the Plasma accent.
+- **SVG, plugin-independent** (`render_svg` via `QSvgRenderer`): the AppImage's
+  PyQt6 wheels ship no SVG icon/image-engine plugin, which silently dropped
+  the header icon and the Clients empty-state art in bundled builds.
+- **FAULT is transient** (`FAULT_WINDOW_S = 120`): only failed
+  start/restart/off actions raise FAULT, and only for 2 minutes. A steady
+  OFF reports STANDBY — the old sticky `_last_error` left the header pill
+  permanently red after a single stale failure (exactly what the
+  2026-10-25 report screenshot showed).
+
 ## Verification note
 
 Redesign was implemented and validated at the source level (`py_compile`,
-offscreen render). A screenshot was regenerated in `tools/ui_screenshot.png`
-and `docs/screenshots/dropdown.png`; actual visual review on a live Plasma
+ruff, 22 unit tests, offscreen render with forced Breeze-Dark palette). The
+FAULT-window logic was verified with simulated states (off + stale error →
+off; failure 5 s ago → error; active on ap0 → on; nmcli broken → error). A
+screenshot was regenerated in `tools/ui_screenshot.png` and
+`docs/screenshots/dropdown.png`; actual visual review on a live Plasma
 session was not performed (no image-capable reviewer in this run).

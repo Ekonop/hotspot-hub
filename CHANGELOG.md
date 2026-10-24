@@ -5,6 +5,37 @@ All notable changes to Hotspot Hub are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-10-25
+
+### Added
+- **Health card**: new fifth section — health readout
+  (`GW 192.168.29.1 reachable · AP UP · DHCP ok (1 lease)`) with green `OK`/
+  red `ISSUES` chip, joined by the lifecycle controls that used to live on the
+  System card: Start on boot, IPv6, Scheduled on/off (08:00/22:00), Battery
+  saver + threshold.
+- **Flame brand mark**: `assets/flame.svg` and rewritten `icons/hotspot-hub.svg`
+  (dual-lobe flame with warm inner core on a deep slate tile); shown in the
+  panel header, tray, and desktop icon.
+
+### Changed
+- System card is now diagnostics-only: VPN bypass + MAC filter + channels + the
+  four actions (Restart sync / Fix routing / MAC Filter / Docs).
+- Hero card actions are a single pill-button row: **Restart / Clients / QR Code**
+  (spec: three buttons per card).
+- **Button grammar → pill buttons**: `border-radius: 999px` on `QPushButton`.
+- **Master switch is always brand blue** (`#3b82f6` track) instead of following
+  the Plasma accent — network-admin convention per the redesign spec.
+- **SVG rendering is now plugin-independent**: `render_svg()` draws through
+  `QSvgRenderer` (QVariant paint) instead of the Qt SVG image/icon-engine
+  plugins, which the AppImage's PyQt6 wheels don't ship. This fixes the missing
+  app icon in the panel header and the Clients empty-state art inside the
+  bundled AppImage.
+- **FAULT is transient, not sticky**: a failed start/restart/off now raises
+  FAULT for only 2 minutes (`FAULT_WINDOW_S = 120`); a clean, steady "off"
+  reports STANDBY. The old `_last_error`-based logic kept the header pill red
+  forever after a single stale failure even when the hotspot was simply off.
+
+
 ## [0.4.0] - 2026-10-24
 
 ### Added

@@ -80,6 +80,15 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+# QtSvg is part of the PyQt6 wheels; keep it optional so the app still
+# starts if the binding is stripped down (e.g. minimal bundles).
+try:
+    from PyQt6.QtSvg import QSvgRenderer  # type: ignore
+    _HAS_QTSVG = True
+except ImportError:
+    QSvgRenderer = None  # type: ignore[assignment]
+    _HAS_QTSVG = False
+
 # Optional KColorScheme support (PyKF6 / PyKF5)
 try:
     from PyKF6.KColorScheme import KColorScheme  # type: ignore
@@ -1256,8 +1265,8 @@ def get_theme_stylesheet(palette: QPalette | None = None) -> str:
             background-color: {btn_bg};
             color: {btn_text};
             border: 1px solid {card_border};
-            border-radius: 8px;
-            padding: 6px 14px;
+            border-radius: 999px;
+            padding: 6px 16px;
             min-height: 30px;
             font-family: 'Manrope', 'Noto Sans', 'DejaVu Sans', sans-serif;
             font-size: 13px;
@@ -1446,6 +1455,12 @@ STATUS_COLORS: dict[str, QColor] = {
 _STATUS_ICON_CACHE: dict[tuple[str, int], QIcon] = {}
 
 
+# How long a failed start/restart/off keeps the UI in FAULT before the
+# state settles back to the real world (nmcli: on/off). Prevents a single
+# transient failure from wedging the header pill in red forever.
+FAULT_WINDOW_S = 120
+
+
 def asset_path(name: str) -> Path | None:
     """Resolve a bundled asset (icons/ or assets/) across install layouts.
 
@@ -1465,23 +1480,53 @@ def asset_path(name: str) -> Path | None:
     return None
 
 
+def render_svg(path: str | Path, width: int = 0, height: int = 0) -> QPixmap | None:
+    """Render an SVG file to a QPixmap via QSvgRenderer.
+
+    Uses the renderer directly (QVariant painting) instead of QIcon/QPixmap
+    SVG loaders, so it needs no SVG image/icon-engine plugin — this is what
+    makes bundled SVGs render in the AppImage, where the PyQt6 wheels ship
+    without ``iconengines/libqsvgicon.so``. Returns None on any failure.
+    """
+    if not _HAS_QTSVG:
+        return None
+    try:
+        renderer = QSvgRenderer(str(path))
+        if not renderer.isValid():
+            return None
+        default = renderer.defaultSize()
+        if width <= 0:
+            width = default.width() or 128
+        if height <= 0:
+            height = default.height() or width
+        pm = QPixmap(width, height)
+        pm.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pm)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        renderer.render(painter, QRectF(0.0, 0.0, float(width), float(height)))
+        painter.end()
+        return pm
+    except Exception:
+        return None
+
+
 def get_base_icon() -> QIcon:
-    """Return the base QIcon from hotspot-hub.svg or theme fallback."""
+    """Return the base QIcon rendered from hotspot-hub.svg (plugin-independent)."""
     icon_paths = [
         Path(__file__).resolve().parent.parent / "icons" / "hotspot-hub.svg",
         Path("/usr/share/icons/hicolor/scalable/apps/hotspot-hub.svg"),
     ]
     for p in icon_paths:
         if p.exists():
-            icon = QIcon(str(p))
-            if not icon.isNull():
-                return icon
-        return QIcon.fromTheme(
-            "hotspot-hub",
-            QIcon.fromTheme("network-wireless-hotspot",
-                            QIcon.fromTheme("network-wireless",
-                                            QIcon.fromTheme("network-modem")))
-        )
+            pix = render_svg(p, 128, 128)
+            if pix is not None and not pix.isNull():
+                return QIcon(pix)
+    return QIcon.fromTheme(
+        "hotspot-hub",
+        QIcon.fromTheme("network-wireless-hotspot",
+                        QIcon.fromTheme("network-wireless",
+                                        QIcon.fromTheme("network-modem")))
+    )
 
 
 def make_status_icon(state: str, size: int = 64) -> QIcon:
@@ -1582,7 +1627,8 @@ class AnimatedToggle(QCheckBox):
         pal = self.palette()
         accent = pal.color(QPalette.ColorRole.Highlight)
         text_col = pal.color(QPalette.ColorRole.WindowText)
-        knob_color = QColor("#ffffff") if accent.lightness() < 160 else QColor("#1f2937")
+        checked_col = QColor("#3b82f6")  # brand blue track (network-admin style)
+        knob_color = QColor("#ffffff")
         checked = self.isChecked()
 
         p = QPainter(self)
@@ -1593,13 +1639,13 @@ class AnimatedToggle(QCheckBox):
 
             # Track
             if checked:
-                track = QColor(accent)
+                track = QColor(checked_col)
             else:
                 track = QColor(text_col)
                 track.setAlpha(34)
             if self.isDown():
                 track = track.darker(108)
-            p.setPen(QPen(QColor(text_col) if not checked else QColor(accent).darker(115), 1))
+            p.setPen(QPen(checked_col.darker(115) if checked else QColor(text_col), 1))
             p.setBrush(QBrush(track))
             p.drawRoundedRect(rect, radius, radius)
 
@@ -1853,7 +1899,7 @@ class HotspotSection(PanelSection):
         self.readout.setFont(get_monospace_font(pixel_size=15))
         self.body.addWidget(self.readout)
 
-        # Row 3: master switch + state caption + restart
+        # Row 3: master switch + state caption
         master_row = QHBoxLayout()
         master_row.setSpacing(10)
         self.toggle = AnimatedToggle(self)
@@ -1864,20 +1910,16 @@ class HotspotSection(PanelSection):
         master_row.addWidget(self.toggle)
         master_row.addWidget(self.toggle_lbl)
         master_row.addStretch(1)
-        self.btn_restart = QPushButton("Restart")
-        self.btn_restart.setProperty("quiet", True)
-        self.btn_restart.clicked.connect(self.controller.hotspot_restart)
-        master_row.addWidget(self.btn_restart)
         self.body.addLayout(master_row)
 
-        # Row 4: secondary actions
+        # Row 4: action buttons
+        self.btn_restart = QPushButton("Restart")
         self.btn_clients = QPushButton("Clients")
         self.btn_qr = QPushButton("QR Code")
-        self.btn_clients.setProperty("quiet", True)
-        self.btn_qr.setProperty("quiet", True)
+        self.btn_restart.clicked.connect(self.controller.hotspot_restart)
         self.btn_clients.clicked.connect(self.controller.show_clients)
         self.btn_qr.clicked.connect(self.controller.show_qr_code)
-        self.row(self.btn_clients, self.btn_qr)
+        self.row(self.btn_restart, self.btn_clients, self.btn_qr)
 
     def _on_toggle(self, checked: bool) -> None:
         """Flip the master switch: toggle hotspot matching the new knob position."""
@@ -2031,10 +2073,12 @@ class BandwidthSection(PanelSection):
 
 
 class SystemSection(PanelSection):
+    """System card: channel-sync, routing, MAC filter, and docs."""
+
     title = "System"
 
     def build_body(self) -> None:
-        """Build System section widgets, autostart toggle, IPv6, schedule, battery saver, and connect action buttons."""
+        """Build system diagnostics info and action buttons."""
         self.info = QLabel("…")
         self.info.setProperty("metricLabel", True)
         self.info.setFont(get_monospace_font(pixel_size=12))
@@ -2050,13 +2094,46 @@ class SystemSection(PanelSection):
         self.row(self.btn_sync, self.btn_route)
         self.row(self.btn_mac_filter, self.btn_docs)
 
-        self.health_info = QLabel("<b>Health:</b> checking…")
+    def refresh(self) -> None:
+        """Update channel-sync service status, VPN bypass state, and channels."""
+        _, out = run_rc(["systemctl", "is-active",
+                         "hotspot-channelsync.service"], timeout=10, max_retries=1)
+        state = out.strip().splitlines()[0] if out else "unknown"
+        sta, ap = iface_info(STA_IF), iface_info(AP_IF)
+        bypass = "on" if vpn_bypass_on() else "OFF"
+        mf_enabled = self.controller.config.get("mac_filter_enabled", False)
+        mf_mode = self.controller.config.get("mac_filter_mode", "allow")
+        mf_status = (f"Active {mf_mode}" if mf_enabled else "OFF") + \
+            f" · {len(self.controller.allowed_macs)} allowed · {len(self.controller.blocked_macs)} blocked"
+
+        sync_live = state == "active"
+        self.set_chip("SYNC" if sync_live else "SYNC OFF",
+                      QColor("#22c55e") if sync_live else QColor("#ef4444"))
+
+        lines = [f"VPN bypass: {bypass} · MAC filter: {mf_status}"]
+        if DISABLED_FLAG.exists():
+            lines.append("Hotspot: manually stopped")
+        lines.append(f"{STA_IF} ch{sta.get('channel', '?')} | {AP_IF} ch{ap.get('channel', '?')}")
+        self.info.setText("\n".join(lines))
+
+
+class HealthSection(PanelSection):
+    """Health card: system health plus autostart, IPv6, schedule, and battery saver."""
+
+    title = "Health"
+
+    def build_body(self) -> None:
+        """Build health readout, OK/ISSUES chip, and lifecycle controls."""
+        self.health_info = QLabel("checking…")
         self.health_info.setWordWrap(True)
+        self.health_info.setProperty("metricLabel", True)
+        self.health_info.setFont(get_monospace_font(pixel_size=12))
         self.body.addWidget(self.health_info)
 
         self.chk_autostart = QCheckBox("Start on boot")
         self.chk_autostart.setChecked(is_autostart_enabled())
         self.chk_autostart.toggled.connect(self._toggle_autostart)
+        self.body.addWidget(self.chk_autostart)
 
         # IPv6 support toggle
         self.chk_ipv6 = QCheckBox("IPv6")
@@ -2147,37 +2224,35 @@ class SystemSection(PanelSection):
         save_app_config(self.controller.config)
 
     def refresh(self) -> None:
-        """Update channel-sync service status, VPN bypass state, channels, autostart, and health."""
-        _, out = run_rc(["systemctl", "is-active",
-                         "hotspot-channelsync.service"], timeout=10, max_retries=1)
-        state = out.strip().splitlines()[0] if out else "unknown"
-        sta, ap = iface_info(STA_IF), iface_info(AP_IF)
-        bypass = "on" if vpn_bypass_on() else "OFF"
-        mf_enabled = self.controller.config.get("mac_filter_enabled", False)
-        mf_mode = self.controller.config.get("mac_filter_mode", "allow")
-        mf_status = (f"Active {mf_mode}" if mf_enabled else "OFF") + \
-            f" · {len(self.controller.allowed_macs)} allowed · {len(self.controller.blocked_macs)} blocked"
+        """Update the health readout/chip and sync lifecycle controls with config."""
+        health = self.controller.last_health
+        if health:
+            gw = health.get("gateway_ip", "?")
+            gw_ok = health.get("gateway_ok", False)
+            ap_up = health.get("ap_up", False)
+            leases_ok = health.get("leases_ok", False)
+            leases = health.get("leases_count", "?")
+            ok = bool(health.get("healthy", False))
+            self.set_chip("OK" if ok else "ISSUES",
+                          QColor("#22c55e") if ok else QColor("#ef4444"))
+            self.health_info.setText(
+                f"GW {gw} {'reachable' if gw_ok else 'down'} · "
+                f"AP {'UP' if ap_up else 'DOWN'} · "
+                f"DHCP {'ok (' + str(leases) + ')' if leases_ok else 'error'}"
+            )
+        else:
+            self.set_chip("CHECK", QColor("#94a3b8"))
+            self.health_info.setText("checking…")
 
-        sync_live = state == "active"
-        self.set_chip("SYNC" if sync_live else "SYNC OFF",
-                      QColor("#22c55e") if sync_live else QColor("#ef4444"))
-
-        lines = [f"VPN bypass: {bypass} · MAC filter: {mf_status}"]
-        if DISABLED_FLAG.exists():
-            lines.append("Hotspot: manually stopped")
-        lines.append(f"{STA_IF} ch{sta.get('channel', '?')} | {AP_IF} ch{ap.get('channel', '?')}")
-        self.info.setText("\n".join(lines))
         self.chk_autostart.blockSignals(True)
         self.chk_autostart.setChecked(is_autostart_enabled())
         self.chk_autostart.blockSignals(False)
 
-        # Sync IPv6
         self.chk_ipv6.blockSignals(True)
         self.chk_ipv6.setEnabled(detect_ipv6_support())
         self.chk_ipv6.setChecked(bool(self.controller.config.get("ipv6_enabled", False)))
         self.chk_ipv6.blockSignals(False)
 
-        # Sync schedule
         self.chk_schedule.blockSignals(True)
         self.time_sched_on.blockSignals(True)
         self.time_sched_off.blockSignals(True)
@@ -2192,7 +2267,6 @@ class SystemSection(PanelSection):
         self.time_sched_on.blockSignals(False)
         self.time_sched_off.blockSignals(False)
 
-        # Sync battery saver
         self.chk_battery.blockSignals(True)
         self.spin_battery.blockSignals(True)
         self.chk_battery.setChecked(bool(self.controller.config.get("battery_saver_enabled", False)))
@@ -2204,11 +2278,6 @@ class SystemSection(PanelSection):
         self.chk_battery.blockSignals(False)
         self.spin_battery.blockSignals(False)
 
-        health = self.controller.last_health
-        if health:
-            self.health_info.setText(f"<b>Health:</b> {health.get('summary', 'unknown')}")
-        else:
-            self.health_info.setText("<b>Health:</b> checking…")
 
 
 class ClientsDialog(QDialog):
@@ -2279,8 +2348,8 @@ class ClientsDialog(QDialog):
             empty_box.setContentsMargins(0, 26, 0, 8)
             art = asset_path("clients-empty.svg")
             if art:
-                pix = QPixmap(str(art))
-                if not pix.isNull():
+                pix = render_svg(art, 320, 160)  # plugin-independent SVG render
+                if pix is not None and not pix.isNull():
                     img = QLabel()
                     img.setAlignment(Qt.AlignmentFlag.AlignCenter)
                     img.setPixmap(pix.scaledToWidth(240, Qt.TransformationMode.SmoothTransformation))
@@ -2691,7 +2760,7 @@ class DropdownPanel(QWidget):
             container_layout: Layout of the scroll area container widget.
         """
         # EXTENSION POINT: append future PanelSection instances here.
-        for cls in (HotspotSection, WarpSection, BandwidthSection, SystemSection):
+        for cls in (HotspotSection, WarpSection, BandwidthSection, SystemSection, HealthSection):
             sec = cls(self.controller, self)
             self.sections.append(sec)
             container_layout.addWidget(sec)
@@ -2829,6 +2898,7 @@ class HotspotPanel:
         self.current_state: str = "off"
         self.state: str = "off"
         self._last_error: str | None = None
+        self._fault_at: float | None = None  # monotonic() time of last failed action
         initial_icon = make_status_icon(self.current_state)
         self.tray = QSystemTrayIcon(
             initial_icon if not initial_icon.isNull() else self.fallback_icon,
@@ -3099,10 +3169,14 @@ class HotspotPanel:
             # Green: hotspot active (Hotspot-Shared on ap0)
             if active_map.get(HOTSPOT_CON) == AP_IF:
                 self._last_error = None
+                self._fault_at = None
                 return "on"
 
-            # Red: error if last command failed
-            if self._last_error:
+            # Red: error only if a start/restart/off just failed (transient
+            # 2-minute window). A clean, steady "off" is STANDBY, not FAULT —
+            # the old code kept _last_error forever and showed a misleading
+            # red FAULT long after the failed command was over.
+            if self._fault_at is not None and time.monotonic() - self._fault_at < FAULT_WINDOW_S:
                 return "error"
 
             # Grey: hotspot inactive
@@ -3171,6 +3245,7 @@ class HotspotPanel:
         ok, msg = hotspot_start()
         if ok:
             self._last_error = None
+            self._fault_at = None
             logger.info("Hotspot On succeeded: %s", msg)
             if "ipv6_enabled" in self.config:
                 val = "0" if self.config.get("ipv6_enabled", False) else "1"
@@ -3178,6 +3253,7 @@ class HotspotPanel:
             self.notify("Hotspot On", f"{HOTSPOT_CON} activated on {AP_IF}.")
         else:
             self._last_error = msg
+            self._fault_at = time.monotonic()
             logger.error("Hotspot On failed: %s", msg)
             self.notify("Hotspot On failed", msg)
             if not self.ap0_available:
@@ -3191,10 +3267,12 @@ class HotspotPanel:
         ok, msg = hotspot_stop()
         if ok:
             self._last_error = None
+            self._fault_at = None
             logger.info("Hotspot Off succeeded: %s", msg)
             self.notify("Hotspot Off", f"{HOTSPOT_CON} deactivated.")
         else:
             self._last_error = msg
+            self._fault_at = time.monotonic()
             logger.error("Hotspot Off failed: %s", msg)
             self.notify("Hotspot Off", msg)
         self.refresh()
@@ -3206,10 +3284,12 @@ class HotspotPanel:
         ok, msg = hotspot_cycle()
         if ok:
             self._last_error = None
+            self._fault_at = None
             logger.info("Hotspot Restart succeeded: %s", msg)
             self.notify("Hotspot Restart", f"{HOTSPOT_CON} restarted.")
         else:
             self._last_error = msg
+            self._fault_at = time.monotonic()
             logger.error("Hotspot Restart failed: %s", msg)
             self.notify("Hotspot Restart", f"Restart failed: {msg}")
             if not self.ap0_available:

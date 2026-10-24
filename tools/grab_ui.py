@@ -17,9 +17,34 @@ spec = importlib.util.spec_from_file_location("hotspot_hub", APP_PATH)
 hub = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(hub)
 
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication  # noqa: E402
 
 app = QApplication.instance() or QApplication(sys.argv)
+
+# The offscreen platform has no KColorScheme / plasma theme, so it would grab a
+# meaningless light-mode render. Force the Breeze-Dark palette we ship with.
+if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
+    from PyQt6.QtGui import QColor, QPalette  # noqa: E402
+
+    pal = QPalette()
+    win, base, btn, txt, sel = (QColor("#353637"), QColor("#0d1017"),
+                                QColor("#31363b"), QColor("#e8e8e8"), QColor("#3daee9"))
+    pal.setColor(QPalette.ColorRole.Window, win)
+    pal.setColor(QPalette.ColorRole.WindowText, txt)
+    pal.setColor(QPalette.ColorRole.Base, base)
+    pal.setColor(QPalette.ColorRole.AlternateBase, QColor("#232526"))
+    pal.setColor(QPalette.ColorRole.Text, txt)
+    pal.setColor(QPalette.ColorRole.Button, btn)
+    pal.setColor(QPalette.ColorRole.ButtonText, txt)
+    pal.setColor(QPalette.ColorRole.Highlight, sel)
+    pal.setColor(QPalette.ColorRole.HighlightedText, QColor("#10151d"))
+    pal.setColor(QPalette.ColorRole.ToolTipBase, QColor("#232629"))
+    pal.setColor(QPalette.ColorRole.ToolTipText, txt)
+    pal.setColor(QPalette.ColorRole.PlaceholderText, QColor("#9aa0a6"))
+    for g in (QPalette.ColorGroup.Disabled, QPalette.ColorGroup.Inactive):
+        pal.setColor(g, QPalette.ColorRole.WindowText, QColor("#7a7f85"))
+        pal.setColor(g, QPalette.ColorRole.ButtonText, QColor("#7a7f85"))
+    app.setPalette(pal)
 
 # Build the panel and dropdown, give it a generous size so layout settles.
 panel = hub.HotspotPanel()
