@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Hotspot Hub
+Comment=Tray control for concurrent Wi-Fi hotspot, WARP and channel-sync
+Exec=hotspot-hub
+Icon=hotspot-hub
+Type=Application
+Categories=Network;
+Terminal=false
+StartupNotify=false
+X-AppImage-Version=0.4.2
+X-AppImage-Architecture=x86_64

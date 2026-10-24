@@ -1,0 +1,6 @@
+#!/bin/sh
+HERE=$(dirname "$(readlink -f "$0")")/..
+HH="$HERE/lib/hotspot-hub"
+export PYTHONHOME="$HH/python"
+export PYTHONPATH="$HH/pylibs"
+exec "$HH/python/bin/python3" "$HH/app/hotspot-hub.py" "$@"

@@ -758,10 +758,29 @@ def is_hotspot_disabled() -> bool:
 
 
 def ensure_ap0() -> tuple[bool, str]:
-    """Create ap0 passwordless (sudoers) if missing. Returns (ok, msg)."""
+    """Ensure ap0 exists and is an AP-mode interface; create or rebuild it.
+
+    The interface is created passwordless via the scoped sudoers rule
+    (``iw phy ... add ap0 type __ap``). If an ap0 already exists but with the
+    wrong nl80211 type (e.g. a stale ``managed`` interface), it is deleted and
+    recreated \u2014 NetworkManager cannot activate the AP profile on a non-AP
+    device and fails with "The device could not be readied for configuration".
+    Returns (ok, msg).
+    """
     try:
-        if iface_info(AP_IF):
+        info = iface_info(AP_IF)
+        wrong_type = False
+        if info:
+            _, out = run_rc(["iw", "dev", AP_IF, "info"], timeout=3, max_retries=1)
+            m = re.search(r"\btype\s+([a-z0-9_]+)", out)
+            wrong_type = bool(m) and m.group(1) not in ("__ap", "ap")
+        if info and not wrong_type:
             return True, "ap0 exists"
+        if wrong_type:
+            logger.warning("ap0 exists but is type %r; deleting and recreating as __ap",
+                           m.group(1) if m else "unknown")
+            priv(["iw", "dev", AP_IF, "del"])
+            invalidate_cache()
         phy_dir = "/sys/class/ieee80211"
         phy = (os.listdir(phy_dir)[0]
                if os.path.isdir(phy_dir) and os.listdir(phy_dir) else "phy0")

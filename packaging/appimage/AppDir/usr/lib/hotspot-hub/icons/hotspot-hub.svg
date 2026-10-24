@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- Hotspot Hub app icon: flame mark on a deep slate tile.
+       Classic dual-lobe flame (two lobes meet at top notch; node at 32,48)
+       with a warm inner core. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#1f2937"/>
+      <stop offset="1" stop-color="#0e1422"/>
+    </linearGradient>
+    <linearGradient id="outer" x1="0.3" y1="0" x2="0.7" y2="1">
+      <stop offset="0" stop-color="#fb923c"/>
+      <stop offset="0.55" stop-color="#f97316"/>
+      <stop offset="1" stop-color="#dc2626"/>
+    </linearGradient>
+    <linearGradient id="inner" x1="0.4" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="0.5" stop-color="#fbbf24"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="1.5" y="1.5" width="61" height="61" rx="15" fill="url(#tile)"/>
+  <rect x="1.5" y="1.5" width="61" height="61" rx="15" fill="none" stroke="#ffffff" stroke-opacity="0.12" stroke-width="1.5"/>
+
+  <!-- Outer flame -->
+  <path d="M32 8 C38 18 46 22 46 34 A14 14 0 0 1 18 34 C18 22 26 18 32 8 Z" fill="url(#outer)"/>
+  <!-- Inner core -->
+  <path d="M32 20 C35.5 25 40 27.5 40 33.5 A8 8 0 0 1 24 33.5 C24 27.5 28.5 25 32 20 Z" fill="url(#inner)"/>
+</svg>

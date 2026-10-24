@@ -14,7 +14,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT_DIR="${1:-$ROOT/packaging/appimage}"
 APP="$OUT_DIR/AppDir"
 BUNDLE="$APP/usr/lib/hotspot-hub"
-VERSION="0.4.1"
+VERSION="0.4.2"
 ARCH="x86_64"
 PY_VERSION="3.12.14"
 

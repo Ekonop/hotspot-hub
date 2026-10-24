@@ -1,0 +1,8 @@
+#!/bin/sh
+SELF=$(readlink -f "$0" 2>/dev/null || echo "$0")
+HERE=$(dirname "$SELF")
+HH="$HERE/usr/lib/hotspot-hub"
+export PYTHONHOME="$HH/python"
+export PYTHONPATH="$HH/pylibs"
+unset PYTHONSTARTUP
+exec "$HH/python/bin/python3" "$HH/app/hotspot-hub.py" "$@"

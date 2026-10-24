@@ -5,6 +5,32 @@ All notable changes to Hotspot Hub are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-10-25
+
+### Fixed
+- **Hotspot master switch could not turn the hotspot on** (reported on live
+  hardware). Two stacked backend causes, neither reachable from the UI:
+  1. The kernel's `ap0` could linger as an nl80211 interface of type
+     **managed** instead of `__ap` — mt76/MT7922 flips a deactivated AP
+     interface back to managed. NetworkManager then rejects activation of the
+     `ap` profile on it with
+     `Error: Connection activation failed: The device could not be readied
+     for configuration` (this had wedged the toggle in FAULT all session,
+     266 failed activation attempts in one boot).
+  2. The NM profile requested `802-11-wireless.cloned-mac-address permanent`,
+     which MT7922 cannot apply to a virtual AP while the STA uses the same
+     PHY MAC — another `config-failed` path.
+- **Fix**: `ensure_ap0()` now validates the interface type via `iw dev ap0
+  info` and, when it is not `__ap`, deletes and recreates it before
+  activating (new scoped sudoers rule `/usr/bin/iw dev ap0 del`).
+  `setup-profile.sh` now sets `cloned-mac-address preserve` so NM never
+  tries to rewrite the AP MAC.
+- Verified live on the reported machine: toggle ON in ~0.7 s
+  (`Activation: successful, device activated`, dnsmasq serving `10.42.0.0/24`),
+  toggle OFF in ~0.2 s; the heal path was exercised against the exact
+  wrong-type `managed` ap0 that was wedging the system.
+
+
 ## [0.4.1] - 2026-10-25
 
 ### Added
