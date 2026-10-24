@@ -1763,8 +1763,8 @@ def make_status_icon(state: str, size: int = 64) -> QIcon:
         try:
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             painter.translate(s * 0.5, s * 0.5)
-            painter.scale(s * 0.84, s * 0.84)
-            painter.translate(-0.5, -0.5)
+            painter.scale(s * 0.9 / 0.625, s * 0.9 / 0.625)
+            painter.translate(-0.5, -0.4375)
             painter.setPen(QPen(color.darker(125), 0.035))
             painter.setBrush(QBrush(color))
             painter.drawPath(_FLAME_OUTER)
@@ -3220,6 +3220,9 @@ class DropdownPanel(QWidget):
         self._effect.setOpacity(0.0)
         self._fade.stop()
         self._fade.start()
+        # Fresh state on every show (toggle knob, readout, metrics) — the
+        # periodic refresh timer is 30 s and only runs while visible.
+        self.refresh_all()
         self.controller.on_panel_shown()
 
     def hideEvent(self, event: Any) -> None:
@@ -3638,6 +3641,12 @@ class HotspotPanel:
         w = self.panel.width() if self.panel.width() >= 340 else self.panel.sizeHint().width()
         h = self.panel.height() if self.panel.height() >= 240 else self.panel.sizeHint().height()
         self.panel.move(max(10, pos.x() - w // 2), max(10, pos.y() - h - 20))
+        # Sync the switch to the live state BEFORE showing: the periodic
+        # refresh timer only runs every 30 s, so opening the panel with a stale
+        # toggle made the master knob show OFF (or whatever it last was) while
+        # the hotspot was already ON — clicks then "did nothing" or flipped the
+        # real hotspot the wrong way.
+        self.panel.refresh_all()
         self.panel.show()
         self.panel.raise_()
         self.panel.activateWindow()
