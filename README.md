@@ -1,5 +1,9 @@
 # Hotspot Hub
 
+[![Release](https://img.shields.io/github/v/release/Ekonop/hotspot-hub?label=release&color=%23f97316)](https://github.com/Ekonop/hotspot-hub/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Downloads](https://img.shields.io/github/downloads/Ekonop/hotspot-hub/total?color=%2322c55e)](https://github.com/Ekonop/hotspot-hub/releases)
+
 KDE system-tray app for concurrent Wi-Fi hotspot (STA/AP, single radio),
 WARP toggle, and channel-sync control on Arch/CachyOS (Plasma Wayland,
 MediaTek MT7922).
