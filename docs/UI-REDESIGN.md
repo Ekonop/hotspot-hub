@@ -71,3 +71,23 @@ off; failure 5 s ago → error; active on ap0 → on; nmcli broken → error). A
 screenshot was regenerated in `tools/ui_screenshot.png` and
 `docs/screenshots/dropdown.png`; actual visual review on a live Plasma
 session was not performed (no image-capable reviewer in this run).
+## 0.5.0 pass (credentials + device names + QR passphrase)
+
+Feature additions on top of the shipped five-card deck (no design-direction
+change):
+
+- **Configure pill** on the Hotspot hero card (right of the band selector).
+  Opens the name & passphrase dialog: SSID + WPA2 passphrase fields with
+  live validation (1–32 / 8–63 chars or 64 hex), "Show passphrase", blank
+  passphrase keeps the current one, Save gated on validity. Applied to the
+  live NM profile; the hotspot restarts through the async action bus when
+  active so the new SSID broadcasts immediately. Mirror in the CLI:
+  `hotspot-hub-cli set-credentials --ssid X [--password Y]`.
+- **Client names** in ClientsDialog. Per-station resolution priority:
+  user-assigned name (persisted `~/.config/hotspot-hub/devicenames.json`
+  via the per-client **Name…** button) → DHCP hostname from the dnsmasq
+  lease → **mDNS reverse lookup** (`getent`/`avahi-resolve-address`), which
+  is what names phones using private MACs that send no DHCP hostname →
+  MAC OUI vendor (`/usr/share/hwdata/oui.txt`). Header counts named devices.
+- **QR dialog** now displays the live passphrase in plaintext (mono,
+  selectable) with a Copy button (`Copied ✓` transient feedback).
