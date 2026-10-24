@@ -65,6 +65,7 @@ from PyQt6.QtWidgets import (
     QGraphicsOpacityEffect,
     QGroupBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -143,6 +144,7 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 ENV_CONFIG_FILE = CONFIG_DIR / "config"
 ALLOWED_MACS_FILE = CONFIG_DIR / "allowed_macs.txt"
 BLOCKED_MACS_FILE = CONFIG_DIR / "blocked_macs.txt"
+DEVICES_FILE = CONFIG_DIR / "devicenames.json"
 DISABLED_FLAG = Path("/run/hotspot-hub-disabled")
 
 
@@ -879,6 +881,82 @@ def read_leases() -> dict[str, dict[str, str]]:
 
 
 _HWADATA_OUI: dict[str, str] | None = None
+_device_names_cache: dict[str, str] | None = None
+_device_names_mtime: float = 0.0
+_mdns_cache: dict[str, tuple[float, str]] = {}
+
+
+def load_device_names() -> dict[str, str]:
+    """Load user-assigned device names {mac.lower(): name}, cached by mtime."""
+    global _device_names_cache, _device_names_mtime
+    try:
+        mtime = DEVICES_FILE.stat().st_mtime if DEVICES_FILE.is_file() else 0.0
+    except OSError:
+        mtime = 0.0
+    if _device_names_cache is not None and mtime == _device_names_mtime:
+        return _device_names_cache
+    data: dict[str, str] = {}
+    if DEVICES_FILE.is_file():
+        try:
+            with open(DEVICES_FILE, encoding="utf-8") as f:
+                raw = json.load(f)
+                if isinstance(raw, dict):
+                    data = {str(k).lower(): str(v) for k, v in raw.items()}
+        except Exception:
+            data = {}
+    _device_names_cache, _device_names_mtime = data, mtime
+    return data
+
+
+def save_device_names(names: dict[str, str]) -> None:
+    """Persist the user-assigned device map and refresh the cache."""
+    global _device_names_cache, _device_names_mtime
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(DEVICES_FILE, "w", encoding="utf-8") as f:
+            json.dump({k: v for k, v in names.items()}, f, indent=2, sort_keys=True)
+    except OSError:
+        return
+    _device_names_cache = {str(k).lower(): str(v) for k, v in names.items()}
+    try:
+        _device_names_mtime = DEVICES_FILE.stat().st_mtime
+    except OSError:
+        _device_names_mtime = 0.0
+
+
+def resolve_mdns_name(ip: str, timeout: float = 3.0) -> str:
+    """Reverse-resolve an AP client IP via mDNS (.local) to its device name.
+
+    iOS/Android publish their device name over Bonjour even with a private
+    (randomized) MAC — exactly the case that defeats the DHCP-lease and
+    OUI lookups. Cached per-IP for 30s. Returns "" when unresolvable.
+    """
+    if not ip:
+        return ""
+    now = time.monotonic()
+    hit = _mdns_cache.get(ip)
+    if hit and now - hit[0] < 30:
+        return hit[1]
+    name = ""
+    for cmd in (["getent", "hosts", ip], ["avahi-resolve-address", ip]):
+        if not shutil.which(cmd[0]):
+            continue
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout).stdout
+        except (subprocess.SubprocessError, OSError):
+            continue
+        for line in out.splitlines():
+            parts = line.split()
+            if len(parts) >= 2 and parts[1].lower().endswith(".local"):
+                name = parts[1][:-6]
+                break
+        if name:
+            break
+    name = name.strip(" .")
+    if len(name) > 63:
+        name = name[:63]
+    _mdns_cache[ip] = (now, name)
+    return name
 
 
 def _load_oui_vendors() -> dict[str, str]:
@@ -904,16 +982,24 @@ def client_device_name(mac: str, leases: dict[str, dict[str, str]] | None = None
                        oui: dict[str, str] | None = None) -> str:
     """Best-effort human name for a client MAC.
 
-    Priority: DHCP hostname from the dnsmasq lease (iOS/Android report their
-    device name, e.g. \"Vansh's iPhone\"), then the MAC OUI vendor, else "".
+    Priority: user-assigned name (persisted) -> DHCP hostname from the dnsmasq
+    lease (iOS/Android report their device name, e.g. \"Vansh's iPhone\") ->
+    mDNS reverse lookup (works with private MACs) -> MAC OUI vendor -> "".
     """
     mac = mac.lower()
+    manual = load_device_names().get(mac)
+    if manual:
+        return manual
     if leases is None:
         leases = read_leases()
     host = leases.get(mac, {}).get("hostname", "")
     host = host.strip(" \t\"'")
     if host and host != "*":
         return host
+    ip = leases.get(mac, {}).get("ip", "")
+    mdns = resolve_mdns_name(ip) if ip else ""
+    if mdns:
+        return mdns
     if oui is None:
         oui = _load_oui_vendors()
     vendor = oui.get(mac.replace(":", "")[:6], "")
@@ -2555,7 +2641,11 @@ class ClientsDialog(QDialog):
                 info.setToolTip(f"{mac}  {sig or ''}  {name or 'unnamed device'}".strip())
                 info.setWordWrap(True)
 
-                # Allow button
+                # Name button
+                btn_name = QPushButton("Name…")
+                btn_name.setFixedWidth(70)
+                btn_name.setToolTip("Set a friendly name for this device (persisted)")
+                btn_name.clicked.connect(lambda _, m=mac: self._name_client(m))
                 btn_allow = QPushButton("+ Allow")
                 btn_allow.setFixedWidth(75)
                 if mac.lower() in self.controller.allowed_macs:
@@ -2569,11 +2659,31 @@ class ClientsDialog(QDialog):
                 btn_kick.clicked.connect(lambda _, m=mac: self._kick(m))
 
                 row_layout.addWidget(info, 1)
+                row_layout.addWidget(btn_name)
                 row_layout.addWidget(btn_allow)
                 row_layout.addWidget(btn_kick)
                 self.clients_layout.addWidget(row)
 
         self.clients_layout.addStretch()
+
+    def _name_client(self, mac: str) -> None:
+        """Assign a persistent friendly name to a client MAC (empty = clear)."""
+        names = load_device_names()
+        current = names.get(mac.lower(), "")
+        text, ok = QInputDialog.getText(
+            self, "Name Device",
+            f"Friendly name for {mac}:",
+            QLineEdit.EchoMode.Normal, current)
+        if not ok:
+            return
+        text = text.strip()
+        if text:
+            names[mac.lower()] = text
+            save_device_names(names)
+        elif mac.lower() in names:
+            del names[mac.lower()]
+            save_device_names(names)
+        self.refresh_clients()
 
     def _allow(self, mac: str) -> None:
         """Add MAC address to allowed list and refresh client list."""

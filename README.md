@@ -25,8 +25,10 @@ MediaTek MT7922).
 
 ### Network & Clients
 - **Client list with kick** — show connected stations with **device names**
-  (DHCP hostname from the dnsmasq lease — e.g. \"Vansh's iPhone\" — falling
-  back to the MAC vendor from `hwdata`) plus MAC and signal, with disconnect.
+  (DHCP hostname from the lease — e.g. \"Vansh's iPhone\" — else **mDNS**
+  reverse lookup, which resolves devices with private MACs, else the MAC vendor
+  from `hwdata`), plus a per-client **Name…** button for a persistent friendly
+  name, MAC, IP tooltip, and signal, with disconnect.
 - **Configure hotspot name & passphrase** — the hero card's **Configure** pill
   (and `hotspot-hub-cli set-credentials`) renames the SSID and/or changes the
   WPA2 passphrase on the live profile; validation (1–32 SSID, 8–63 psk / 64

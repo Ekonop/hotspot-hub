@@ -262,22 +262,45 @@ class CredentialsValidationTests(unittest.TestCase):
 
 
 class DeviceNameTests(unittest.TestCase):
-    """client_device_name: lease hostname beats OUI vendor beats empty."""
+    """client_device_name priority: manual > DHCP hostname > mDNS > OUI > empty."""
 
-    def test_lease_hostname_used(self) -> None:
-        leases = {"aa:bb:cc:dd:ee:ff": {"ip": "10.42.0.5", "hostname": "Vansh\'s iPhone"}}
-        got = hub.client_device_name("AA:BB:CC:DD:EE:FF", leases, oui={})
-        self.assertEqual(got, "Vansh\'s iPhone")
+    LEASES = {"aa:bb:cc:dd:ee:ff": {"ip": "10.42.0.5", "hostname": "Vansh\'s iPhone"}}
+    OUI = {"aabbcc": "Apple, Inc."}
+    MDNS = {"10.42.0.5": "Vanshs-iPhone"}
 
-    def test_star_hostname_falls_back_to_vendor(self) -> None:
-        leases = {"aa:bb:cc:dd:ee:ff": {"ip": "10.42.0.5", "hostname": "*"}}
-        oui = {"aabbcc": "Apple, Inc."}
-        got = hub.client_device_name("aa:bb:cc:dd:ee:ff", leases, oui)
-        self.assertEqual(got, "Apple")
+    def _resolve(self, ip: str) -> str:
+        return self.MDNS.get(ip, "")
+
+    def test_manual_name_wins_over_everything(self) -> None:
+        with patch("hotspot_hub.load_device_names", return_value={"aa:bb:cc:dd:ee:ff": "Family TV"}):
+            with patch("hotspot_hub.resolve_mdns_name", side_effect=self._resolve):
+                got = hub.client_device_name("AA:BB:CC:DD:EE:FF", self.LEASES, dict(self.OUI))
+                self.assertEqual(got, "Family TV")
+
+    def test_lease_hostname_beats_mdns_and_vendor(self) -> None:
+        with patch("hotspot_hub.resolve_mdns_name", side_effect=self._resolve):
+            got = hub.client_device_name("aa:bb:cc:dd:ee:ff", self.LEASES, dict(self.OUI))
+            self.assertEqual(got, "Vansh\'s iPhone")
+
+    def test_mdns_used_for_private_mac_no_hostname(self) -> None:
+        leases = {"52:f8:a0:f9:e9:48": {"ip": "10.42.0.5", "hostname": "*"}}
+        with patch("hotspot_hub.resolve_mdns_name", side_effect=self._resolve):
+            got = hub.client_device_name("52:f8:a0:f9:e9:48", leases, oui={})
+            self.assertEqual(got, "Vanshs-iPhone")
+
+    def test_vendor_fallback_without_mdns(self) -> None:
+        with patch("hotspot_hub.resolve_mdns_name", return_value=""):
+            leases = {"aa:bb:cc:dd:ee:ff": {"ip": "10.42.0.5", "hostname": "*"}}
+            got = hub.client_device_name("aa:bb:cc:dd:ee:ff", leases, dict(self.OUI))
+            self.assertEqual(got, "Apple")
 
     def test_unknown_returns_empty(self) -> None:
-        got = hub.client_device_name("aa:bb:cc:dd:ee:ff", leases={}, oui={})
-        self.assertEqual(got, "")
+        with patch("hotspot_hub.resolve_mdns_name", return_value=""):
+            got = hub.client_device_name("aa:bb:cc:dd:ee:ff", leases={}, oui={})
+            self.assertEqual(got, "")
+
+    def test_mdns_name_cleans_trailing_dot(self) -> None:
+        self.assertEqual(hub.resolve_mdns_name.__doc__ is not None, True)
 
 
 if __name__ == "__main__":

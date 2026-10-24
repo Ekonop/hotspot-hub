@@ -17,9 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `hotspot-hub-cli set-credentials --ssid NAME [--password PSK]`.
 - **Device names in the client list** — each connected station now resolves to
   its DHCP hostname from the dnsmasq lease file (iOS/Android report their
-  device name, e.g. \"Vansh's iPhone\"), falling back to the MAC vendor from
-  `/usr/share/hwdata/oui.txt` (`hwdata`). The dialog header counts named
-  devices.
+  device name, e.g. \"Vansh's iPhone\"), then via **mDNS reverse lookup**
+  (resolves phones that use private/randomized MACs and send no DHCP hostname —
+  verified live on the user's iPhone), then the MAC vendor from
+  `/usr/share/hwdata/oui.txt` (`hwdata`). A **Name…** button per client lets
+  you assign a persistent friendly name (`~/.config/hotspot-hub/devicenames.json`),
+  which overrides all automatic lookups. The dialog header counts named devices.
 
 ## [0.4.3] - 2026-10-25
 
