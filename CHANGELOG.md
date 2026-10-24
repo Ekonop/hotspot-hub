@@ -5,6 +5,25 @@ All notable changes to Hotspot Hub are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] - 2026-10-25
+
+### Fixed
+- **Master switch knob stuck on the right in both the on and off states**
+  (reported). `refresh()` synced the switch with `blockSignals()`, so the
+  `toggled` signal never fired and the animated knob offset froze wherever
+  the last animation left it. `AnimatedToggle.setChecked()` now retargets
+  the slide on programmatic changes too, and painting falls back to a
+  state-consistent knob position whenever the slide isn't running — the
+  knob can never desync from `isChecked()` again.
+- **Master switch felt unresponsive / "4-5 clicks and it never turned on"**
+  (reported). `hotspot_on/off/restart` and `warp` ran `nmcli`/`warp-cli`
+  synchronously in the GUI thread (freezing the panel for ~1-3 s), and every
+  accepted click stacked another on/off/on/off cycle, so rapid clicking
+  ended in the opposite state. Actions now run on a `QThread` worker with a
+  busy latch: the panel never blocks, clicks while an action is in flight
+  are rejected (knob reverts), and the switch floats at the user's intent
+  until the real state settles.
+
 ## [0.4.2] - 2026-10-25
 
 ### Fixed

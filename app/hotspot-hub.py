@@ -20,16 +20,19 @@ from pathlib import Path
 from typing import Any
 
 from PyQt6.QtCore import (
+    QAbstractAnimation,
     QEasingCurve,
     QEvent,
     QPropertyAnimation,
     QRectF,
     QSettings,
     Qt,
+    QThread,
     QTime,
     QTimer,
     QVariantAnimation,
     pyqtProperty,
+    pyqtSignal,
     pyqtSlot,
 )
 
@@ -1640,6 +1643,25 @@ class AnimatedToggle(QCheckBox):
         self._anim.setEndValue(self.SIZE_W - self.KNOB_D - self.KNOB_M if checked else self.KNOB_M)
         self._anim.start()
 
+    def setChecked(self, checked: bool) -> None:
+        """Retarget the knob slide on programmatic changes too.
+
+        refresh() syncs the switch with blockSignals(), so the toggled signal
+        never fires and the animated offset would otherwise freeze — the old
+        bug where the knob sat on the right in both the on and off states.
+        """
+        if checked != self.isChecked():
+            self._animate_to_state(checked)
+        super().setChecked(checked)
+
+    def _knob_x(self) -> float:
+        """Current knob x: the animated offset while sliding, otherwise the
+        state-consistent position. Paint falls back to this so the knob can
+        never desync from isChecked(), even when signals are blocked."""
+        if self._anim.state() == QAbstractAnimation.State.Running:
+            return self._offset
+        return self.SIZE_W - self.KNOB_D - self.KNOB_M if self.isChecked() else self.KNOB_M
+
     def paintEvent(self, event: Any) -> None:
         """Paint track + knob with palette-aware colors."""
         del event
@@ -1670,7 +1692,7 @@ class AnimatedToggle(QCheckBox):
 
             # Knob (shrinks while pressed), with a soft drop shadow
             knob_d = self.KNOB_D - (1.5 if self.isDown() else 0.0)
-            kx = self._offset + (1.5 if self.isDown() else 0.0)
+            kx = self._knob_x() + (1.5 if self.isDown() else 0.0)
             ky = (self.height() - knob_d) / 2.0
             shadow = QColor(0, 0, 0, 70)
             p.setPen(Qt.PenStyle.NoPen)
@@ -1941,7 +1963,17 @@ class HotspotSection(PanelSection):
         self.row(self.btn_restart, self.btn_clients, self.btn_qr)
 
     def _on_toggle(self, checked: bool) -> None:
-        """Flip the master switch: toggle hotspot matching the new knob position."""
+        """Flip the master switch: toggle hotspot matching the new knob position.
+
+        Rejects a click while another action is in flight (the knob reverts), so
+        rapid clicking can't stack on/off/on/off cycles that leave the hotspot
+        looking like it never turned on.
+        """
+        if self.controller.is_action_busy():
+            self.toggle.blockSignals(True)
+            self.toggle.setChecked(not checked)
+            self.toggle.blockSignals(False)
+            return
         if checked == (self.controller.detect_state() == "on"):
             return
         self.controller.toggle_hotspot()
@@ -2004,8 +2036,12 @@ class HotspotSection(PanelSection):
         except Exception as e:
             self.readout.setText(f"Status error: {e}")
 
+        # While an action is in flight, float the switch at the user's intent
+        # (optimistic); settle to the real state once the action completes.
+        pending = self.controller._pending_toggle
+        target = pending if (self.controller.is_action_busy() and pending is not None) else (state == "on")
         self.toggle.blockSignals(True)
-        self.toggle.setChecked(state == "on")
+        self.toggle.setChecked(target)
         self.toggle.blockSignals(False)
 
         # Keep band dropdown in sync with controller config
@@ -2894,6 +2930,27 @@ else:
     HotspotDBusAdaptor = None  # type: ignore[misc, assignment]
 
 
+class _ActionWorker(QThread):
+    """Run a hotspot/WARP action off the UI thread (the panel never freezes).
+
+    Emits ``done`` (queued back to the GUI thread) when the action completes.
+    """
+
+    done = pyqtSignal(bool, str)
+
+    def __init__(self, target: Callable[[], tuple[bool, str]]) -> None:
+        super().__init__()
+        self._target = target
+
+    def run(self) -> None:
+        """Execute the action and emit the result."""
+        try:
+            ok, msg = self._target()
+        except Exception as e:  # defensive: never crash the worker silently
+            ok, msg = False, str(e)
+        self.done.emit(ok, msg)
+
+
 class HotspotPanel:
     def __init__(self) -> None:
         """Initialize Qt application, tray icon, context menu, and refresh timer."""
@@ -2918,6 +2975,9 @@ class HotspotPanel:
         self.state: str = "off"
         self._last_error: str | None = None
         self._fault_at: float | None = None  # monotonic() time of last failed action
+        self._action_busy: bool = False  # True while an async action is in flight
+        self._pending_toggle: bool | None = None  # master-switch intent while busy
+        self._workers: list[_ActionWorker] = []  # live background action threads
         initial_icon = make_status_icon(self.current_state)
         self.tray = QSystemTrayIcon(
             initial_icon if not initial_icon.isNull() else self.fallback_icon,
@@ -2996,6 +3056,57 @@ class HotspotPanel:
     def invalidate_cache(self) -> None:
         """Invalidate subprocess command caches."""
         invalidate_cache()
+
+    def is_action_busy(self) -> bool:
+        """True while a hotspot/WARP action runs in the background."""
+        return self._action_busy
+
+    def _run_action(self, target: Callable[[], tuple[bool, str]], title: str,
+                    ok_msg: str, fail_msg: str,
+                    dialog_on_ap_fail: bool = False,
+                    pending: bool | None = None) -> None:
+        """Run an action off the UI thread with a busy latch.
+
+        Previously hotspot_on/off/restart ran nmcli synchronously in the GUI
+        thread — blocking the panel for seconds (the "doesn't toggle
+        instantly" complaint) — and every call could stack, so rapid
+        master-switch clicks cycled on/off/on/off and the hotspot looked like
+        it never turned on. Now: the GUI never blocks, action clicks while one
+        is in flight are ignored, and the master switch floats at the user's
+        intent (``pending``) until the real state settles.
+        """
+        if self._action_busy:
+            logger.info("Action %r ignored (another action in flight)", title)
+            return
+        self._action_busy = True
+        self._pending_toggle = pending
+        self.invalidate_cache()
+
+        def _done(ok: bool, msg: str) -> None:
+            self._action_busy = False
+            self._pending_toggle = None
+            if ok:
+                self._last_error = None
+                self._fault_at = None
+                logger.info("%s succeeded: %s", title, msg)
+                self.notify(title, ok_msg)
+            else:
+                self._last_error = msg
+                self._fault_at = time.monotonic()
+                logger.error("%s failed: %s", title, msg)
+                self.notify(title, fail_msg.format(msg))
+                if dialog_on_ap_fail and not self.ap0_available:
+                    self.show_ap0_error_dialog(msg)
+            self.refresh()
+
+        worker = _ActionWorker(target)
+        # Keep the worker alive until its thread finishes; a QThread wrapper
+        # garbage-collected while still running aborts Qt with
+        # "QThread: Destroyed while thread is still running".
+        self._workers.append(worker)
+        worker.finished.connect(lambda _=None: self._workers.remove(worker) if worker in self._workers else None)
+        worker.done.connect(_done)
+        worker.start()
 
     def show_ap0_error_dialog(self, error_msg: str = "") -> None:
         """Show a user-friendly error dialog with troubleshooting steps when ap0 is unavailable."""
@@ -3123,7 +3234,9 @@ class HotspotPanel:
             self.panel.refresh_all()
 
     def toggle_hotspot(self) -> None:
-        """Toggle hotspot state between on and off."""
+        """Toggle hotspot state between on and off (async, busy-guarded)."""
+        if self._action_busy:
+            return
         if self.detect_state() == "on":
             self.hotspot_off()
         else:
@@ -3258,62 +3371,33 @@ class HotspotPanel:
         return run_rc(["nmcli", "con", "up", HOTSPOT_CON], timeout=30)
 
     def hotspot_on(self) -> None:
-        """Ensure ap0 exists and activate hotspot connection."""
-        self.invalidate_cache()
-        logger.info("Hotspot On requested")
-        ok, msg = hotspot_start()
-        if ok:
-            self._last_error = None
-            self._fault_at = None
-            logger.info("Hotspot On succeeded: %s", msg)
-            if "ipv6_enabled" in self.config:
+        """Ensure ap0 exists and activate hotspot connection (async)."""
+        def _start() -> tuple[bool, str]:
+            ok, msg = hotspot_start()
+            if ok and "ipv6_enabled" in self.config:
                 val = "0" if self.config.get("ipv6_enabled", False) else "1"
                 priv(["sysctl", "-w", f"net.ipv6.conf.{AP_IF}.disable_ipv6={val}"])
-            self.notify("Hotspot On", f"{HOTSPOT_CON} activated on {AP_IF}.")
-        else:
-            self._last_error = msg
-            self._fault_at = time.monotonic()
-            logger.error("Hotspot On failed: %s", msg)
-            self.notify("Hotspot On failed", msg)
-            if not self.ap0_available:
-                self.show_ap0_error_dialog(msg)
-        self.refresh()
+            return ok, msg
+        logger.info("Hotspot On requested")
+        self._run_action(_start, "Hotspot On",
+                         f"{HOTSPOT_CON} activated on {AP_IF}.",
+                         "Hotspot On failed: {}",
+                         dialog_on_ap_fail=True, pending=True)
 
     def hotspot_off(self) -> None:
-        """Deactivate hotspot connection."""
-        self.invalidate_cache()
+        """Deactivate hotspot connection (async)."""
         logger.info("Hotspot Off requested")
-        ok, msg = hotspot_stop()
-        if ok:
-            self._last_error = None
-            self._fault_at = None
-            logger.info("Hotspot Off succeeded: %s", msg)
-            self.notify("Hotspot Off", f"{HOTSPOT_CON} deactivated.")
-        else:
-            self._last_error = msg
-            self._fault_at = time.monotonic()
-            logger.error("Hotspot Off failed: %s", msg)
-            self.notify("Hotspot Off", msg)
-        self.refresh()
+        self._run_action(hotspot_stop, "Hotspot Off",
+                         f"{HOTSPOT_CON} deactivated.",
+                         "Hotspot Off failed: {}", pending=False)
 
     def hotspot_restart(self) -> None:
-        """Cycle hotspot connection off and on."""
-        self.invalidate_cache()
+        """Cycle hotspot connection off and on (async)."""
         logger.info("Hotspot Restart requested")
-        ok, msg = hotspot_cycle()
-        if ok:
-            self._last_error = None
-            self._fault_at = None
-            logger.info("Hotspot Restart succeeded: %s", msg)
-            self.notify("Hotspot Restart", f"{HOTSPOT_CON} restarted.")
-        else:
-            self._last_error = msg
-            self._fault_at = time.monotonic()
-            logger.error("Hotspot Restart failed: %s", msg)
-            self.notify("Hotspot Restart", f"Restart failed: {msg}")
-            if not self.ap0_available:
-                self.show_ap0_error_dialog(msg)
-        self.refresh()
+        self._run_action(hotspot_cycle, "Hotspot Restart",
+                         f"{HOTSPOT_CON} restarted.",
+                         "Restart failed: {}",
+                         dialog_on_ap_fail=True, pending=None)
 
     def _poll_stations(self) -> None:
         """Poll station_dump() every 10s, enforce MAC filter, and notify on client connect or disconnect."""
@@ -3504,17 +3588,15 @@ class HotspotPanel:
         dialog.exec()
 
     def warp(self, op: str) -> None:
-        """Run warp-cli connect or disconnect command."""
-        self.invalidate_cache()
+        """Run warp-cli connect or disconnect (async, busy-guarded)."""
         logger.info("WARP command requested: %s", op)
-        rc, out = run_rc(["warp-cli", "--accept-tos", op], timeout=30)
-        if rc == 0:
-            logger.info("WARP %s succeeded: %s", op, out)
-        else:
-            logger.error("WARP %s failed: %s", op, out)
-        self.notify(f"WARP {op}", (out[-300:] or "done") if rc == 0
-                    else (out[-300:] or "warp-cli failed"))
-        self.refresh()
+        label = "WARP Connect" if op == "connect" else "WARP Disconnect"
+
+        def _warp() -> tuple[bool, str]:
+            rc, out = run_rc(["warp-cli", "--accept-tos", op], timeout=30)
+            return rc == 0, (out.strip()[-300:] or "warp-cli failed")
+
+        self._run_action(_warp, label, f"{label} succeeded", "{label} failed: {}")
 
     def sync_restart(self) -> None:
         """Restart hotspot-channelsync systemd service."""
