@@ -5,6 +5,22 @@ All notable changes to Hotspot Hub are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-10-25
+
+### Added
+- **Configure hotspot name & passphrase** from the UI. The hero card's new
+  **Configure** pill opens a dialog that renames the SSID and/or changes the
+  WPA2 passphrase on the live NetworkManager profile, with live validation
+  (SSID 1–32 chars; passphrase 8–63 chars or 64 hex digits; blank passphrase
+  keeps the current one) and an automatic restart when the hotspot is active
+  so the new name is broadcast immediately. Also exposed as
+  `hotspot-hub-cli set-credentials --ssid NAME [--password PSK]`.
+- **Device names in the client list** — each connected station now resolves to
+  its DHCP hostname from the dnsmasq lease file (iOS/Android report their
+  device name, e.g. \"Vansh's iPhone\"), falling back to the MAC vendor from
+  `/usr/share/hwdata/oui.txt` (`hwdata`). The dialog header counts named
+  devices.
+
 ## [0.4.3] - 2026-10-25
 
 ### Fixed

@@ -593,6 +593,43 @@ def modify_hotspot_security(sec: str) -> tuple[bool, str]:
     return False, f"Failed to modify security: {out}"
 
 
+def validate_hotspot_credentials(ssid: str, psk: str) -> tuple[bool, str]:
+    """Validate SSID (1-32 printable chars) and WPA2 passphrase.
+
+    Passphrase rules: 8-63 chars, or exactly 64 hex digits. An empty ``psk``
+    means "keep the current passphrase" and is valid.
+    """
+    ssid = (ssid or "").strip()
+    if not (1 <= len(ssid) <= 32):
+        return False, "SSID must be 1–32 characters."
+    if any(ord(c) < 32 or ord(c) == 127 for c in ssid):
+        return False, "SSID contains invalid (control) characters."
+    if psk:
+        hex64 = len(psk) == 64 and all(c in "0123456789abcdefABCDEF" for c in psk)
+        if not (8 <= len(psk) <= 63 or hex64):
+            return False, "Passphrase must be 8–63 characters (or 64 hex digits)."
+    return True, ""
+
+
+def modify_hotspot_credentials(ssid: str, psk: str) -> tuple[bool, str]:
+    """Set the SSID and (optionally) passphrase on the hotspot NM profile.
+
+    Uses the same user-level ``nmcli con modify`` path as band/security
+    changes (NetworkManager polkit lets the active session user modify the
+    system hotspot profile). An empty ``psk`` keeps the current passphrase.
+    """
+    ssid = (ssid or "").strip()
+    invalidate_cache()
+    args = ["nmcli", "con", "modify", HOTSPOT_CON, "802-11-wireless.ssid", ssid]
+    if psk:
+        args += ["802-11-wireless-security.psk", psk]
+    rc, out = run_rc(args, timeout=15)
+    invalidate_cache()
+    if rc == 0:
+        return True, f"SSID and passphrase updated on {HOTSPOT_CON}."
+    return False, f"Failed to update credentials: {out}"
+
+
 def active_cons() -> dict[str, str]:
     """Parse `nmcli -t -f NAME,DEVICE con show --active` -> {name: device}."""
     m = {}
@@ -814,6 +851,73 @@ def lease_count() -> str:
     if rc == 0 and out:
         return str(sum(1 for ln in out.splitlines() if ln.strip()))
     return "0 (no leases yet)"
+
+
+def read_leases() -> dict[str, dict[str, str]]:
+    """Parse the dnsmasq lease file -> {mac.lower(): {'ip': str, 'hostname': str}}.
+
+    Lease line format: <expires> <mac> <ip> <hostname> [<clientid>]. A \"*\"
+    hostname means the client sent no name.
+    """
+    text = ""
+    try:
+        with open(LEASE_FILE) as f:
+            text = f.read()
+    except (PermissionError, OSError):
+        rc, out = run_rc(["sudo", "-n", "cat", LEASE_FILE], timeout=15, max_retries=1)
+        if rc == 0:
+            text = out
+    leases: dict[str, dict[str, str]] = {}
+    for ln in text.splitlines():
+        parts = ln.split()
+        if len(parts) >= 4 and ":" in parts[1]:
+            host = parts[3]
+            if host in ("*", ""):
+                host = ""
+            leases[parts[1].lower()] = {"ip": parts[2], "hostname": host}
+    return leases
+
+
+_HWADATA_OUI: dict[str, str] | None = None
+
+
+def _load_oui_vendors() -> dict[str, str]:
+    """Load MAC OUI prefix -> vendor from /usr/share/hwdata/oui.txt (hwdata)."""
+    global _HWADATA_OUI
+    if _HWADATA_OUI is not None:
+        return _HWADATA_OUI
+    out: dict[str, str] = {}
+    try:
+        with open("/usr/share/hwdata/oui.txt", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                m = re.match(r"^([0-9A-F]{2}[-:][0-9A-F]{2}[-:][0-9A-F]{2})\s+\(hex\)\s+(.+)$",
+                             line.strip())
+                if m:
+                    out[m.group(1).replace("-", ":").replace(":", "").lower()] = m.group(2).strip()
+    except OSError:
+        pass
+    _HWADATA_OUI = out
+    return out
+
+
+def client_device_name(mac: str, leases: dict[str, dict[str, str]] | None = None,
+                       oui: dict[str, str] | None = None) -> str:
+    """Best-effort human name for a client MAC.
+
+    Priority: DHCP hostname from the dnsmasq lease (iOS/Android report their
+    device name, e.g. \"Vansh's iPhone\"), then the MAC OUI vendor, else "".
+    """
+    mac = mac.lower()
+    if leases is None:
+        leases = read_leases()
+    host = leases.get(mac, {}).get("hostname", "")
+    host = host.strip(" \t\"'")
+    if host and host != "*":
+        return host
+    if oui is None:
+        oui = _load_oui_vendors()
+    vendor = oui.get(mac.replace(":", "")[:6], "")
+    return vendor.split(",")[0].strip() if vendor else ""
 
 
 def health_check() -> dict[str, Any]:
@@ -1931,6 +2035,13 @@ class HotspotSection(PanelSection):
         self.combo_band.currentTextChanged.connect(self._on_band_changed)
         state_row.addWidget(band_lbl)
         state_row.addWidget(self.combo_band)
+
+        self.btn_configure = QPushButton("Configure")
+        self.btn_configure.setToolTip("Change hotspot name (SSID) and passphrase")
+        self.btn_configure.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_configure.clicked.connect(self._open_configure)
+        state_row.addWidget(self.btn_configure)
+
         self.body.addLayout(state_row)
 
         # Row 2: one-line instrument readout
@@ -1978,6 +2089,12 @@ class HotspotSection(PanelSection):
             return
         self.controller.toggle_hotspot()
 
+    def _open_configure(self) -> None:
+        """Open the SSID/passphrase configuration dialog."""
+        dlg = ConfigureDialog(self.controller, self)
+        dlg.exec()
+        self.refresh()
+
     def _on_band_changed(self, band_name: str) -> None:
         """Handle user selection of Wi-Fi band."""
         if not band_name:
@@ -1998,7 +2115,8 @@ class HotspotSection(PanelSection):
         """Update lamp, state word, readout, and master switch from live state."""
         ap0_ok = self.controller.ap0_available
         state = "error" if not ap0_ok else self.controller.detect_state()
-        for w in (self.combo_band, self.btn_restart, self.btn_clients, self.btn_qr):
+        for w in (self.combo_band, self.btn_restart, self.btn_clients, self.btn_qr,
+                  self.btn_configure):
             w.setEnabled(ap0_ok)
 
         # Lamp + state word
@@ -2454,6 +2572,116 @@ class ClientsDialog(QDialog):
         """Disconnect specified station MAC and refresh the view."""
         self.controller.disconnect_client(mac)
         self.refresh_clients()
+
+
+class ConfigureDialog(QDialog):
+    """Edit the hotspot SSID and WPA2 passphrase on the live NM profile.
+
+    Reading current values happens on open; the passphrase field is left blank
+    to keep the current passphrase (like setup-profile.sh's \"changed only if
+    given\" rule). Emit happens through the controller, which restarts the
+    hotspot automatically when active.
+    """
+
+    def __init__(self, controller: HotspotPanel, parent: QWidget | None = None) -> None:
+        """Initialize the configuration dialog with current values."""
+        super().__init__(parent)
+        self.controller = controller
+        self.setWindowTitle("Hotspot — Name & Passphrase")
+        self.setMinimumWidth(400)
+        self.setStyleSheet(get_theme_stylesheet(self.palette()))
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+        layout.setContentsMargins(16, 16, 16, 16)
+
+        intro = QLabel(
+            "Rename the hotspot or change its passphrase. Applied to the live "
+            "NetworkManager profile; the hotspot restarts automatically if it's on."
+        )
+        intro.setWordWrap(True)
+        intro.setProperty("mutedLabel", True)
+        layout.addWidget(intro)
+
+        ssid_lbl = QLabel("Hotspot name (SSID)")
+        ssid_lbl.setProperty("mutedLabel", True)
+        layout.addWidget(ssid_lbl)
+        self.ed_ssid = QLineEdit()
+        self.ed_ssid.setMaxLength(32)
+        self.ed_ssid.setPlaceholderText("1–32 characters")
+        layout.addWidget(self.ed_ssid)
+
+        psk_lbl = QLabel("Passphrase (WPA2)")
+        psk_lbl.setProperty("mutedLabel", True)
+        layout.addWidget(psk_lbl)
+        self.ed_psk = QLineEdit()
+        self.ed_psk.setMaxLength(64)
+        self.ed_psk.setEchoMode(QLineEdit.EchoMode.Password)
+        self.ed_psk.setPlaceholderText("8–63 characters (blank = keep current)")
+        layout.addWidget(self.ed_psk)
+
+        show_row = QHBoxLayout()
+        self.chk_show = QCheckBox("Show passphrase")
+        self.chk_show.setChecked(False)
+        show_row.addWidget(self.chk_show)
+        show_row.addStretch(1)
+        layout.addLayout(show_row)
+
+        self.feedback = QLabel("")
+        self.feedback.setWordWrap(True)
+        self.feedback.setProperty("mutedLabel", True)
+        layout.addWidget(self.feedback)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch(1)
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(self.reject)
+        self.save_btn = QPushButton("Save")
+        self.save_btn.setDefault(True)
+        self.save_btn.setAutoDefault(True)
+        self.save_btn.clicked.connect(self._save)
+        btn_row.addWidget(cancel)
+        btn_row.addWidget(self.save_btn)
+        layout.addLayout(btn_row)
+
+        self.ed_ssid.textChanged.connect(self._validate)
+        self.ed_psk.textChanged.connect(self._validate)
+        self.chk_show.toggled.connect(
+            lambda show: self.ed_psk.setEchoMode(
+                QLineEdit.EchoMode.Normal if show else QLineEdit.EchoMode.Password))
+
+        current = run(["nmcli", "-s", "-g", "802-11-wireless.ssid",
+                       "connection", "show", HOTSPOT_CON]).strip()
+        if not current:
+            current = iface_info(AP_IF).get("ssid", "")
+        self.ed_ssid.setText(current)
+        self._validate()
+
+    def _validate(self) -> None:
+        """Live-validate the fields and gate the Save button."""
+        ok, msg = validate_hotspot_credentials(self.ed_ssid.text(), self.ed_psk.text())
+        if not ok:
+            self.feedback.setText(msg)
+            self.feedback.setStyleSheet("color: #f87171;")
+        elif not self.ed_psk.text():
+            self.feedback.setText("Passphrase will be kept as-is.")
+            self.feedback.setStyleSheet("")
+        else:
+            self.feedback.setText("Valid — passphrase will be changed.")
+            self.feedback.setStyleSheet("")
+        self.save_btn.setEnabled(ok)
+
+    def _save(self) -> None:
+        """Apply credentials via the controller and close on success."""
+        ok, msg = self.controller.set_hotspot_credentials(
+            self.ed_ssid.text(), self.ed_psk.text())
+        if not ok:
+            QMessageBox.warning(self, "Update Failed", msg)
+            return
+        QMessageBox.information(
+            self, "Hotspot Updated",
+            f"Hotspot name is now \u201c{self.ed_ssid.text().strip()}\u201d.\n{msg}")
+        self.accept()
 
 
 class MacFilterDialog(QDialog):
@@ -3480,6 +3708,33 @@ class HotspotPanel:
         """Open the MAC Filter dialog."""
         dlg = MacFilterDialog(self, self.panel if self.panel.isVisible() else None)
         dlg.exec()
+
+    def set_hotspot_credentials(self, ssid: str, psk: str) -> tuple[bool, str]:
+        """Update hotspot SSID/passphrase on the live profile; restart if active.
+
+        Returns (ok, note). An empty ``psk`` keeps the current passphrase.
+        Restart happens through the async bus (never freezes the panel) and is
+        skipped while another action is already in flight.
+        """
+        ssid = (ssid or "").strip()
+        ok, msg = validate_hotspot_credentials(ssid, psk)
+        if not ok:
+            return False, msg
+        current = run(["nmcli", "-s", "-g", "802-11-wireless.ssid",
+                       "connection", "show", HOTSPOT_CON]).strip()
+        changed = ssid != current or bool(psk)
+        if changed:
+            ok, msg = modify_hotspot_credentials(ssid, psk)
+            if not ok:
+                return False, msg
+        self.invalidate_cache()
+        self.notify("Hotspot Configured",
+                    f"SSID: {ssid}" + (" · passphrase updated" if psk else ""))
+        if changed and not self._action_busy and self.detect_state() == "on":
+            self.hotspot_restart()
+            return True, "Restarting the hotspot to apply."
+        self.refresh()
+        return True, "Applies when the hotspot starts." if changed else "No changes — credentials left as-is."
 
     def set_band(self, band: str) -> tuple[bool, str]:
         """Modify hotspot Wi-Fi band ('2.4GHz', '5GHz', or 'Auto') and persist preference in config."""

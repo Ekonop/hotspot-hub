@@ -1,6 +1,6 @@
 # Maintainer: vansh
 pkgname=hotspot-hub
-pkgver=0.4.3
+pkgver=0.5.0
 pkgrel=1
 pkgdesc="KDE tray control for concurrent Wi-Fi hotspot, WARP and channel-sync"
 arch=('any')

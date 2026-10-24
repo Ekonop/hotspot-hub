@@ -222,5 +222,63 @@ class LeaseCountTests(unittest.TestCase):
             self.assertEqual(hub.lease_count(), "0 (no leases yet)")
 
 
+
+class CredentialsValidationTests(unittest.TestCase):
+    """validate_hotspot_credentials: SSID/passphrase rules."""
+
+    def test_valid_ssid_and_psk(self) -> None:
+        ok, msg = hub.validate_hotspot_credentials("Vansh\'s iPhone", "OpenSesame1")
+        self.assertTrue(ok, msg)
+
+    def test_empty_psk_keeps_current(self) -> None:
+        ok, _ = hub.validate_hotspot_credentials("Hotspot-Shared", "")
+        self.assertTrue(ok)
+
+    def test_ssid_too_long(self) -> None:
+        ok, msg = hub.validate_hotspot_credentials("A" * 33, "password1")
+        self.assertFalse(ok)
+        self.assertIn("1–32", msg)
+
+    def test_empty_ssid(self) -> None:
+        ok, _ = hub.validate_hotspot_credentials("", "password1")
+        self.assertFalse(ok)
+
+    def test_psk_too_short(self) -> None:
+        ok, msg = hub.validate_hotspot_credentials("SSID", "short7")
+        self.assertFalse(ok)
+        self.assertIn("8–63", msg)
+
+    def test_psk_sixtyfour_hex_allowed(self) -> None:
+        ok, _ = hub.validate_hotspot_credentials("SSID", "a" * 64)
+        self.assertTrue(ok)
+
+    def test_psk_sixtyfour_nonhex_rejected(self) -> None:
+        ok, _ = hub.validate_hotspot_credentials("SSID", "z" * 64)
+        self.assertFalse(ok)
+
+    def test_ssid_control_chars_rejected(self) -> None:
+        ok, _ = hub.validate_hotspot_credentials("Bad\x07SSID", "password1")
+        self.assertFalse(ok)
+
+
+class DeviceNameTests(unittest.TestCase):
+    """client_device_name: lease hostname beats OUI vendor beats empty."""
+
+    def test_lease_hostname_used(self) -> None:
+        leases = {"aa:bb:cc:dd:ee:ff": {"ip": "10.42.0.5", "hostname": "Vansh\'s iPhone"}}
+        got = hub.client_device_name("AA:BB:CC:DD:EE:FF", leases, oui={})
+        self.assertEqual(got, "Vansh\'s iPhone")
+
+    def test_star_hostname_falls_back_to_vendor(self) -> None:
+        leases = {"aa:bb:cc:dd:ee:ff": {"ip": "10.42.0.5", "hostname": "*"}}
+        oui = {"aabbcc": "Apple, Inc."}
+        got = hub.client_device_name("aa:bb:cc:dd:ee:ff", leases, oui)
+        self.assertEqual(got, "Apple")
+
+    def test_unknown_returns_empty(self) -> None:
+        got = hub.client_device_name("aa:bb:cc:dd:ee:ff", leases={}, oui={})
+        self.assertEqual(got, "")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

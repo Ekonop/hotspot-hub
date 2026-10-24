@@ -359,6 +359,30 @@ def cmd_band(args: argparse.Namespace) -> int:
         return 0
 
 
+def cmd_creds(args: argparse.Namespace) -> int:
+    """Set hotspot SSID and/or passphrase; restart the hotspot if active."""
+    ssid = args.ssid or ""
+    psk = args.password or ""
+    if not ssid and not psk:
+        print("Error: provide --ssid and/or --password", file=sys.stderr)
+        return 1
+    ok, msg = hub.validate_hotspot_credentials(ssid, psk)
+    if not ok:
+        print(f"Error: {msg}", file=sys.stderr)
+        return 1
+    ok, msg = hub.modify_hotspot_credentials(ssid, psk)
+    if not ok:
+        print(f"Error: {msg}", file=sys.stderr)
+        return 1
+    if hub.active_cons().get(hub.HOTSPOT_CON) == hub.AP_IF:
+        hub.run_rc(["nmcli", "con", "down", hub.HOTSPOT_CON], timeout=30)
+        hub.run_rc(["nmcli", "con", "up", hub.HOTSPOT_CON], timeout=30)
+        print(f"Success: {msg} Hotspot restarted to apply.")
+    else:
+        print(f"Success: {msg} Applies when the hotspot starts.")
+    return 0
+
+
 def cmd_mac_filter(args: argparse.Namespace) -> int:
     """Manage MAC filtering policy and address lists."""
     action = args.action
@@ -489,6 +513,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_band.add_argument("band", nargs="?", choices=["2.4GHz", "5GHz", "Auto", "2.4", "5", "auto"],
                         help="Optional band to set (2.4GHz, 5GHz, Auto)")
     p_band.set_defaults(func=cmd_band)
+
+    # set-credentials
+    p_creds = subparsers.add_parser(
+        "set-credentials", help="Set hotspot SSID and/or passphrase")
+    p_creds.add_argument("--ssid", help="New SSID (1-32 characters)")
+    p_creds.add_argument("--password", help="New WPA2 passphrase (8-63 chars; omit to keep current)")
+    p_creds.set_defaults(func=cmd_creds)
 
     # mac-filter
     p_mf = subparsers.add_parser("mac-filter", help="Manage MAC address filtering")

@@ -24,7 +24,13 @@ MediaTek MT7922).
   channel-sync daemon (`/run/hotspot-hub-disabled` flag).
 
 ### Network & Clients
-- **Client list with kick** — show connected stations (MAC, signal) and disconnect.
+- **Client list with kick** — show connected stations with **device names**
+  (DHCP hostname from the dnsmasq lease — e.g. \"Vansh's iPhone\" — falling
+  back to the MAC vendor from `hwdata`) plus MAC and signal, with disconnect.
+- **Configure hotspot name & passphrase** — the hero card's **Configure** pill
+  (and `hotspot-hub-cli set-credentials`) renames the SSID and/or changes the
+  WPA2 passphrase on the live profile; validation (1–32 SSID, 8–63 psk / 64
+  hex) and an automatic restart when the hotspot is active.
 - **MAC filtering** — allow/deny lists with enforcement (`iw station del`).
 - **Bandwidth monitor** — real-time RX/TX throughput for `wlan0` and `ap0`.
 - **Bandwidth throttling** — `tc`-based total cap via `hotspot-hub-cli throttle`.
@@ -54,7 +60,7 @@ MediaTek MT7922).
 - **Desktop notifications** on client connect/disconnect.
 
 ### Quality
-- **Unit tests** (22 tests, `unittest`, zero deps).
+- **Unit tests** (33 tests, `unittest`, zero deps).
 - **ruff** linting + GitHub Actions CI.
 - **Security audit** (`docs/SECURITY-AUDIT.md`): scoped sudoers, no shell
   injection, no secrets logged.
@@ -119,6 +125,7 @@ hotspot-hub-cli qr
 hotspot-hub-cli band [2.4GHz|5GHz|Auto]
 hotspot-hub-cli mac-filter <list|allow|deny|block|remove|enable|disable> [mac]
 hotspot-hub-cli throttle <iface> <rate_mbps>   # 0 to clear
+hotspot-hub-cli set-credentials --ssid NAME [--password PSK]
 hotspot-hub-cli metrics [-o FILE]
 hotspot-hub-cli profile <list|add|switch|remove> [name]
 ```
