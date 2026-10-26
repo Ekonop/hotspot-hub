@@ -106,7 +106,31 @@ hotspot-hub &
 
 Options: `./install.sh --no-profile --no-ufw --no-enable --no-autostart`
 
-## Flet UI (modern alternative)
+## Flet UI (modern alternative with system tray)
+
+A beautiful, modern Flet/Flutter-based UI with system tray integration:
+
+```bash
+python3 app/hotspot-hub-tray.py
+```
+
+This provides:
+- **System tray icon** (via pystray) with Open/Quit menu
+- **Flet window** that opens on tray click, hides on close (doesn't quit)
+- **Modern iOS-inspired UI** with cards, status pills, dark/light mode
+- **All backend functionality** shared with the PyQt6 app
+
+Install dependencies:
+```bash
+pip install --break-system-packages flet flet-desktop pystray pillow
+```
+
+Or use the standalone window (no tray):
+```bash
+python3 app/hotspot-hub-flet.py
+```
+
+
 
 A beautiful, modern Flet/Flutter-based UI is available as an alternative to the
 PyQt6 tray app:
