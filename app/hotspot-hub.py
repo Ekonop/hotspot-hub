@@ -177,7 +177,7 @@ logger = setup_logging()
 # TTL cache structures: (cmd_tuple, timeout) -> (output, timestamp)
 _RUN_CACHE: dict[tuple[tuple[str, ...], int | float], tuple[str, float]] = {}
 _RUN_RC_CACHE: dict[tuple[tuple[str, ...], int | float], tuple[tuple[int, str], float]] = {}
-CACHE_TTL: float = 5.0
+CACHE_TTL: float = float(os.environ.get("HOTSPOT_HUB_CACHE_TTL", "8.0"))
 BACKOFF_DELAYS: tuple[float, ...] = (1.0, 2.0, 4.0)
 
 _MUTATING_KEYWORDS: set[str] = {
