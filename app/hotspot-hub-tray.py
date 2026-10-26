@@ -14,15 +14,15 @@ from __future__ import annotations
 
 import os
 import sys
-import time
 import threading
-import logging
+import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "app"))
 sys.path.insert(0, os.path.join(REPO, "cli"))
 
 import importlib.util
+
 _spec = importlib.util.spec_from_file_location("hotspot_hub", os.path.join(REPO, "app", "hotspot-hub.py"))
 hub = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(hub)
@@ -179,7 +179,7 @@ def main(page: ft.Page):
     # ── Header ──
     header_pill = status_pill("STANDBY", MUTED_DARK)
 
-    header = ft.Row([
+    ft.Row([
         ft.Column([
             ft.Text("Hotspot Hub", size=22, weight=ft.FontWeight.W_700,
                     color=text_color(page)),

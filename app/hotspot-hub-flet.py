@@ -11,20 +11,20 @@ from __future__ import annotations
 
 import os
 import sys
-import time
 import threading
+import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "app"))
 sys.path.insert(0, os.path.join(REPO, "cli"))
 
 import importlib.util
+
 _spec = importlib.util.spec_from_file_location("hotspot_hub", os.path.join(REPO, "app", "hotspot-hub.py"))
 hub = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(hub)
 
 import flet as ft
-
 
 # ── Design tokens (iOS-inspired) ─────────────────────────────────────
 PRIMARY = "#007AFF"
