@@ -404,6 +404,12 @@ def main(page: ft.Page):
         while not _quit_app.is_set():
             time.sleep(30)
             try:
+                reconnected, reason = hub.smart_reconnect(hub.load_app_config())
+                if reconnected:
+                    page.snack_bar = ft.SnackBar(
+                        ft.Text(f"Reconnected ({reason})"), bgcolor=PRIMARY)
+                    page.snack_bar.open = True
+                    page.update()
                 refresh_hotspot()
                 refresh_warp()
                 refresh_sys()

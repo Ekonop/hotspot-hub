@@ -180,6 +180,13 @@ _RUN_RC_CACHE: dict[tuple[tuple[str, ...], int | float], tuple[tuple[int, str], 
 CACHE_TTL: float = float(os.environ.get("HOTSPOT_HUB_CACHE_TTL", "8.0"))
 BACKOFF_DELAYS: tuple[float, ...] = (1.0, 2.0, 4.0)
 
+# Module-level smart-reconnect state (shared by PyQt6 and Flet UIs).
+_RECONNECT_STATE: dict[str, Any] = {
+    "last_reconnect_time": 0.0,
+    "failures": 0,
+    "last_user_interaction": 0.0,
+}
+
 _MUTATING_KEYWORDS: set[str] = {
     "up", "down", "add", "del", "delete", "set", "restart", "start", "stop", "connect", "disconnect"
 }
@@ -1011,6 +1018,57 @@ def client_device_name(mac: str, leases: dict[str, dict[str, str]] | None = None
         oui = _load_oui_vendors()
     vendor = oui.get(mac.replace(":", "")[:6], "")
     return vendor.split(",")[0].strip() if vendor else ""
+
+
+def smart_reconnect(config: dict[str, Any]) -> tuple[bool, str]:
+    """Perform a smart reconnect if connectivity is limited.
+
+    Uses module-level state for back-off/cooldown tracking. Returns
+    (reconnected, reason) -- (False, "ok") if connectivity is fine or
+    reconnect was skipped.
+
+    Args:
+        config: Application configuration dict.
+
+    Returns:
+        (reconnected, reason): True if a reconnect was performed.
+    """
+    if not config.get("reconnect_enabled", True):
+        return False, "disabled"
+
+    ok, reason = check_connectivity()
+    if ok:
+        _RECONNECT_STATE["failures"] = 0
+        return False, "ok"
+
+    now = time.monotonic()
+    cooldown = float(config.get("reconnect_cooldown_sec", 300))
+    if now - _RECONNECT_STATE["last_reconnect_time"] < cooldown:
+        return False, "cooldown"
+
+    base = float(config.get("reconnect_backoff_sec", 30))
+    wait = min(base * (2 ** _RECONNECT_STATE["failures"]), 300.0)
+    if _RECONNECT_STATE["last_reconnect_time"] > 0 and (now - _RECONNECT_STATE["last_reconnect_time"]) < wait:
+        return False, "backoff"
+
+    if DISABLED_FLAG.exists():
+        return False, "manually-disabled"
+
+    if now - _RECONNECT_STATE["last_user_interaction"] < 300:
+        return False, "user-active"
+
+    # Perform reconnect.
+    attempt = _RECONNECT_STATE["failures"] + 1
+    logger.info("Smart reconnect (attempt %d): %s", attempt, reason)
+    _RECONNECT_STATE["last_reconnect_time"] = now
+    _RECONNECT_STATE["failures"] += 1
+
+    priv(["ip", "link", "set", STA_IF, "down"])
+    time.sleep(2)
+    priv(["ip", "link", "set", STA_IF, "up"])
+
+    invalidate_cache()
+    return True, reason
 
 
 def health_check() -> dict[str, Any]:
@@ -3526,10 +3584,9 @@ class HotspotPanel:
         self._battery_action_taken: bool = False
 
         # Smart reconnect state (Phase 1)
-        self._last_reconnect_time: float = 0.0
-        self._reconnect_backoff: float = 0.0
-        self._reconnect_failures: int = 0
-        self._last_user_interaction: float = 0.0
+        self._last_reconnect_time: float = _RECONNECT_STATE["last_reconnect_time"]
+        self._reconnect_failures: int = _RECONNECT_STATE["failures"]
+        self._last_user_interaction: float = _RECONNECT_STATE["last_user_interaction"]
 
         self.allowed_macs: set[str] = load_mac_file(ALLOWED_MACS_FILE)
         self.blocked_macs: set[str] = load_mac_file(BLOCKED_MACS_FILE)
@@ -3809,7 +3866,7 @@ class HotspotPanel:
         if ok:
             # Full connectivity restored: reset failure counters.
             self._reconnect_failures = 0
-            self._reconnect_backoff = 0.0
+            _RECONNECT_STATE["failures"] = 0
             return
 
         # Limited connectivity detected.
@@ -3844,6 +3901,8 @@ class HotspotPanel:
         logger.info("Initiating smart reconnect (attempt %d): %s", attempt, reason)
         self._last_reconnect_time = now
         self._reconnect_failures += 1
+        _RECONNECT_STATE["last_reconnect_time"] = now
+        _RECONNECT_STATE["failures"] = self._reconnect_failures
 
         priv(["ip", "link", "set", STA_IF, "down"])
         time.sleep(2)
