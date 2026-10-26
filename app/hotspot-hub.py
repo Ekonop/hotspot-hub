@@ -10,6 +10,7 @@ import logging
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -76,6 +77,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QRadioButton,
     QScrollArea,
+    QScroller,
     QSizeGrip,
     QSizePolicy,
     QSpinBox,
@@ -353,6 +355,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "ipv6_enabled": False,
     "profiles": ["Hotspot-Shared"],
     "active_profile": "Hotspot-Shared",
+    "reconnect_enabled": True,
+    "reconnect_cooldown_sec": 300,
+    "reconnect_backoff_sec": 30,
 }
 
 
@@ -1077,6 +1082,71 @@ def health_check() -> dict[str, Any]:
     return res
 
 
+def check_connectivity() -> tuple[bool, str]:
+    """Check for limited connectivity by probing the default gateway and DNS.
+
+    Uses ``ip route show default`` to find the gateway IP, pings it once
+    with a 2-second timeout, then resolves ``example.com`` via
+    ``getent hosts`` (or the :mod:`socket` module as a fallback).
+
+    Returns:
+        tuple[bool, str]: ``(True, "ok")`` if both the gateway responds to
+        ICMP and DNS resolves successfully; otherwise ``(False, reason)``
+        where *reason* is a short human-readable description of the failure.
+    """
+    # 1. Discover default gateway
+    gw_ip = ""
+    try:
+        route_out = run(["ip", "route", "show", "default"], timeout=3, max_retries=1)
+        m = re.search(r"default via (\S+)", route_out)
+        if m:
+            gw_ip = m.group(1)
+    except Exception as exc:
+        logger.debug("check_connectivity: ip route error: %s", exc)
+
+    if not gw_ip:
+        return False, "no default gateway"
+
+    # 2. Ping the gateway (1 probe, 2-second wait)
+    try:
+        ping_rc, _ = run_rc(
+            ["ping", "-c", "1", "-W", "2", gw_ip],
+            timeout=4,
+            max_retries=1,
+            use_cache=False,
+        )
+        if ping_rc != 0:
+            return False, f"gateway unreachable ({gw_ip})"
+    except Exception as exc:
+        logger.debug("check_connectivity: ping error: %s", exc)
+        return False, f"gateway ping error ({gw_ip})"
+
+    # 3. DNS resolution: try getent, fall back to socket.gethostbyname
+    dns_ok = False
+    try:
+        if shutil.which("getent"):
+            rc, _ = run_rc(
+                ["getent", "hosts", "example.com"],
+                timeout=5,
+                max_retries=1,
+                use_cache=False,
+            )
+            dns_ok = rc == 0
+        else:
+            socket.gethostbyname("example.com")
+            dns_ok = True
+    except socket.gaierror:
+        dns_ok = False
+    except Exception as exc:
+        logger.debug("check_connectivity: DNS probe error: %s", exc)
+        dns_ok = False
+
+    if not dns_ok:
+        return False, "dns failed"
+
+    return True, "ok"
+
+
 def hotspot_start() -> tuple[bool, str]:
     """Ensure ap0 exists, clear disabled flag, and activate hotspot connection. Return (ok, message)."""
     invalidate_cache()
@@ -1396,7 +1466,11 @@ def get_theme_stylesheet(palette: QPalette | None = None) -> str:
         hero_tint = _mix(card_base, accent_col, 0.06)
         scroll_handle = QColor("#c3ccd9")
 
-    canvas_bg = win_col.name()
+    # iOS-style: avoid pure #000 black; use #1C1C1E for very dark backgrounds.
+    if dark and win_col.lightness() < 12:
+        canvas_bg = "#1C1C1E"
+    else:
+        canvas_bg = win_col.name()
     canvas_border = border_base.name()
     card_bg = card_base.name()
     card_hover_bg = card_hover_base.name()
@@ -1446,7 +1520,8 @@ def get_theme_stylesheet(palette: QPalette | None = None) -> str:
         QLabel[headingLabel="true"] {{
             font-family: 'Manrope', 'Noto Sans', 'DejaVu Sans', sans-serif;
             font-size: 15px;
-            font-weight: 700;
+            font-weight: 600;
+            letter-spacing: -0.15px;
             color: {win_text};
         }}
         QLabel[shellSubtitle="true"] {{
@@ -1496,7 +1571,7 @@ def get_theme_stylesheet(palette: QPalette | None = None) -> str:
             border: 1px solid {card_border};
             border-radius: 999px;
             padding: 6px 16px;
-            min-height: 30px;
+            min-height: 44px;
             font-family: 'Manrope', 'Noto Sans', 'DejaVu Sans', sans-serif;
             font-size: 13px;
             font-weight: 600;
@@ -1505,8 +1580,10 @@ def get_theme_stylesheet(palette: QPalette | None = None) -> str:
             padding: 0px;
             font-size: 14px;
             font-weight: 600;
-            min-height: 32px;
-            max-height: 32px;
+            min-height: 36px;
+            max-height: 36px;
+            min-width: 36px;
+            max-width: 36px;
             min-width: 32px;
             max-width: 32px;
             border-radius: 8px;
@@ -2388,6 +2465,24 @@ class SystemSection(PanelSection):
         self.info.setProperty("metricLabel", True)
         self.info.setFont(get_monospace_font(pixel_size=12))
         self.body.addWidget(self.info)
+
+        # Connectivity status line (Phase 1: smart reconnect)
+        self.lbl_connectivity = QLabel("Connectivity: checking…")
+        self.lbl_connectivity.setProperty("metricLabel", True)
+        self.lbl_connectivity.setFont(get_monospace_font(pixel_size=12))
+        self.body.addWidget(self.lbl_connectivity)
+
+        # Smart reconnect toggle (Phase 1)
+        self.chk_reconnect = QCheckBox("Smart reconnect")
+        self.chk_reconnect.setToolTip(
+            "Automatically cycle the STA interface when limited connectivity is detected"
+        )
+        self.chk_reconnect.setChecked(
+            bool(self.controller.config.get("reconnect_enabled", True))
+        )
+        self.chk_reconnect.toggled.connect(self._toggle_reconnect)
+        self.body.addWidget(self.chk_reconnect)
+
         self.btn_sync = QPushButton("Restart sync")
         self.btn_route = QPushButton("Fix routing")
         self.btn_mac_filter = QPushButton("MAC Filter")
@@ -2399,8 +2494,13 @@ class SystemSection(PanelSection):
         self.row(self.btn_sync, self.btn_route)
         self.row(self.btn_mac_filter, self.btn_docs)
 
+    def _toggle_reconnect(self, checked: bool) -> None:
+        """Handle smart reconnect checkbox toggle and persist to config."""
+        self.controller.config["reconnect_enabled"] = checked
+        save_app_config(self.controller.config)
+
     def refresh(self) -> None:
-        """Update channel-sync service status, VPN bypass state, and channels."""
+        """Update channel-sync service status, VPN bypass state, channels, and connectivity."""
         _, out = run_rc(["systemctl", "is-active",
                          "hotspot-channelsync.service"], timeout=10, max_retries=1)
         state = out.strip().splitlines()[0] if out else "unknown"
@@ -2420,6 +2520,20 @@ class SystemSection(PanelSection):
             lines.append("Hotspot: manually stopped")
         lines.append(f"{STA_IF} ch{sta.get('channel', '?')} | {AP_IF} ch{ap.get('channel', '?')}")
         self.info.setText("\n".join(lines))
+
+        # Connectivity status (Phase 1)
+        ctrl = self.controller
+        failures = ctrl._reconnect_failures
+        if failures > 0:
+            conn_text = f"Connectivity: Limited (reconnecting… attempt {failures})"
+        else:
+            conn_text = "Connectivity: OK"
+        self.lbl_connectivity.setText(conn_text)
+
+        # Sync smart reconnect checkbox
+        self.chk_reconnect.blockSignals(True)
+        self.chk_reconnect.setChecked(bool(ctrl.config.get("reconnect_enabled", True)))
+        self.chk_reconnect.blockSignals(False)
 
 
 class HealthSection(PanelSection):
@@ -3120,6 +3234,13 @@ class DropdownPanel(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
+        # Kinetic (momentum) scrolling for trackpad/touch — iOS-style.
+        try:
+            QScroller.grabGesture(scroll.viewport(), QScroller.ScrollerGestureType.TouchGesture)
+        except Exception:
+            pass
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         container = QWidget()
         container_layout = QVBoxLayout(container)
@@ -3147,8 +3268,8 @@ class DropdownPanel(QWidget):
         self._effect = QGraphicsOpacityEffect(self)
         self.setGraphicsEffect(self._effect)
         self._fade = QPropertyAnimation(self._effect, b"opacity", self)
-        self._fade.setDuration(160)
-        self._fade.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._fade.setDuration(220)
+        self._fade.setEasingCurve(QEasingCurve.Type.OutBack)
         self._fade.setStartValue(0.0)
         self._fade.setEndValue(1.0)
 
@@ -3254,6 +3375,7 @@ class DropdownPanel(QWidget):
 
     def showEvent(self, event: Any) -> None:
         """Fade the panel in, resume refresh timer, and update sections."""
+        self.controller._last_user_interaction = time.monotonic()
         super().showEvent(event)
         self._effect.setOpacity(0.0)
         self._fade.stop()
@@ -3403,6 +3525,12 @@ class HotspotPanel:
         self._schedule_last_action: str | None = None
         self._battery_action_taken: bool = False
 
+        # Smart reconnect state (Phase 1)
+        self._last_reconnect_time: float = 0.0
+        self._reconnect_backoff: float = 0.0
+        self._reconnect_failures: int = 0
+        self._last_user_interaction: float = 0.0
+
         self.allowed_macs: set[str] = load_mac_file(ALLOWED_MACS_FILE)
         self.blocked_macs: set[str] = load_mac_file(BLOCKED_MACS_FILE)
 
@@ -3429,7 +3557,7 @@ class HotspotPanel:
         if shortcut_key and shortcut_key.lower() not in ("none", "disabled", "off", "0"):
             self.shortcut = QShortcut(QKeySequence(shortcut_key), self.panel)
             self.shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
-            self.shortcut.activated.connect(self.toggle_hotspot)
+            self.shortcut.activated.connect(self._shortcut_toggle)
 
         # Main refresh timer running on 30s (30000ms) interval for status updates,
         # scheduled hotspot checks, and battery-aware auto-disable.
@@ -3660,6 +3788,73 @@ class HotspotPanel:
         else:
             self.hotspot_on()
 
+    def _shortcut_toggle(self) -> None:
+        """Handle keyboard shortcut toggle -- records user interaction before toggling."""
+        self._last_user_interaction = time.monotonic()
+        self.toggle_hotspot()
+
+    def check_and_reconnect(self) -> None:
+        """Check connectivity and perform a smart STA interface reconnect if limited.
+
+        Called from :meth:`refresh` after schedule/battery checks.  Applies an
+        exponential back-off (30 s base, doubling each failure, capped at 300 s)
+        and a global cooldown so reconnect attempts never pile up.  The reconnect
+        is suppressed while the hotspot is manually disabled, an action is in
+        flight, or the user interacted with the app within the last 5 minutes.
+        """
+        if not self.config.get("reconnect_enabled", True):
+            return
+
+        ok, reason = check_connectivity()
+        if ok:
+            # Full connectivity restored: reset failure counters.
+            self._reconnect_failures = 0
+            self._reconnect_backoff = 0.0
+            return
+
+        # Limited connectivity detected.
+        logger.warning("Limited connectivity detected: %s", reason)
+        now = time.monotonic()
+        cooldown = float(self.config.get("reconnect_cooldown_sec", 300))
+        if now - self._last_reconnect_time < cooldown:
+            logger.debug("Reconnect cooldown active (%.0fs remaining), skipping",
+                         cooldown - (now - self._last_reconnect_time))
+            return
+
+        # Exponential back-off: 30, 60, 120, 240, capped at 300 s.
+        base = float(self.config.get("reconnect_backoff_sec", 30))
+        wait = min(base * (2 ** self._reconnect_failures), 300.0)
+        if self._last_reconnect_time > 0 and (now - self._last_reconnect_time) < wait:
+            logger.debug("Reconnect back-off active (wait=%.0fs), skipping", wait)
+            return
+
+        # Never reconnect if the hotspot was manually disabled.
+        if DISABLED_FLAG.exists():
+            logger.debug("Reconnect skipped: hotspot manually disabled")
+            return
+
+        # Never reconnect if the user was active within the last 5 minutes.
+        if now - self._last_user_interaction < 300:
+            logger.info("Reconnect deferred: user active recently (%.0fs ago)",
+                        now - self._last_user_interaction)
+            return
+
+        # Perform the reconnect: cycle the STA interface.
+        attempt = self._reconnect_failures + 1
+        logger.info("Initiating smart reconnect (attempt %d): %s", attempt, reason)
+        self._last_reconnect_time = now
+        self._reconnect_failures += 1
+
+        priv(["ip", "link", "set", STA_IF, "down"])
+        time.sleep(2)
+        priv(["ip", "link", "set", STA_IF, "up"])
+
+        self.notify(
+            "Network Reconnect",
+            f"Limited connectivity ({reason}); reconnected {STA_IF}."
+        )
+        self.invalidate_cache()
+
     def _act(self, label: str, slot: Callable[..., Any], disabled: bool = False) -> QAction:
         """Add an action item to the context menu and return it."""
         a = QAction(label, self.menu)
@@ -3680,6 +3875,7 @@ class HotspotPanel:
 
     def _on_tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         """Handle tray icon trigger events to toggle dropdown panel."""
+        self._last_user_interaction = time.monotonic()
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
             self.toggle_panel()
 
@@ -3771,9 +3967,10 @@ class HotspotPanel:
         self.status_action.setText(text[:160])
         self.tray.setToolTip("Hotspot Hub\n" + text)
 
-        # Auto-control checks: scheduled hotspot and battery-aware auto-disable
+        # Auto-control checks: scheduled hotspot, battery-aware auto-disable, smart reconnect
         self.check_schedule()
         self.check_battery()
+        self.check_and_reconnect()
 
         # Lazy refresh: Only update panel sections when panel is visible
         if self.panel.isVisible():
