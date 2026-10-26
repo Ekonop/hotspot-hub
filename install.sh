@@ -22,6 +22,10 @@ echo "==> Installing Hotspot Hub files..."
 sudo install -Dm755 "$ROOT/app/hotspot-hub.py" /usr/bin/hotspot-hub
 sudo install -Dm755 "$ROOT/cli/hotspot-hub-cli.py" /usr/bin/hotspot-hub-cli
 sudo install -Dm644 "$ROOT/app/hotspot-hub.py" /usr/share/hotspot-hub/app/hotspot-hub.py
+# Flet UI (modern alternative)
+sudo install -Dm755 "$ROOT/app/hotspot-hub-tray.py" /usr/share/hotspot-hub/app/hotspot-hub-tray.py
+sudo install -Dm755 "$ROOT/app/hotspot-hub-flet.py" /usr/share/hotspot-hub/app/hotspot-hub-flet.py
+sudo install -Dm755 "$ROOT/hotspot-hub-flet.sh" /usr/bin/hotspot-hub-flet
 for f in "$ROOT"/assets/*; do
   [ -f "$f" ] && sudo install -Dm644 "$f" "/usr/share/hotspot-hub/assets/$(basename "$f")"
 done
@@ -33,11 +37,21 @@ sudo install -Dm644 "$ROOT/src/hotspot-channelsync.service" /etc/systemd/system/
 sudo install -Dm644 "$ROOT/src/99-hotspot.conf" /etc/sysctl.d/99-hotspot.conf
 sudo install -Dm644 "$ROOT/icons/hotspot-hub.svg" /usr/share/icons/hicolor/scalable/apps/hotspot-hub.svg
 sudo install -Dm644 "$ROOT/hotspot-hub.desktop" /usr/share/applications/hotspot-hub.desktop
+sudo install -Dm644 "$ROOT/hotspot-hub-flet.desktop" /usr/share/applications/hotspot-hub-flet.desktop
 sudo install -Dm440 "$ROOT/src/hotspot-hub.sudoers" /etc/sudoers.d/hotspot-hub
 sudo install -Dm644 "$ROOT/man/hotspot-hub-cli.1" /usr/share/man/man1/hotspot-hub-cli.1
 sudo visudo -c
 sudo gtk-update-icon-cache -f /usr/share/icons/hicolor 2>/dev/null || \
   sudo update-icon-caches /usr/share/icons/hicolor 2>/dev/null || true
+
+echo "==> Installing Flet UI dependencies (pystray, pillow, flet)..."
+if command -v pip3 >/dev/null 2>&1 || command -v pip >/dev/null 2>&1; then
+  PIP=$(command -v pip3 2>/dev/null || command -v pip 2>/dev/null)
+  $PIP install --break-system-packages --quiet flet flet-desktop pystray pillow 2>/dev/null || \
+    echo "  (pip install failed; install manually: pip install --break-system-packages flet flet-desktop pystray pillow)"
+else
+  echo "  (pip not found; install python-pip and run: pip install --break-system-packages flet flet-desktop pystray pillow)"
+fi
 
 echo "==> Applying sysctl..."
 sudo sysctl --system >/dev/null 2>&1 || sudo sysctl -w net.ipv4.ip_forward=1

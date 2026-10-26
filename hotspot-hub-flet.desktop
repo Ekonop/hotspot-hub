@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Hotspot Hub (Flet)
+Comment=Modern Flet UI for hotspot control
+Exec=hotspot-hub-flet
+Icon=hotspot-hub
+Terminal=false
+Categories=Network;
+StartupNotify=false
