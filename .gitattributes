@@ -1,0 +1,9 @@
+# Linguist: exclude build/packaging output from GitHub's language stats.
+# packaging/appimage/AppDir is a bundled AppImage staging tree (Python runtime +
+# PyQt) committed for builds — it is NOT source and dominates byte counts
+# (~16 MB python vs ~0.2 MB real source). Widening to packaging/ keeps any
+# future per-package staging trees out of the stats too.
+packaging/** linguist-vendored=true
+
+# Keep these explicit in case linguist's defaults ever shift:
+*.AppImage linguist-binary
