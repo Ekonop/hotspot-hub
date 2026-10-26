@@ -5,6 +5,30 @@ All notable changes to Hotspot Hub are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-10-26
+
+### Added
+- **Smart Limited-Connectivity Detection & Reconnect**:
+  - `check_connectivity()` probes gateway ping + DNS resolution.
+  - Exponential back-off reconnect (30s → 60s → 120s, capped 300s) with 5-min cooldown.
+  - Guards: manual-disable flag, user-idle window (no reconnect during active use).
+  - SystemSection shows live "Connectivity: OK / Limited (reconnecting… attempt N)".
+  - "Smart reconnect" checkbox in UI, persisted to config.
+  - Tray notification on reconnect; logs all events.
+- **iOS-Style UI/UX Polish**:
+  - Dark background uses `#1C1C1E` (no pure `#000`); light uses Plasma palette.
+  - 44px minimum tap targets (iOS HIG).
+  - Spring-like fade animation (OutBack easing, 220ms).
+  - Kinetic (momentum) scrolling via QScroller on dropdown.
+  - Heading letter-spacing -0.15px.
+
+### Changed
+- Button min-height bumped from 30px to 44px.
+- Fade animation easing changed from OutCubic to OutBack (spring feel).
+- DropdownPanel canvas bg avoids pure black in dark mode.
+
+---
+
 ## [0.5.0] - 2026-10-25
 
 ### Fixed
