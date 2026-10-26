@@ -106,7 +106,28 @@ hotspot-hub &
 
 Options: `./install.sh --no-profile --no-ufw --no-enable --no-autostart`
 
+## Flet UI (modern alternative)
+
+A beautiful, modern Flet/Flutter-based UI is available as an alternative to the
+PyQt6 tray app:
+
+```bash
+python3 app/hotspot-hub-flet.py
+# or
+./hotspot-hub-flet.sh
+```
+
+The Flet UI uses the same backend logic (subprocess calls, config, etc.) but
+renders with Flutter for a native-feeling, modern interface. It requires
+`flet` and `flet-desktop` Python packages.
+
+Install dependencies:
+```bash
+pip install --break-system-packages flet flet-desktop
+```
+
 ## Arch package
+
 
 ```bash
 make package
