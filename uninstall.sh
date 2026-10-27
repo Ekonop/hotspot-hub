@@ -9,6 +9,7 @@ sudo rm -f /usr/bin/hotspot-hub \
   /usr/bin/hotspot-hub-cli \
   /usr/local/bin/hotspot-channelsync.sh \
   /etc/NetworkManager/dispatcher.d/90-hotspot-channelsync \
+  /etc/NetworkManager/conf.d/99-hotspot-powersave.conf \
   /etc/systemd/system/hotspot-channelsync.service \
   /etc/sysctl.d/99-hotspot.conf \
   /etc/sudoers.d/hotspot-hub \
@@ -18,6 +19,7 @@ sudo rm -f /usr/bin/hotspot-hub \
 sudo rm -rf /usr/share/hotspot-hub
 rm -f ~/.config/autostart/hotspot-hub.desktop ~/.config/autostart/hotspot-panel.desktop
 sudo systemctl daemon-reload
+sudo nmcli general reload >/dev/null 2>&1 || true
 if [ "$PURGE" = 1 ]; then
   nmcli con delete Hotspot-Shared 2>/dev/null || true
   sudo ufw delete allow in on ap0 >/dev/null 2>&1 || true

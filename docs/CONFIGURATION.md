@@ -13,6 +13,8 @@ All names are generic. Defaults work for a typical single-radio laptop
 
 The channel-sync script honors `STA_IF`, `AP_IF`, `HOTSPOT_CON` the same way.
 
+| Band policy (2.4GHz-pinned SSIDs) | `BAND_POLICY_SSIDS` | `KIIT-WIFI-DU` (colon-delimited, empty = off) |
+
 ## Wi-Fi profile
 
 The package never ships secrets. Create the hotspot profile on first install:
@@ -27,6 +29,32 @@ Security applied: WPA2-Personal (or WPA3-SAE if supported and enabled),
 `proto rsn`, `pairwise/group ccmp`, IPv4 shared `10.42.0.1/24`, IPv6 disabled.
 WPA3-SAE is auto-detected via `iw phy` and can be enabled during setup via
 `--wpa3` or through the configuration dialog.
+
+## Wi-Fi power management
+
+Hotspot Hub installs `src/99-hotspot-powersave.conf` to
+`/etc/NetworkManager/conf.d/` which sets `[connection] wifi.powersave = 2`
+(disable) for **all** Wi-Fi connections. On MediaTek MT7922/MT7921 adapters a
+client left in 802.11 power-save can drop the uplink or miss DHCP/ARP renewals,
+which shows up as "limited connectivity" on the laptop and for hotspot clients
+— especially on campus/enterprise networks (802.1X). Power-save off keeps the
+single radio responsive for concurrent STA+AP.
+
+`setup-profile.sh` also sets `802-11-wireless.powersave 2` on the `Hotspot-Shared`
+profile itself, so the setting survives even if the global conf file is removed.
+Trade-off: slightly higher battery draw on the Wi-Fi radio while connected.
+
+## Band policy (2.4GHz on campus SSIDs)
+
+On a single radio (`#channels <= 1`) the AP must share the STA's channel, so a
+2.4GHz hotspot is only possible while the STA is also on 2.4GHz.
+`hotspot-channelsync.sh` therefore pins the **STA connection to `band=bg`**
+whenever the active SSID is in `BAND_POLICY_SSIDS` (default `KIIT-WIFI-DU`), and
+reconnects the STA if it is currently on 5GHz. The normal channel-sync then keeps
+the hotspot on the same 2.4GHz channel.
+
+Set `BAND_POLICY_SSIDS=""` in the service environment to disable, or add more
+SSIDs colon-separated (e.g. `KIIT-WIFI-DU:KIIT-WIFI-C`).
 
 ## MAC Filtering
 

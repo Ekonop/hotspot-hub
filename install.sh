@@ -35,6 +35,7 @@ sudo install -Dm755 "$ROOT/src/hotspot-channelsync.sh" /usr/local/bin/hotspot-ch
 sudo install -Dm755 "$ROOT/src/90-hotspot-channelsync" /etc/NetworkManager/dispatcher.d/90-hotspot-channelsync
 sudo install -Dm644 "$ROOT/src/hotspot-channelsync.service" /etc/systemd/system/hotspot-channelsync.service
 sudo install -Dm644 "$ROOT/src/99-hotspot.conf" /etc/sysctl.d/99-hotspot.conf
+sudo install -Dm644 "$ROOT/src/99-hotspot-powersave.conf" /etc/NetworkManager/conf.d/99-hotspot-powersave.conf
 sudo install -Dm644 "$ROOT/icons/hotspot-hub.svg" /usr/share/icons/hicolor/scalable/apps/hotspot-hub.svg
 sudo install -Dm644 "$ROOT/hotspot-hub.desktop" /usr/share/applications/hotspot-hub.desktop
 sudo install -Dm644 "$ROOT/hotspot-hub-flet.desktop" /usr/share/applications/hotspot-hub-flet.desktop
@@ -55,6 +56,9 @@ fi
 
 echo "==> Applying sysctl..."
 sudo sysctl --system >/dev/null 2>&1 || sudo sysctl -w net.ipv4.ip_forward=1
+
+echo "==> Applying NetworkManager settings (wifi.powersave=2)..."
+sudo nmcli general reload >/dev/null 2>&1 || true
 
 if [ "$NO_UFW" = 0 ] && command -v ufw >/dev/null 2>&1; then
   echo "==> Applying UFW rules..."

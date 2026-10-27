@@ -16,6 +16,11 @@ MediaTek MT7922).
 
 ### Hotspot Control
 - **Concurrent STA + AP** on a single radio (virtual `ap0` on `wlan0` PHY).
+- **Wi-Fi power-save off** on the STA uplink — avoids MT7922 "limited
+  connectivity" dropouts (installed via `src/99-hotspot-powersave.conf`).
+- **2.4GHz band policy** — on campus SSIDs (default `KIIT-WIFI-DU`) the
+  hotspot is pinned to 2.4GHz, so hotspot clients stay reachable even where
+  the campus 5GHz APs are weak.
 - **Instrument-deck dropdown**: five stacked cards. Hero card with indicator
   lamp, big state word (ACTIVE / STANDBY / FAULT), band selector, one-line
   readout (SSID · channel · clients · leases · security), an animated
@@ -86,8 +91,8 @@ MediaTek MT7922).
 - `icons/hotspot-hub.svg` — app icon (flame brand mark on slate tile).
 - `assets/` — UI assets: `banner.svg` (README hero), `flame.svg` (brand
   glyph), and `clients-empty.svg` (empty state in the Clients dialog).
-- `src/` — system files: channel-sync, NM dispatcher, sysctl, sudoers,
-  systemd user service.
+- `src/` — system files: channel-sync, NM dispatcher, sysctl, NM power-save
+  config, sudoers, systemd user service.
 - `scripts/setup-profile.sh` — create/retune `Hotspot-Shared` NM profile.
 - `packaging/arch/` — Arch PKGBUILD.
 - `flatpak/` — Flatpak manifest.

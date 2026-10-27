@@ -40,6 +40,7 @@ def _load_app_module():
 
 
 hub = _load_app_module()
+import core.services as _svc
 
 
 class FormatRateTests(unittest.TestCase):
@@ -183,20 +184,20 @@ class IfaceInfoTests(unittest.TestCase):
     )
 
     def test_parses_ssid_and_channel(self) -> None:
-        with patch.object(hub, "run", return_value=self.SAMPLE):
+        with patch.object(_svc, "run", return_value=self.SAMPLE):
             info = hub.iface_info("wlp6s0")
         self.assertEqual(info.get("ssid"), "MyNetwork")
         self.assertEqual(info.get("channel"), "157")
 
     def test_missing_device_returns_empty(self) -> None:
-        with patch.object(hub, "run", return_value=""):
+        with patch.object(_svc, "run", return_value=""):
             self.assertEqual(hub.iface_info("nope0"), {})
-        with patch.object(hub, "run", return_value="command failed: No such device"):
+        with patch.object(_svc, "run", return_value="command failed: No such device"):
             self.assertEqual(hub.iface_info("nope0"), {})
 
     def test_missing_ssid_returns_empty_string(self) -> None:
         sample = "Interface ap0\n\tchannel 36 (5180 MHz)\n"
-        with patch.object(hub, "run", return_value=sample):
+        with patch.object(_svc, "run", return_value=sample):
             info = hub.iface_info("ap0")
         self.assertEqual(info.get("ssid"), "")
         self.assertEqual(info.get("channel"), "36")
@@ -212,13 +213,13 @@ class LeaseCountTests(unittest.TestCase):
                      "lease 192.168.1.3 11:22:33:44:55:66 host2\n")
             path = fh.name
         self.addCleanup(os.unlink, path)
-        with patch.object(hub, "LEASE_FILE", path):
+        with patch.object(_svc, "LEASE_FILE", path):
             self.assertEqual(hub.lease_count(), "2")
 
     def test_missing_file_falls_back(self) -> None:
         # No readable file and sudo unavailable -> fallback string.
-        with patch.object(hub, "LEASE_FILE", "/nonexistent/absent.leases"), \
-             patch.object(hub, "run_rc", return_value=(1, "")):
+        with patch.object(_svc, "LEASE_FILE", "/nonexistent/absent.leases"), \
+             patch.object(_svc, "run_rc", return_value=(1, "")):
             self.assertEqual(hub.lease_count(), "0 (no leases yet)")
 
 
@@ -272,30 +273,30 @@ class DeviceNameTests(unittest.TestCase):
         return self.MDNS.get(ip, "")
 
     def test_manual_name_wins_over_everything(self) -> None:
-        with patch("hotspot_hub.load_device_names", return_value={"aa:bb:cc:dd:ee:ff": "Family TV"}):
-            with patch("hotspot_hub.resolve_mdns_name", side_effect=self._resolve):
+        with patch("core.services.load_device_names", return_value={"aa:bb:cc:dd:ee:ff": "Family TV"}):
+            with patch("core.services.resolve_mdns_name", side_effect=self._resolve):
                 got = hub.client_device_name("AA:BB:CC:DD:EE:FF", self.LEASES, dict(self.OUI))
                 self.assertEqual(got, "Family TV")
 
     def test_lease_hostname_beats_mdns_and_vendor(self) -> None:
-        with patch("hotspot_hub.resolve_mdns_name", side_effect=self._resolve):
+        with patch("core.services.resolve_mdns_name", side_effect=self._resolve):
             got = hub.client_device_name("aa:bb:cc:dd:ee:ff", self.LEASES, dict(self.OUI))
             self.assertEqual(got, "Vansh\'s iPhone")
 
     def test_mdns_used_for_private_mac_no_hostname(self) -> None:
         leases = {"52:f8:a0:f9:e9:48": {"ip": "10.42.0.5", "hostname": "*"}}
-        with patch("hotspot_hub.resolve_mdns_name", side_effect=self._resolve):
+        with patch("core.services.resolve_mdns_name", side_effect=self._resolve):
             got = hub.client_device_name("52:f8:a0:f9:e9:48", leases, oui={})
             self.assertEqual(got, "Vanshs-iPhone")
 
     def test_vendor_fallback_without_mdns(self) -> None:
-        with patch("hotspot_hub.resolve_mdns_name", return_value=""):
+        with patch("core.services.resolve_mdns_name", return_value=""):
             leases = {"aa:bb:cc:dd:ee:ff": {"ip": "10.42.0.5", "hostname": "*"}}
             got = hub.client_device_name("aa:bb:cc:dd:ee:ff", leases, dict(self.OUI))
             self.assertEqual(got, "Apple")
 
     def test_unknown_returns_empty(self) -> None:
-        with patch("hotspot_hub.resolve_mdns_name", return_value=""):
+        with patch("core.services.resolve_mdns_name", return_value=""):
             got = hub.client_device_name("aa:bb:cc:dd:ee:ff", leases={}, oui={})
             self.assertEqual(got, "")
 

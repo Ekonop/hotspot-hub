@@ -141,6 +141,7 @@ if [ "$EXISTS" = 1 ]; then
     802-11-wireless.mode ap
     802-11-wireless.band "$BAND" 802-11-wireless.channel "$CH"
     802-11-wireless.cloned-mac-address preserve
+    802-11-wireless.powersave 2
     "${sec_args[@]}"
     ipv4.method shared ipv4.addresses 10.42.0.1/24 ipv6.method disabled)
   [ "$SSID_GIVEN" = 1 ] && args+=(802-11-wireless.ssid "$SSID")
@@ -155,6 +156,7 @@ else
     ipv4.method shared ipv4.addresses 10.42.0.1/24 ipv6.method disabled
   nmcli con modify "$CON" \
     802-11-wireless.cloned-mac-address preserve \
+    802-11-wireless.powersave 2 \
     "${sec_args[@]}"
 fi
 # Success: disable rollback trap and clean up backup.

@@ -64,6 +64,41 @@ up_hotspot() {
   return $?
 }
 
+# --- 1.5 Band policy: pin both radios to 2.4GHz on campus SSIDs ---
+# Single radio (#channels<=1): the AP must share the STA's channel, so keeping
+# the hotspot on 2.4GHz requires the STA to be on 2.4GHz too. On KIIT-WIFI-DU the
+# 5GHz APs are weak/unreliable; force band=bg on the STA connection (idempotent,
+# re-asserted every run) and reconnect the STA if it is currently on 5GHz so the
+# hotspot can follow onto 2.4GHz. Env-override: BAND_POLICY_SSIDS
+# (colon-delimited SSIDs), empty disables the policy.
+BAND_POLICY_SSIDS="${BAND_POLICY_SSIDS:-KIIT-WIFI-DU}"
+
+apply_band_policy() {
+  [ -z "$BAND_POLICY_SSIDS" ] && return 0
+  local con ssid cur_band cur_freq
+  con="$(nmcli -t -f NAME,DEVICE connection show --active 2>/dev/null | grep -E ":${STA_IF}$" | cut -d: -f1)"
+  [ -z "$con" ] && return 0
+  ssid="$(nmcli -g 802-11-wireless.ssid connection show "$con" 2>/dev/null)"
+  case ":$BAND_POLICY_SSIDS:" in
+    *":$ssid:"*) ;;
+    *) return 0 ;;
+  esac
+  cur_band="$(nmcli -g 802-11-wireless.band connection show "$con" 2>/dev/null)"
+  if [ "$cur_band" != "bg" ]; then
+    nmcli connection modify "$con" 802-11-wireless.band bg 2>&1 | logger -t "$LOG_TAG"
+    log "band policy: pinned $con ($ssid) to 2.4GHz (band=bg)"
+  fi
+  cur_freq="$(iw dev "$STA_IF" info 2>/dev/null | awk '/channel/ {print $3}' | tr -d '()')"
+  if [ -n "$cur_freq" ] && [ "$cur_freq" -ge 3000 ]; then
+    log "band policy: $ssid is on 5GHz (freq $cur_freq); reconnecting to 2.4GHz"
+    nmcli connection up "$con" 2>&1 | logger -t "$LOG_TAG"
+    return 1  # skip this tick; channel-sync resumes after reassociation
+  fi
+  return 0
+}
+
+apply_band_policy || exit 0
+
 # 2. read STA channel/freq
 WLAN_INFO=$(iw dev "$STA_IF" info 2>/dev/null)
 CH=$(echo "$WLAN_INFO" | awk '/channel/ {print $2}')

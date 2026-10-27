@@ -18,11 +18,12 @@ source=('hotspot-hub.py'
         '90-hotspot-channelsync'
         'hotspot-channelsync.service'
         '99-hotspot.conf'
+        '99-hotspot-powersave.conf'
         'hotspot-hub.sudoers'
         'hotspot-hub.svg'
         'hotspot-hub.desktop'
         'setup-profile.sh')
-sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 package() {
   cd "$srcdir"
@@ -35,6 +36,7 @@ package() {
   install -Dm755 90-hotspot-channelsync "$pkgdir/etc/NetworkManager/dispatcher.d/90-hotspot-channelsync"
   install -Dm644 hotspot-channelsync.service "$pkgdir/etc/systemd/system/hotspot-channelsync.service"
   install -Dm644 99-hotspot.conf "$pkgdir/etc/sysctl.d/99-hotspot.conf"
+  install -Dm644 99-hotspot-powersave.conf "$pkgdir/etc/NetworkManager/conf.d/99-hotspot-powersave.conf"
   install -Dm440 hotspot-hub.sudoers "$pkgdir/etc/sudoers.d/hotspot-hub"
   install -Dm644 hotspot-hub.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/hotspot-hub.svg"
   install -Dm644 hotspot-hub.desktop "$pkgdir/usr/share/applications/hotspot-hub.desktop"

@@ -5,6 +5,20 @@ All notable changes to Hotspot Hub are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Wi-Fi power-save off (STA uplink)**: new `src/99-hotspot-powersave.conf`
+  installed to `/etc/NetworkManager/conf.d/` (`wifi.powersave = 2`), plus
+  `802-11-wireless.powersave 2` on the `Hotspot-Shared` profile via
+  `setup-profile.sh`. Avoids MT7922 "limited connectivity" dropouts on the
+  STA uplink (e.g. campus/enterprise 802.1X networks). Wired into
+  `install.sh`, `uninstall.sh`, and the Arch `PKGBUILD`.
+- **2.4GHz band policy for campus SSIDs**: `hotspot-channelsync.sh` now pins
+  the STA connection to `band=bg` (and reconnects it if on 5GHz) when the
+  active SSID is in `BAND_POLICY_SSIDS` (default `KIIT-WIFI-DU`), so the
+  hotspot stays on 2.4GHz and its clients remain reachable.
+
 ## [0.6.0] - 2026-10-26
 
 ### Added
