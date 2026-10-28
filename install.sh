@@ -25,6 +25,8 @@ echo "==> Installing Hotspot Hub files..."
 sudo tee /usr/bin/hotspot-hub >/dev/null <<'EOF'
 #!/usr/bin/env bash
 # Hotspot Hub primary launcher (defaults to modern Flet UI; use --legacy-qt or HOTSPOT_HUB_UI=qt for Qt)
+export FLET_APP_ID="hotspot-hub"
+export FLET_HIDE_WINDOW_ON_START="true"
 if [ "${HOTSPOT_HUB_UI:-}" = "qt" ] || [ "${1:-}" = "--legacy-qt" ] || [ "${1:-}" = "--qt" ]; then
   if [ "${1:-}" = "--legacy-qt" ] || [ "${1:-}" = "--qt" ]; then
     shift

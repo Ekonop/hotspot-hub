@@ -11,6 +11,9 @@ from __future__ import annotations
 import os
 import sys
 
+os.environ["FLET_APP_ID"] = "hotspot-hub"
+os.environ["FLET_HIDE_WINDOW_ON_START"] = "true"
+
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "app"))
 

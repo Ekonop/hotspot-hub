@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Launch Hotspot Hub Flet UI dynamically
+export FLET_APP_ID="hotspot-hub"
+export FLET_HIDE_WINDOW_ON_START="true"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ -f "/usr/share/hotspot-hub/app/hotspot-hub-flet.py" ]; then

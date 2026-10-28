@@ -193,6 +193,7 @@ def tray_thread() -> None:
     def on_quit(icon: Any, item: Any) -> None:
         _quit_app.set()
         icon.stop()
+        os._exit(0)
 
     menu = pystray.Menu(
         pystray.MenuItem("Open Hotspot Hub", on_open, default=True),
@@ -245,6 +246,7 @@ def main(page: ft.Page) -> None:
         page.window.min_width = 440
         page.window.min_height = 560
         page.window.prevent_close = True
+        page.window.visible = False
 
         try:
             icon_p = resolve_asset("hotspot-hub.svg", "icons")
@@ -1852,8 +1854,21 @@ def main(page: ft.Page) -> None:
 
     page.add(content)
 
-    # Initial state refresh
-    refresh_all()
+    # Make window visible once title and layout are ready (unless started in background)
+    start_hidden = any(
+        arg in sys.argv for arg in ("--autostart", "--tray-only", "--hidden")
+    )
+    if not page.web and not start_hidden:
+        page.window.visible = True
+        page.window.to_front()
+
+    try:
+        page.update()
+    except Exception:
+        pass
+
+    # Initial state refresh in background thread to avoid freezing boot
+    threading.Thread(target=refresh_all, daemon=True).start()
 
     # ── Periodic background thread ───────────────────────────────────
     def periodic_loop() -> None:
@@ -1997,10 +2012,13 @@ def main(page: ft.Page) -> None:
 
 # ── Entry point ──────────────────────────────────────────────────────
 def run_app() -> None:
+    os.environ["FLET_APP_ID"] = "hotspot-hub"
+    os.environ["FLET_HIDE_WINDOW_ON_START"] = "true"
     tray_t = threading.Thread(target=tray_thread, daemon=True)
     tray_t.start()
-    ft.run(main, view=ft.AppView.FLET_APP)
+    ft.run(main, view=ft.AppView.FLET_APP_HIDDEN)
     _quit_app.set()
+    os._exit(0)
 
 
 if __name__ == "__main__":
