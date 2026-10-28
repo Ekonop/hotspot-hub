@@ -1860,7 +1860,10 @@ def main(page: ft.Page) -> None:
     )
     if not page.web and not start_hidden:
         page.window.visible = True
-        page.window.to_front()
+        try:
+            page.run_task(page.window.to_front)
+        except Exception:
+            pass
 
     try:
         page.update()
@@ -1958,16 +1961,16 @@ def main(page: ft.Page) -> None:
                 if _show_window.is_set():
                     _show_window.clear()
                     page.window.visible = True
-                    page.window.to_front()
                     try:
+                        page.run_task(page.window.to_front)
                         page.update()
                     except Exception:
                         pass
                 if _show_clients.is_set():
                     _show_clients.clear()
                     page.window.visible = True
-                    page.window.to_front()
                     try:
+                        page.run_task(page.window.to_front)
                         page.update()
                         show_clients_dialog()
                     except Exception:
@@ -1975,8 +1978,8 @@ def main(page: ft.Page) -> None:
                 if _show_qr.is_set():
                     _show_qr.clear()
                     page.window.visible = True
-                    page.window.to_front()
                     try:
+                        page.run_task(page.window.to_front)
                         page.update()
                         show_qr_dialog()
                     except Exception:
@@ -1984,8 +1987,8 @@ def main(page: ft.Page) -> None:
                 if _show_configure.is_set():
                     _show_configure.clear()
                     page.window.visible = True
-                    page.window.to_front()
                     try:
+                        page.run_task(page.window.to_front)
                         page.update()
                         show_configure_dialog()
                     except Exception:
@@ -1993,8 +1996,8 @@ def main(page: ft.Page) -> None:
                 if _show_mac_filter.is_set():
                     _show_mac_filter.clear()
                     page.window.visible = True
-                    page.window.to_front()
                     try:
+                        page.run_task(page.window.to_front)
                         page.update()
                         show_mac_filter_dialog()
                     except Exception:
@@ -2003,9 +2006,10 @@ def main(page: ft.Page) -> None:
 
             # Quit signal received from tray: cleanly destroy window
             try:
-                page.window.destroy()
+                page.run_task(page.window.destroy)
             except Exception:
                 pass
+            os._exit(0)
 
         threading.Thread(target=poll_tray, daemon=True).start()
 
