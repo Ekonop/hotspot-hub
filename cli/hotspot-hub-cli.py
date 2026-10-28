@@ -119,7 +119,7 @@ def cmd_metrics(args: argparse.Namespace) -> int:
     lines.append("# HELP hotspot_healthy All health checks passing (1) or not (0).")
     lines.append("# TYPE hotspot_healthy gauge")
     lines.append(f"hotspot_healthy {1 if hc.get('healthy') else 0}")
-    lines.append("# HELP hotspot_gateway_responsive Default gateway responds to ping (1) or not (0).")
+    lines.append("# HELP hotspot_gateway_responsive Default gateway is reachable (ICMP or TCP/DNS) (1) or not (0).")
     lines.append("# TYPE hotspot_gateway_responsive gauge")
     lines.append(f"hotspot_gateway_responsive {1 if hc.get('gateway_ok') else 0}")
     lines.append("# HELP hotspot_ap_up AP interface is up (1) or not (0).")

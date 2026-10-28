@@ -39,6 +39,7 @@ from PyQt6.QtCore import (
 
 from core.config import *
 from core.services import *
+from core.services import _load_oui_vendors  # private -> skipped by import *; needed by ClientsDialog
 
 try:
     from PyQt6.QtDBus import QDBusAbstractAdaptor, QDBusConnection

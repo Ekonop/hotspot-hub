@@ -22,14 +22,20 @@ source=('hotspot-hub.py'
         'hotspot-hub.sudoers'
         'hotspot-hub.svg'
         'hotspot-hub.desktop'
-        'setup-profile.sh')
-sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+        'setup-profile.sh'
+        'core/__init__.py'
+        'core/config.py'
+        'core/services.py')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 package() {
   cd "$srcdir"
-  install -Dm755 hotspot-hub.py "$pkgdir/usr/bin/hotspot-hub"
+  # Main app: launcher + app modules (app/hotspot-hub.py resolves core/ next to app/)
+  printf '#!/usr/bin/env bash\n# Hotspot Hub main app launcher\nexec /usr/bin/env python3 /usr/share/hotspot-hub/app/hotspot-hub.py "$@"\n' > hotspot-hub-launcher
+  install -Dm755 hotspot-hub-launcher "$pkgdir/usr/bin/hotspot-hub"
   install -Dm755 hotspot-hub-cli.py "$pkgdir/usr/bin/hotspot-hub-cli"
   install -Dm644 hotspot-hub.py "$pkgdir/usr/share/hotspot-hub/app/hotspot-hub.py"
+  install -Dm644 core/__init__.py core/config.py core/services.py "$pkgdir/usr/share/hotspot-hub/core/"
   install -Dm755 hotspot-on.sh "$pkgdir/usr/share/hotspot-hub/helpers/hotspot-on.sh"
   install -Dm755 hotspot-off.sh "$pkgdir/usr/share/hotspot-hub/helpers/hotspot-off.sh"
   install -Dm755 hotspot-channelsync.sh "$pkgdir/usr/local/bin/hotspot-channelsync.sh"

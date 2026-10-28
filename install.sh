@@ -19,9 +19,20 @@ need() { command -v "$1" >/dev/null 2>&1 || { echo "Missing: $1" >&2; exit 1; };
 need install; need nmcli; need iw
 
 echo "==> Installing Hotspot Hub files..."
-sudo install -Dm755 "$ROOT/app/hotspot-hub.py" /usr/bin/hotspot-hub
+# Main app: launcher + app modules. app/hotspot-hub.py resolves core/ from the
+# parent of app/ (sys.path.insert), so core/ and cli/ are deployed under
+# /usr/share/hotspot-hub next to app/.
+sudo tee /usr/bin/hotspot-hub >/dev/null <<'EOF'
+#!/usr/bin/env bash
+# Hotspot Hub main app launcher (core/ + cli/ resolve under /usr/share/hotspot-hub)
+exec /usr/bin/env python3 /usr/share/hotspot-hub/app/hotspot-hub.py "$@"
+EOF
+sudo chmod 755 /usr/bin/hotspot-hub
 sudo install -Dm755 "$ROOT/cli/hotspot-hub-cli.py" /usr/bin/hotspot-hub-cli
 sudo install -Dm644 "$ROOT/app/hotspot-hub.py" /usr/share/hotspot-hub/app/hotspot-hub.py
+sudo install -d /usr/share/hotspot-hub/core /usr/share/hotspot-hub/cli
+sudo install -m644 "$ROOT"/core/*.py /usr/share/hotspot-hub/core/
+sudo install -m755 "$ROOT"/cli/*.py /usr/share/hotspot-hub/cli/
 # Flet UI (modern alternative)
 sudo install -Dm755 "$ROOT/app/hotspot-hub-tray.py" /usr/share/hotspot-hub/app/hotspot-hub-tray.py
 sudo install -Dm755 "$ROOT/app/hotspot-hub-flet.py" /usr/share/hotspot-hub/app/hotspot-hub-flet.py

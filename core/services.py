@@ -870,34 +870,102 @@ def hotspot_restart_service() -> tuple[bool, str]:
     return ok, msg
 
 
+# ---------------------------------------------------------------------------
+# Connectivity probes — ICMP-agnostic.  Some networks (campus / enterprise
+# 802.1X like KIIT-WIFI) drop ICMP entirely while TCP/DNS traffic flows
+# normally, so a bare gateway ping would misreport a working uplink as
+# "limited" and trigger needless smart-reconnect cycles.  We therefore treat
+# a failed ping as inconclusive and fall back to real-traffic probes.
+# ---------------------------------------------------------------------------
+
+_TCP_PROBE_TARGETS: tuple[tuple[str, int], ...] = (
+    ("1.1.1.1", 443),
+    ("8.8.8.8", 53),
+    ("208.67.222.222", 443),  # OpenDNS — reachable where 1.1.1.1/8.8.8.8 may not be
+)
+_TCP_PROBE_TIMEOUT: float = 2.0
+
+
+def _gateway_ip() -> str:
+    """Return the IPv4 default gateway ("default via X" in `ip route show default`)."""
+    try:
+        route_out = run(["ip", "route", "show", "default"], timeout=3, max_retries=1)
+        m = re.search(r"default via (\S+)", route_out)
+        return m.group(1) if m else ""
+    except Exception as exc:
+        logger.debug("_gateway_ip: ip route error: %s", exc)
+        return ""
+
+
+def _ping_ok(target: str) -> bool:
+    """One-shot ICMP ping with a short wait; True on exit code 0."""
+    try:
+        rc, _ = run_rc(
+            ["ping", "-c", "1", "-W", "2", target],
+            timeout=4,
+            max_retries=1,
+            use_cache=False,
+        )
+        return rc == 0
+    except Exception as exc:
+        logger.debug("_ping_ok(%s): %s", target, exc)
+        return False
+
+
+def _dns_resolves() -> bool:
+    """True if example.com resolves via getent (fallback: socket.gethostbyname)."""
+    try:
+        if shutil.which("getent"):
+            rc, _ = run_rc(
+                ["getent", "hosts", "example.com"],
+                timeout=5,
+                max_retries=1,
+                use_cache=False,
+            )
+            return rc == 0
+        socket.gethostbyname("example.com")
+        return True
+    except socket.gaierror:
+        return False
+    except Exception as exc:
+        logger.debug("_dns_resolves: %s", exc)
+        return False
+
+
+def _tcp_connect_ok(timeout: float = _TCP_PROBE_TIMEOUT) -> bool:
+    """True if any well-known endpoint accepts a TCP connection (real routed path)."""
+    for host, port in _TCP_PROBE_TARGETS:
+        try:
+            with socket.create_connection((host, port), timeout=timeout):
+                return True
+        except OSError:
+            logger.debug("_tcp_connect_ok: %s:%d timed out/refused", host, port)
+            continue
+    return False
+
+
 def health_check() -> dict[str, Any]:
-    """Perform health checks: ping gateway, check DHCP leases, and verify AP interface state.
+    """Perform health checks: gateway reachability, DHCP leases, and AP interface state.
 
     Returns:
         dict[str, Any] with keys:
             - 'healthy': bool, True if all checks pass
-            - 'gateway_ok': bool, True if default gateway responds to ICMP ping
+            - 'gateway_ok': bool, True if the gateway is reachable via ICMP or,
+              on networks that drop ICMP, via a TCP/DNS fallback probe
             - 'gateway_ip': str, IP address of default gateway or 'none'
+            - 'gateway_probe': str, how reachability was established
+              ('ok'=ICMP, 'icmp-blocked'=TCP/DNS, or a failure reason)
             - 'leases_ok': bool, True if DHCP lease status is readable
             - 'leases_count': str, formatted count or status of DHCP leases
             - 'ap_up': bool, True if AP interface is UP
             - 'summary': str, concise human-readable summary
     """
-    # 1. Ping default gateway
-    gw_ip = ""
-    gateway_ok = False
-    try:
-        route_out = run(["ip", "route", "show", "default"], timeout=3, max_retries=1)
-        m = re.search(r"default via (\S+)", route_out)
-        if m:
-            gw_ip = m.group(1)
-            ping_rc, _ = run_rc(["ping", "-c", "1", "-W", "1", gw_ip], timeout=2, max_retries=1, use_cache=False)
-            gateway_ok = (ping_rc == 0)
-        else:
-            gw_ip = "none"
-    except Exception as e:
-        logger.warning("Health check gateway ping error: %s", e)
-        gw_ip = "error"
+    # 1. Gateway reachability — ICMP with a real-traffic fallback, because
+    #    some networks (e.g. KIIT-WIFI) drop ICMP while still carrying data.
+    gw_ip = _gateway_ip()
+    if not gw_ip:
+        gw_ip = "none"
+    gateway_ok, _reason = check_connectivity(gw_ip if gw_ip != "none" else "")
 
     # 2. Check DHCP leases
     leases_str = lease_count()
@@ -922,7 +990,10 @@ def health_check() -> dict[str, Any]:
         ap_up = False
 
     healthy = gateway_ok and ap_up and leases_ok
-    gw_status = f"GW: {'ok' if gateway_ok else 'unreachable'} ({gw_ip})"
+    if gateway_ok and _reason == "icmp-blocked":
+        gw_status = f"GW: ok-ICMP-blocked ({gw_ip})"
+    else:
+        gw_status = f"GW: {'ok' if gateway_ok else 'unreachable'} ({gw_ip})"
     ap_status = f"AP: {'UP' if ap_up else 'DOWN'}"
     dhcp_status = f"DHCP: {'ok' if leases_ok else 'fail'} ({leases_str})"
     summary = f"{'OK' if healthy else 'Degraded'} [{gw_status} | {ap_status} | {dhcp_status}]"
@@ -931,6 +1002,7 @@ def health_check() -> dict[str, Any]:
         "healthy": healthy,
         "gateway_ok": gateway_ok,
         "gateway_ip": gw_ip,
+        "gateway_probe": _reason,
         "leases_ok": leases_ok,
         "leases_count": leases_str,
         "ap_up": ap_up,
@@ -938,69 +1010,44 @@ def health_check() -> dict[str, Any]:
     }
     return res
 
-def check_connectivity() -> tuple[bool, str]:
-    """Check for limited connectivity by probing the default gateway and DNS.
+def check_connectivity(gw_ip: str = "") -> tuple[bool, str]:
+    """Check whether the STA uplink really has connectivity.
 
-    Uses ``ip route show default`` to find the gateway IP, pings it once
-    with a 2-second timeout, then resolves ``example.com`` via
-    ``getent hosts`` (or the :mod:`socket` module as a fallback).
+    Some networks (e.g. campus / enterprise 802.1X like KIIT-WIFI) drop ICMP
+    while TCP/DNS traffic flows normally, so a bare gateway ping misreports a
+    working link as "limited" (and can trigger needless smart reconnects).
+    Probe order: gateway ping (fast path) -> DNS resolution + TCP connect
+    (real-traffic fallback).  First success wins.
+
+    Args:
+        gw_ip: Optional already-discovered gateway IP to reuse; discovered if empty.
 
     Returns:
-        tuple[bool, str]: ``(True, "ok")`` if both the gateway responds to
-        ICMP and DNS resolves successfully; otherwise ``(False, reason)``
-        where *reason* is a short human-readable description of the failure.
+        tuple[bool, str]:
+            ``(True, "ok")``            gateway answered ICMP
+            ``(True, "icmp-blocked")``  ICMP failed but DNS + TCP probes succeeded
+            ``(True, "tcp-only")``      DNS failed but a TCP probe succeeded
+            ``(False, reason)``         no probe succeeded; *reason* states the symptom
     """
-    # 1. Discover default gateway
-    gw_ip = ""
-    try:
-        route_out = run(["ip", "route", "show", "default"], timeout=3, max_retries=1)
-        m = re.search(r"default via (\S+)", route_out)
-        if m:
-            gw_ip = m.group(1)
-    except Exception as exc:
-        logger.debug("check_connectivity: ip route error: %s", exc)
-
+    if not gw_ip:
+        gw_ip = _gateway_ip()
     if not gw_ip:
         return False, "no default gateway"
 
-    # 2. Ping the gateway (1 probe, 2-second wait)
-    try:
-        ping_rc, _ = run_rc(
-            ["ping", "-c", "1", "-W", "2", gw_ip],
-            timeout=4,
-            max_retries=1,
-            use_cache=False,
-        )
-        if ping_rc != 0:
-            return False, f"gateway unreachable ({gw_ip})"
-    except Exception as exc:
-        logger.debug("check_connectivity: ping error: %s", exc)
-        return False, f"gateway ping error ({gw_ip})"
+    # Fast path: ICMP to the gateway. Most networks answer; a failure is only
+    # inconclusive (ICMP may be filtered), never fatal by itself.
+    if _ping_ok(gw_ip):
+        return True, "ok"
 
-    # 3. DNS resolution: try getent, fall back to socket.gethostbyname
-    dns_ok = False
-    try:
-        if shutil.which("getent"):
-            rc, _ = run_rc(
-                ["getent", "hosts", "example.com"],
-                timeout=5,
-                max_retries=1,
-                use_cache=False,
-            )
-            dns_ok = rc == 0
-        else:
-            socket.gethostbyname("example.com")
-            dns_ok = True
-    except socket.gaierror:
-        dns_ok = False
-    except Exception as exc:
-        logger.debug("check_connectivity: DNS probe error: %s", exc)
-        dns_ok = False
+    # ICMP blocked/unsuccessful: prove real traffic flows.
+    dns_ok = _dns_resolves()
+    tcp_ok = _tcp_connect_ok()
+    if dns_ok and tcp_ok:
+        return True, "icmp-blocked"
+    if tcp_ok:
+        return True, "tcp-only"
 
-    if not dns_ok:
-        return False, "dns failed"
-
-    return True, "ok"
+    return False, f"gateway unreachable ({gw_ip})"
 
 def hotspot_start() -> tuple[bool, str]:
     """Ensure ap0 exists, clear disabled flag, and activate hotspot connection. Return (ok, message)."""

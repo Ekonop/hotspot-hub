@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **False "Degraded / limited connectivity" on ICMP-blocking networks**: both
+  `health_check()` and `check_connectivity()` no longer treat a failed gateway
+  ping as a connectivity failure. When ICMP is dropped (e.g. the KIIT-WIFI
+  campus WPA2-Enterprise network) they fall back to a DNS resolution + TCP
+  connect probe (1.1.1.1:443 / 8.8.8.8:53 / OpenDNS:443), so the UI reads
+  "OK" and the smart-reconnect no longer fires needlessly.
+- **Clients button crash (SIGABRT)**: the app used `_load_oui_vendors()`
+  (a private name skipped by `from core.services import *`) while rendering
+  connected clients, raising `NameError` inside the Qt event loop and
+  aborting the app. The helper is now imported explicitly.
+- **Packaging (core module resolution)**: `install.sh` / `PKGBUILD` previously
+  deployed only `app/hotspot-hub.py` to `/usr/bin`, which resolved `core/`
+  from a missing parent dir (`ModuleNotFoundError` at launch). They now ship
+  `core/` and `cli/` under `/usr/share/hotspot-hub/` and install a launcher
+  shim at `/usr/bin/hotspot-hub`.
+
 ### Added
 - **Wi-Fi power-save off (STA uplink)**: new `src/99-hotspot-powersave.conf`
   installed to `/etc/NetworkManager/conf.d/` (`wifi.powersave = 2`), plus
