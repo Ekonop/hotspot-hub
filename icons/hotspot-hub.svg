@@ -1,29 +1,25 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
-  <!-- Hotspot Hub app icon: flame mark on a deep slate tile.
-       Classic dual-lobe flame (two lobes meet at top notch; node at 32,48)
-       with a warm inner core. -->
+  <!-- Hotspot Hub primary icon: Wi-Fi beacon with glowing core and radiating broadcast waves on a deep dark disc -->
   <defs>
-    <linearGradient id="tile" x1="0" y1="0" x2="0.6" y2="1">
-      <stop offset="0" stop-color="#1f2937"/>
-      <stop offset="1" stop-color="#0e1422"/>
-    </linearGradient>
-    <linearGradient id="outer" x1="0.3" y1="0" x2="0.7" y2="1">
-      <stop offset="0" stop-color="#fb923c"/>
-      <stop offset="0.55" stop-color="#f97316"/>
-      <stop offset="1" stop-color="#dc2626"/>
-    </linearGradient>
-    <linearGradient id="inner" x1="0.4" y1="0" x2="0.6" y2="1">
-      <stop offset="0" stop-color="#fde68a"/>
-      <stop offset="0.5" stop-color="#fbbf24"/>
-      <stop offset="1" stop-color="#f59e0b"/>
+    <radialGradient id="coreGrad" cx="50%" cy="45%" r="55%">
+      <stop offset="0%" stop-color="#4ADE80"/>
+      <stop offset="65%" stop-color="#22C55E"/>
+      <stop offset="100%" stop-color="#16A34A"/>
+    </radialGradient>
+    <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E293B"/>
+      <stop offset="100%" stop-color="#0F172A"/>
     </linearGradient>
   </defs>
 
-  <rect x="1.5" y="1.5" width="61" height="61" rx="15" fill="url(#tile)"/>
-  <rect x="1.5" y="1.5" width="61" height="61" rx="15" fill="none" stroke="#ffffff" stroke-opacity="0.12" stroke-width="1.5"/>
+  <!-- Outer background disc -->
+  <circle cx="32" cy="32" r="29" fill="url(#ringGrad)" stroke="#334155" stroke-width="1.5"/>
+  <circle cx="32" cy="32" r="24" fill="#0B0F19"/>
 
-  <!-- Outer flame -->
-  <path d="M32 8 C38 18 46 22 46 34 A14 14 0 0 1 18 34 C18 22 26 18 32 8 Z" fill="url(#outer)"/>
-  <!-- Inner core -->
-  <path d="M32 20 C35.5 25 40 27.5 40 33.5 A8 8 0 0 1 24 33.5 C24 27.5 28.5 25 32 20 Z" fill="url(#inner)"/>
+  <!-- Radiating Broadcast Arcs -->
+  <path d="M 11.22 20.00 A 24.00 24.00 0 0 1 52.78 20.00" fill="none" stroke="#22C55E" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 15.09 25.84 A 18.00 18.00 0 0 1 48.91 25.84" fill="none" stroke="#22C55E" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Central Beacon Transmitter -->
+  <circle cx="32" cy="32" r="12" fill="url(#coreGrad)"/>
 </svg>

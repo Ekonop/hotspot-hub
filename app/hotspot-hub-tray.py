@@ -451,11 +451,11 @@ def main(page: ft.Page) -> None:
     battery_action_taken = False
 
     # ── 1. Compact Header ────────────────────────────────────────────
-    flame_path = resolve_asset("flame.svg", "assets")
-    if flame_path:
-        flame_widget = ft.Image(src=flame_path, width=22, height=22)
+    logo_path = resolve_asset("beacon.svg", "assets") or resolve_asset("hotspot-hub.svg", "icons") or resolve_asset("flame.svg", "assets")
+    if logo_path:
+        logo_widget = ft.Image(src=logo_path, width=24, height=24)
     else:
-        flame_widget = ft.Icon(ft.Icons.WIFI_TETHERING, size=20, color=PRIMARY)
+        logo_widget = ft.Icon(ft.Icons.WIFI_TETHERING, size=22, color=SUCCESS)
 
     title_text = register_text(
         ft.Text("Hotspot Hub", size=16, weight=ft.FontWeight.W_700)
@@ -484,7 +484,7 @@ def main(page: ft.Page) -> None:
         [
             ft.Row(
                 [
-                    flame_widget,
+                    logo_widget,
                     ft.Column([title_text, subtitle_text], spacing=0),
                 ],
                 spacing=8,

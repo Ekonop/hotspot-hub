@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- Hotspot Hub primary icon: Wi-Fi beacon with glowing core and radiating broadcast waves on a deep dark disc -->
+  <defs>
+    <radialGradient id="coreGrad" cx="50%" cy="45%" r="55%">
+      <stop offset="0%" stop-color="#4ADE80"/>
+      <stop offset="65%" stop-color="#22C55E"/>
+      <stop offset="100%" stop-color="#16A34A"/>
+    </radialGradient>
+    <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E293B"/>
+      <stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Outer background disc -->
+  <circle cx="32" cy="32" r="29" fill="url(#ringGrad)" stroke="#334155" stroke-width="1.5"/>
+  <circle cx="32" cy="32" r="24" fill="#0B0F19"/>
+
+  <!-- Radiating Broadcast Arcs -->
+  <path d="M 11.22 20.00 A 24.00 24.00 0 0 1 52.78 20.00" fill="none" stroke="#22C55E" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 15.09 25.84 A 18.00 18.00 0 0 1 48.91 25.84" fill="none" stroke="#22C55E" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Central Beacon Transmitter -->
+  <circle cx="32" cy="32" r="12" fill="url(#coreGrad)"/>
+</svg>
