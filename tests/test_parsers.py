@@ -304,5 +304,37 @@ class DeviceNameTests(unittest.TestCase):
         self.assertEqual(hub.resolve_mdns_name.__doc__ is not None, True)
 
 
+class StaLinkInfoTests(unittest.TestCase):
+    """Tests for sta_link_info link speed, signal, and SSID parsing."""
+
+    MOCK_IW_LINK = """Connected to 70:bc:48:1d:8d:60 (on wlan0)
+\tSSID: Test-WiFi-5G
+\tfreq: 5180.0
+\tRX: 12345 bytes
+\tTX: 67890 bytes
+\tsignal: -52 dBm
+\trx bitrate: 866.7 MBit/s VHT-MCS 9 80MHz short GI VHT-NSS 2
+\ttx bitrate: 866.7 MBit/s VHT-MCS 9 80MHz short GI VHT-NSS 2
+"""
+
+    def test_parses_connected_link(self) -> None:
+        with patch("core.services.run", return_value=self.MOCK_IW_LINK):
+            info = _svc.sta_link_info("wlan0")
+            self.assertTrue(info["connected"])
+            self.assertEqual(info["ssid"], "Test-WiFi-5G")
+            self.assertEqual(info["signal"], "-52 dBm")
+            self.assertEqual(info["bitrate"], "866.7 MBit/s")
+            self.assertEqual(info["tx_rate"], "866.7 MBit/s")
+            self.assertEqual(info["rx_rate"], "866.7 MBit/s")
+
+    def test_disconnected_fallback(self) -> None:
+        with patch("core.services.run", return_value="Not connected.\n"):
+            with patch("core.services.sta_name", return_value=""):
+                info = _svc.sta_link_info("wlan0")
+                self.assertFalse(info["connected"])
+                self.assertEqual(info["ssid"], "")
+                self.assertEqual(info["bitrate"], "")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

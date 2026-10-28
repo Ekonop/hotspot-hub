@@ -5,6 +5,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEST="$ROOT/packaging/arch"
 copy() { cp -f "$ROOT/$1" "$DEST/$2"; }
 copy app/hotspot-hub.py hotspot-hub.py
+copy app/hotspot-hub-tray.py hotspot-hub-tray.py
+copy app/hotspot-hub-flet.py hotspot-hub-flet.py
+copy hotspot-hub-flet.sh hotspot-hub-flet.sh
 copy cli/hotspot-hub-cli.py hotspot-hub-cli.py
 copy helpers/hotspot-on.sh hotspot-on.sh
 copy helpers/hotspot-off.sh hotspot-off.sh
@@ -15,5 +18,7 @@ copy src/99-hotspot.conf 99-hotspot.conf
 copy src/hotspot-hub.sudoers hotspot-hub.sudoers
 copy icons/hotspot-hub.svg hotspot-hub.svg
 copy hotspot-hub.desktop hotspot-hub.desktop
+copy hotspot-hub-flet.desktop hotspot-hub-flet.desktop
+copy hotspot-hub-qt.desktop hotspot-hub-qt.desktop
 copy scripts/setup-profile.sh setup-profile.sh
 cd "$DEST" && makepkg -f

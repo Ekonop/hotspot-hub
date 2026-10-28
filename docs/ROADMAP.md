@@ -104,6 +104,19 @@
 
 ---
 
+## 6. Flet UI Migration (v0.6.1+)
+
+- [x] **Primary Flet Frontend** — Flutter/Flet UI with pystray tray as the default `/usr/bin/hotspot-hub` launcher. ✅
+- [x] **Asynchronous Execution Guard** — non-blocking thread dispatch for all network/system operations. ✅
+- [x] **Dynamic Theme Switching** — instant light/dark palette updates without tearing or page reload. ✅
+- [x] **Prominent Wi-Fi Uplink Status** — large SSID badge, live link speed (tx bitrate), signal dBm, operating channel, and gateway health. ✅
+- [x] **Client Management & MAC Filter Dialogs** — interactive station kick, naming, allow/block list persistence. ✅
+- [x] **Expanded Tray Context Menu** — quick toggles for hotspot, band selection, WARP, sync daemon, routing repair, and config. ✅
+- [x] **Multi-resolution Icon Indexing** — hicolor PNG tree (16px to 256px) + scalable SVG + desktop search indexing (KDE sycoca). ✅
+- [x] **Legacy Qt Fallback** — preserved via `hotspot-hub --legacy-qt` or `hotspot-hub-qt`. ✅
+
+---
+
 ## Priority order (suggested)
 
 1. **High**: Status indicator, CLI tool, bandwidth monitor, dark mode, auto-start

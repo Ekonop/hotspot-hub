@@ -10,7 +10,13 @@ MediaTek MT7922).
 
 ![Hotspot Hub](assets/banner.svg)
 
-![Dropdown canvas](docs/screenshots/dropdown.png)
+![Hotspot Hub Modern Flet UI](docs/screenshots/flet-ui.png)
+
+<details>
+<summary>Classic Qt Dropdown Canvas</summary>
+
+![Classic Qt Dropdown Canvas](docs/screenshots/dropdown.png)
+</details>
 
 ## Features
 
@@ -18,16 +24,18 @@ MediaTek MT7922).
 - **Concurrent STA + AP** on a single radio (virtual `ap0` on `wlan0` PHY).
 - **Wi-Fi power-save off** on the STA uplink — avoids MT7922 "limited
   connectivity" dropouts (installed via `src/99-hotspot-powersave.conf`).
-- **2.4GHz band policy** — on campus SSIDs (default `KIIT-WIFI-DU`) the
-  hotspot is pinned to 2.4GHz, so hotspot clients stay reachable even where
-  the campus 5GHz APs are weak.
-- **Instrument-deck dropdown**: five stacked cards. Hero card with indicator
-  lamp, big state word (ACTIVE / STANDBY / FAULT), band selector, one-line
-  readout (SSID · channel · clients · leases · security), an animated
-  **master switch**, and a pill-button row (**Restart / Clients / QR Code**).
-  Below it: **WARP**, **Bandwidth**, **System**, and **Health** cards. The
-  **flame brand mark** is the app icon, the window icon, and the tray icon —
-  the tray flame is colored by state (green = on, grey = off, red = error).
+- **Wi-Fi Uplink Health & Link Speed** — prominent live uplink display showing
+  the upstream Wi-Fi network (SSID), link speed (e.g. `286.7 MBit/s`), signal
+  strength (dBm), channel, and gateway health across both the GUI and CLI.
+- **Modern Flet Control Deck** — primary modern desktop interface (`hotspot-hub`)
+  powered by Flutter/Flet, featuring dynamic theme switching, asynchronous non-blocking
+  actions, client management dialogs with station kicking and friendly naming, QR code
+  popups, and live interface throughput metrics.
+- **Classic Qt Dropdown Deck** — legacy PyQt6 interface accessible via `hotspot-hub --legacy-qt`
+  or `hotspot-hub-qt` with five stacked cards (Hotspot, WARP, Bandwidth, System, Health).
+- **Comprehensive Tray Context Menu** — right-click controls in both frontends for
+  instant Hotspot toggle, Band switching (2.4GHz / 5GHz / Auto), Cloudflare WARP,
+  Channel Sync daemon restart, routing self-repair, Clients list, QR Code, and MAC filtering.
 - **Channel sync** keeps AP on STA's channel (10s fallback + NM dispatcher events).
 - **VPN/WARP bypass** at policy-routing priority 50 (self-repairing).
 - **Manual stop respected**: stopping the hotspot no longer auto-restarts via the
@@ -80,80 +88,48 @@ MediaTek MT7922).
 
 ## Layout
 
-- `app/hotspot-hub.py` — tray app with dropdown canvas (`DropdownPanel`).
-  Left-click opens cards (**Hotspot**, **WARP**, **Bandwidth**, **System**,
-  **Health**);
-  right-click shows the classic menu. UI design decisions and visual roles are
-  documented in `docs/UI-REDESIGN.md`. Add future mods as `PanelSection`
-  subclasses, registered in `DropdownPanel._build_sections()` (marked EXTENSION POINT).
-- `cli/hotspot-hub-cli.py` — CLI tool with all subcommands above.
+- `app/hotspot-hub-tray.py` / `app/hotspot-hub-flet.py` — primary modern Flet UI with integrated
+  `pystray` system tray, dynamic dark/light theme, non-blocking asynchronous actions,
+  interactive client manager, QR code generator, and highlighted Wi-Fi uplink health/speed card.
+- `app/hotspot-hub.py` — legacy PyQt6 tray app with dropdown canvas (`DropdownPanel`).
+  Accessible via `hotspot-hub --legacy-qt` or `hotspot-hub-qt`.
+- `cli/hotspot-hub-cli.py` — CLI tool with subcommands for scriptable management.
 - `helpers/` — `hotspot-on.sh` / `hotspot-off.sh` (idempotent, `sudo -n`).
-- `icons/hotspot-hub.svg` — app icon (flame brand mark on slate tile).
-- `assets/` — UI assets: `banner.svg` (README hero), `flame.svg` (brand
-  glyph), and `clients-empty.svg` (empty state in the Clients dialog).
-- `src/` — system files: channel-sync, NM dispatcher, sysctl, NM power-save
-  config, sudoers, systemd user service.
+- `icons/` — multi-resolution PNGs (`16x16` to `256x256`) and scalable SVG flame brand mark.
+- `assets/` — UI assets: `banner.svg` (README hero), `flame.svg` (brand glyph), and `clients-empty.svg`.
+- `src/` — system files: channel-sync, NM dispatcher, sysctl, NM power-save config, sudoers, systemd service.
 - `scripts/setup-profile.sh` — create/retune `Hotspot-Shared` NM profile.
 - `packaging/arch/` — Arch PKGBUILD.
 - `flatpak/` — Flatpak manifest.
 - `plasma-applet/` — QML plasmoid scaffold.
-- `tests/` — unit tests.
-- `docs/` — documentation, roadmap, security audit.
+- `tests/` — unit tests (`python3 -m unittest discover -s tests`).
+- `docs/` — documentation, architecture, roadmap, security audit.
 
 No plaintext passwords anywhere.
 
 ## Quick install
 
 ```bash
-./install.sh            # files + sysctl + ufw + service + profile prompt + autostart
+./install.sh            # files + icons + sysctl + ufw + service + profile prompt + autostart
 hotspot-hub &
 ```
 
 Options: `./install.sh --no-profile --no-ufw --no-enable --no-autostart`
 
-## Flet UI (modern alternative with system tray)
+### Frontend Launchers
 
-A beautiful, modern Flet/Flutter-based UI with system tray integration:
-
-```bash
-python3 app/hotspot-hub-tray.py
-```
-
-This provides:
-- **System tray icon** (via pystray) with Open/Quit menu
-- **Flet window** that opens on tray click, hides on close (doesn't quit)
-- **Modern iOS-inspired UI** with cards, status pills, dark/light mode
-- **All backend functionality** shared with the PyQt6 app
-
-Install dependencies:
-```bash
-pip install --break-system-packages flet flet-desktop pystray pillow
-```
-
-Or use the standalone window (no tray):
-```bash
-python3 app/hotspot-hub-flet.py
-```
-
-
-
-A beautiful, modern Flet/Flutter-based UI is available as an alternative to the
-PyQt6 tray app:
-
-```bash
-python3 app/hotspot-hub-flet.py
-# or
-./hotspot-hub-flet.sh
-```
-
-The Flet UI uses the same backend logic (subprocess calls, config, etc.) but
-renders with Flutter for a native-feeling, modern interface. It requires
-`flet` and `flet-desktop` Python packages.
-
-Install dependencies:
-```bash
-pip install --break-system-packages flet flet-desktop
-```
+- **Primary Modern Interface**:
+  ```bash
+  hotspot-hub
+  # or explicitly:
+  hotspot-hub-flet
+  ```
+- **Classic Qt Interface**:
+  ```bash
+  hotspot-hub --legacy-qt
+  # or:
+  hotspot-hub-qt
+  ```
 
 ## Arch package
 

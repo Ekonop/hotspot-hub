@@ -415,6 +415,50 @@ def iface_info(dev: str) -> dict[str, str]:
     return {"ssid": s.group(1).strip() if s else "",
             "channel": c.group(1) if c else ""}
 
+def sta_link_info(dev: str = STA_IF) -> dict[str, Any]:
+    """Parse `iw dev <dev> link` to determine active STA connection, link speed, and signal.
+
+    Returns:
+        dict with keys:
+            - 'connected': bool, True if connected to an AP/BSSID
+            - 'ssid': str, SSID of the connected Wi-Fi network
+            - 'signal': str, signal strength in dBm (e.g. '-57 dBm')
+            - 'bitrate': str, link bitrate (e.g. '286.7 MBit/s')
+            - 'tx_rate': str, transmit link bitrate
+            - 'rx_rate': str, receive link bitrate
+    """
+    out = run(["iw", "dev", dev, "link"])
+    if not out or "Not connected" in out or "No such device" in out:
+        name = sta_name()
+        return {
+            "connected": bool(name),
+            "ssid": name,
+            "signal": "",
+            "bitrate": "",
+            "tx_rate": "",
+            "rx_rate": "",
+        }
+
+    ssid_m = re.search(r"^\s*SSID:\s*(.+)$", out, re.M)
+    sig_m = re.search(r"^\s*signal:\s*(-?\d+\s*dBm)", out, re.M)
+    tx_m = re.search(r"^\s*tx bitrate:\s*([\d\.]+\s*[MG]?Bit/s)", out, re.M)
+    rx_m = re.search(r"^\s*rx bitrate:\s*([\d\.]+\s*[MG]?Bit/s)", out, re.M)
+
+    ssid = ssid_m.group(1).strip() if ssid_m else sta_name()
+    sig = sig_m.group(1).strip() if sig_m else ""
+    tx = tx_m.group(1).strip() if tx_m else ""
+    rx = rx_m.group(1).strip() if rx_m else ""
+    bitrate = tx or rx or ""
+
+    return {
+        "connected": True,
+        "ssid": ssid,
+        "signal": sig,
+        "bitrate": bitrate,
+        "tx_rate": tx,
+        "rx_rate": rx,
+    }
+
 def station_dump() -> list[tuple[str, str]]:
     """Parse `iw dev ap0 station dump` -> [(mac, signal)]. [] if AP down."""
     stations, mac, sig = [], "", ""
@@ -480,8 +524,15 @@ def hotspot_state() -> tuple[str, str, int]:
     sta, ap = iface_info(STA_IF), iface_info(AP_IF)
     on = cons.get(HOTSPOT_CON) == AP_IF
     name = sta_name()
-    sta_t = f"STA {sta.get('ssid') or name or '?'} ch{sta.get('channel') or '?'}" if (sta or name) \
-        else "STA down"
+    sta_link = sta_link_info(STA_IF)
+
+    if sta_link.get("connected") and sta_link.get("ssid"):
+        speed_note = f" ({sta_link['bitrate']})" if sta_link.get("bitrate") else ""
+        sta_t = f"STA {sta_link['ssid']}{speed_note} ch{sta.get('channel') or '?'}"
+    elif sta or name:
+        sta_t = f"STA {sta.get('ssid') or name or '?'} ch{sta.get('channel') or '?'}"
+    else:
+        sta_t = "STA down"
     if DISABLED_FLAG.exists():
         ap_t = "AP disabled by user"
     elif ap and on:
@@ -1018,6 +1069,7 @@ def health_check() -> dict[str, Any]:
     dhcp_status = f"DHCP: {'ok' if leases_ok else 'fail'} ({leases_str})"
     summary = f"{'OK' if healthy else 'Degraded'} [{gw_status} | {ap_status} | {dhcp_status}]"
 
+    sta_link = sta_link_info(STA_IF)
     res = {
         "healthy": healthy,
         "gateway_ok": gateway_ok,
@@ -1027,6 +1079,11 @@ def health_check() -> dict[str, Any]:
         "leases_count": leases_str,
         "ap_up": ap_up,
         "summary": summary,
+        "sta_link": sta_link,
+        "sta_ssid": sta_link.get("ssid", ""),
+        "sta_bitrate": sta_link.get("bitrate", ""),
+        "sta_signal": sta_link.get("signal", ""),
+        "sta_connected": sta_link.get("connected", False),
     }
     return res
 

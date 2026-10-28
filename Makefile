@@ -5,9 +5,14 @@ APP = hotspot-hub
 
 check:
 	python3 -m py_compile app/hotspot-hub.py
+	python3 -m py_compile app/hotspot-hub-tray.py
+	python3 -m py_compile app/hotspot-hub-flet.py
 	python3 -m py_compile cli/hotspot-hub-cli.py
+	python3 -m py_compile core/config.py
+	python3 -m py_compile core/services.py
 	bash -n install.sh
 	bash -n uninstall.sh
+	bash -n hotspot-hub-flet.sh
 	bash -n scripts/setup-profile.sh
 	bash -n helpers/hotspot-on.sh
 	bash -n helpers/hotspot-off.sh

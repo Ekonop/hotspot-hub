@@ -1,10 +1,13 @@
 [Desktop Entry]
 Type=Application
 Name=Hotspot Hub
-Comment=Tray control for concurrent Wi-Fi hotspot, WARP and channel-sync
+GenericName=Wi-Fi Hotspot Controller
+Comment=Modern control deck for concurrent Wi-Fi hotspot, WARP and channel-sync
 Exec=hotspot-hub
 Icon=hotspot-hub
 Terminal=false
-Categories=Network;
+Categories=Network;System;Settings;
+Keywords=wifi;hotspot;ap;sta;tethering;network;warp;share;wireless;internet;
 StartupNotify=false
+StartupWMClass=hotspot-hub
 X-GNOME-Autostart-enabled=true

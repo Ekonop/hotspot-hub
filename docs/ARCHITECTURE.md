@@ -20,7 +20,8 @@ campus/router ──(STA wlan0, DHCP client)── host ──NAT/masquerade─�
 | `hotspot-channelsync.service` | 10 s poll fallback + recreates `ap0` after reboot |
 | `99-hotspot.conf` | Persists `net.ipv4.ip_forward=1` |
 | `hotspot-hub.sudoers` (`%wheel` NOPASSWD, scoped) | Passwordless panel ops |
-| `hotspot-hub.py` (PyQt6 tray + dropdown canvas) | UI: `PanelSection` cards (Hotspot/WARP/System), tray menu fallback |
+| `hotspot-hub-tray.py` / `hotspot-hub-flet.py` | Primary UI: modern Flet interface + system tray with async command dispatch, live bandwidth delta monitor, highlighted Wi-Fi uplink status, client management dialogs, and automated scheduling |
+| `hotspot-hub.py` (PyQt6 tray + dropdown canvas) | Legacy UI: `PanelSection` cards (Hotspot/WARP/System/Health), tray menu fallback |
 
 ## Traffic notes
 

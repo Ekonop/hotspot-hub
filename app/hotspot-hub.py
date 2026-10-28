@@ -1362,7 +1362,12 @@ class SystemSection(PanelSection):
         lines = [f"VPN bypass: {bypass} · MAC filter: {mf_status}"]
         if DISABLED_FLAG.exists():
             lines.append("Hotspot: manually stopped")
-        lines.append(f"{STA_IF} ch{sta.get('channel', '?')} | {AP_IF} ch{ap.get('channel', '?')}")
+        sta_link = sta_link_info(STA_IF)
+        if sta_link.get("connected") and sta_link.get("ssid"):
+            sta_desc = f"{STA_IF} ({sta_link['ssid']} · {sta_link['bitrate']}) ch{sta.get('channel', '?')}"
+        else:
+            sta_desc = f"{STA_IF} ch{sta.get('channel', '?')}"
+        lines.append(f"{sta_desc} | {AP_IF} ch{ap.get('channel', '?')}")
         self.info.setText("\n".join(lines))
 
         # Connectivity status (Phase 1)
@@ -1387,7 +1392,17 @@ class HealthSection(PanelSection):
 
     def build_body(self) -> None:
         """Build health readout, OK/ISSUES chip, and lifecycle controls."""
-        self.health_info = QLabel("checking…")
+        self.wifi_info = QLabel("Wi-Fi: checking…")
+        self.wifi_info.setFont(get_app_font(pixel_size=15, bold=True))
+        self.body.addWidget(self.wifi_info)
+
+        self.wifi_metrics = QLabel("…")
+        self.wifi_metrics.setWordWrap(True)
+        self.wifi_metrics.setProperty("metricLabel", True)
+        self.wifi_metrics.setFont(get_monospace_font(pixel_size=12))
+        self.body.addWidget(self.wifi_metrics)
+
+        self.health_info = QLabel("Health: checking…")
         self.health_info.setWordWrap(True)
         self.health_info.setProperty("metricLabel", True)
         self.health_info.setFont(get_monospace_font(pixel_size=12))
@@ -1488,10 +1503,24 @@ class HealthSection(PanelSection):
 
     def refresh(self) -> None:
         """Update the health readout/chip and sync lifecycle controls with config."""
+        sta = sta_link_info(STA_IF)
+        if sta.get("connected") and sta.get("ssid"):
+            self.wifi_info.setText(f"📶  {sta['ssid']}")
+            speed = sta.get("bitrate") or "Speed ?"
+            sig = sta.get("signal") or ""
+            sig_str = f" · {sig}" if sig else ""
+            ch = iface_info(STA_IF).get("channel", "?")
+            self.wifi_metrics.setText(f"Link: {speed}{sig_str} · ch{ch}")
+        else:
+            self.wifi_info.setText("📶  Wi-Fi: Disconnected")
+            self.wifi_metrics.setText(f"{STA_IF} interface is unassociated or down")
+
         health = self.controller.last_health
         if health:
             gw = health.get("gateway_ip", "?")
             gw_ok = health.get("gateway_ok", False)
+            gw_probe = health.get("gateway_probe", "")
+            probe_str = f" ({gw_probe})" if gw_probe == "icmp-blocked" else ""
             ap_up = health.get("ap_up", False)
             leases_ok = health.get("leases_ok", False)
             leases = health.get("leases_count", "?")
@@ -1499,13 +1528,13 @@ class HealthSection(PanelSection):
             self.set_chip("OK" if ok else "ISSUES",
                           QColor("#22c55e") if ok else QColor("#ef4444"))
             self.health_info.setText(
-                f"GW {gw} {'reachable' if gw_ok else 'down'} · "
+                f"Health: GW {gw} {'reachable' if gw_ok else 'down'}{probe_str} · "
                 f"AP {'UP' if ap_up else 'DOWN'} · "
                 f"DHCP {'ok (' + str(leases) + ')' if leases_ok else 'error'}"
             )
         else:
             self.set_chip("CHECK", QColor("#94a3b8"))
-            self.health_info.setText("checking…")
+            self.health_info.setText("Health: checking…")
 
         self.chk_autostart.blockSignals(True)
         self.chk_autostart.setChecked(is_autostart_enabled())
@@ -2723,12 +2752,42 @@ class HotspotPanel:
         return a
 
     def _build_menu(self) -> None:
-        """Build actions and separators for tray context menu."""
-        self.status_action = self._act("Status…", lambda: None, disabled=True)
+        """Build actions and separators for rich tray context menu."""
+        self.menu.clear()
+        self.status_action = self._act("Hotspot: Checking…", lambda: None, disabled=True)
+        self.wifi_status_action = self._act("Wi-Fi: Checking…", lambda: None, disabled=True)
         self.menu.addSeparator()
-        self._act("Open panel", self.toggle_panel)
+
+        self._act("Open Hotspot Hub", self.toggle_panel)
+        self.menu.addSeparator()
+
+        # Hotspot controls
         self._act("Hotspot On", self.hotspot_on)
         self._act("Hotspot Off", self.hotspot_off)
+        self._act("Restart Hotspot", self.hotspot_restart)
+
+        # Band preference submenu
+        band_menu = self.menu.addMenu("Band Preference")
+        for b in ("Auto", "2.4GHz", "5GHz"):
+            band_menu.addAction(b, lambda val=b: self.set_band(val))
+
+        self.menu.addSeparator()
+
+        # Network actions
+        self._act("WARP Connect", lambda: self.warp("connect"))
+        self._act("WARP Disconnect", lambda: self.warp("disconnect"))
+        self._act("Restart Channel Sync", self.sync_restart)
+        self._act("Fix Routing Table", self.fix_routing)
+
+        self.menu.addSeparator()
+
+        # Tools & dialogs
+        self._act("Connected Clients…", self.show_clients)
+        self._act("QR Code…", self.show_qr_code)
+        self._act("Configure SSID & Passphrase…", lambda: ConfigureDialog(self).exec())
+        self._act("MAC Address Filter…", self.show_mac_filter)
+        self._act("Documentation", lambda: run(["xdg-open", DOC_PATH], max_retries=1))
+
         self.menu.addSeparator()
         self._act("Quit", self.app.quit)
 
@@ -2823,7 +2882,12 @@ class HotspotPanel:
         self.state = self.current_state
 
         self._update_tray_icon()
-        self.status_action.setText(text[:160])
+        self.status_action.setText(f"Hotspot: {self.current_state.upper()} ({n} clients)")
+        sta_l = sta_link_info(STA_IF)
+        if sta_l.get("connected") and sta_l.get("ssid"):
+            self.wifi_status_action.setText(f"Wi-Fi: {sta_l['ssid']} ({sta_l.get('bitrate', '')})")
+        else:
+            self.wifi_status_action.setText("Wi-Fi: Disconnected")
         self.tray.setToolTip("Hotspot Hub\n" + text)
 
         # Auto-control checks: scheduled hotspot, battery-aware auto-disable, smart reconnect

@@ -1,9 +1,12 @@
 [Desktop Entry]
 Type=Application
 Name=Hotspot Hub (Flet)
-Comment=Modern Flet UI for hotspot control
+GenericName=Wi-Fi Hotspot Controller
+Comment=Modern Flet control deck for concurrent Wi-Fi hotspot
 Exec=hotspot-hub-flet
 Icon=hotspot-hub
 Terminal=false
-Categories=Network;
+Categories=Network;System;Settings;
+Keywords=wifi;hotspot;ap;sta;tethering;network;warp;share;wireless;internet;
 StartupNotify=false
+StartupWMClass=hotspot-hub

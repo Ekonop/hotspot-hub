@@ -73,6 +73,8 @@ def cmd_status(args: argparse.Namespace) -> int:
     pref_note = "" if band_pref in ("", "Auto") else f" · pref {band_pref}"
     print(f"  AP info:  SSID='{ap.get('ssid', '')}' Channel={ap_channel} (Band: {actual_band}{pref_note})")
     print(f"Uplink:     {sta_text}")
+    hc = hub.health_check()
+    print(f"Health:     {hc.get('summary', 'unknown')}")
     print(f"Clients:    {client_count} connected (DHCP leases: {hub.lease_count()})")
     print(f"MAC Filter: {mf_str}")
     print(f"WARP:       {hub.warp_status()}")

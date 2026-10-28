@@ -6,7 +6,8 @@ MediaTek MT7922).
 
 ## Quick orientation
 
-- **Main app:** `app/hotspot-hub.py` (PyQt6 tray + dropdown canvas)
+- **Main app:** `app/hotspot-hub-tray.py` (Flet UI + pystray system tray, primary interface launched via `/usr/bin/hotspot-hub`)
+- **Legacy Qt app:** `app/hotspot-hub.py` (PyQt6 tray + dropdown canvas, fallback via `hotspot-hub --legacy-qt` or `hotspot-hub-qt`)
 - **CLI tool:** `cli/hotspot-hub-cli.py` (CLI interface: status/on/off/restart/clients/kick/qr)
 - **Helpers:** `helpers/hotspot-on.sh`, `helpers/hotspot-off.sh`
 - **System files:** `src/` (channel-sync, NM dispatcher, sysctl, sudoers)
@@ -20,10 +21,13 @@ MediaTek MT7922).
 Single-radio concurrent STA+AP. STA (wlan0) and AP (ap0) share one PHY/channel.
 Channel-sync keeps AP on STA's channel. VPN/WARP bypass at pref 50.
 
-## Extension point
+## UI Architecture & Migration
 
-`DropdownPanel._build_sections()` in `app/hotspot-hub.py` — add new
-`PanelSection` subclasses there.
+- Primary UI: Modern Flutter-based Flet interface (`app/hotspot-hub-tray.py`) with reactive state management, asynchronous background commands, live throughput delta monitors, and prominent Wi-Fi uplink health & link speed display.
+- Legacy UI: PyQt6 dropdown panel (`app/hotspot-hub.py`).
+- Extensibility:
+  - Flet: Section builders in `app/hotspot-hub-tray.py`.
+  - Qt: `DropdownPanel._build_sections()` in `app/hotspot-hub.py`.
 
 ## Key patterns
 

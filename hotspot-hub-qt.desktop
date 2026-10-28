@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Hotspot Hub (Classic Qt)
+GenericName=Wi-Fi Hotspot Controller (Qt)
+Comment=Classic Qt dropdown canvas for Wi-Fi hotspot
+Exec=hotspot-hub-qt
+Icon=hotspot-hub
+Terminal=false
+Categories=Network;System;
+Keywords=wifi;hotspot;ap;sta;tethering;network;qt;
+StartupNotify=false

@@ -24,16 +24,30 @@ echo "==> Installing Hotspot Hub files..."
 # /usr/share/hotspot-hub next to app/.
 sudo tee /usr/bin/hotspot-hub >/dev/null <<'EOF'
 #!/usr/bin/env bash
-# Hotspot Hub main app launcher (core/ + cli/ resolve under /usr/share/hotspot-hub)
-exec /usr/bin/env python3 /usr/share/hotspot-hub/app/hotspot-hub.py "$@"
+# Hotspot Hub primary launcher (defaults to modern Flet UI; use --legacy-qt or HOTSPOT_HUB_UI=qt for Qt)
+if [ "${HOTSPOT_HUB_UI:-}" = "qt" ] || [ "${1:-}" = "--legacy-qt" ] || [ "${1:-}" = "--qt" ]; then
+  if [ "${1:-}" = "--legacy-qt" ] || [ "${1:-}" = "--qt" ]; then
+    shift
+  fi
+  exec /usr/bin/env python3 /usr/share/hotspot-hub/app/hotspot-hub.py "$@"
+fi
+exec /usr/bin/env python3 /usr/share/hotspot-hub/app/hotspot-hub-flet.py "$@"
 EOF
 sudo chmod 755 /usr/bin/hotspot-hub
+
+sudo tee /usr/bin/hotspot-hub-qt >/dev/null <<'EOF'
+#!/usr/bin/env bash
+# Hotspot Hub classic Qt dropdown launcher
+exec /usr/bin/env python3 /usr/share/hotspot-hub/app/hotspot-hub.py "$@"
+EOF
+sudo chmod 755 /usr/bin/hotspot-hub-qt
+
 sudo install -Dm755 "$ROOT/cli/hotspot-hub-cli.py" /usr/bin/hotspot-hub-cli
 sudo install -Dm644 "$ROOT/app/hotspot-hub.py" /usr/share/hotspot-hub/app/hotspot-hub.py
 sudo install -d /usr/share/hotspot-hub/core /usr/share/hotspot-hub/cli
 sudo install -m644 "$ROOT"/core/*.py /usr/share/hotspot-hub/core/
 sudo install -m755 "$ROOT"/cli/*.py /usr/share/hotspot-hub/cli/
-# Flet UI (modern alternative)
+# Flet UI (modern interface)
 sudo install -Dm755 "$ROOT/app/hotspot-hub-tray.py" /usr/share/hotspot-hub/app/hotspot-hub-tray.py
 sudo install -Dm755 "$ROOT/app/hotspot-hub-flet.py" /usr/share/hotspot-hub/app/hotspot-hub-flet.py
 sudo install -Dm755 "$ROOT/hotspot-hub-flet.sh" /usr/bin/hotspot-hub-flet
@@ -47,14 +61,49 @@ sudo install -Dm755 "$ROOT/src/90-hotspot-channelsync" /etc/NetworkManager/dispa
 sudo install -Dm644 "$ROOT/src/hotspot-channelsync.service" /etc/systemd/system/hotspot-channelsync.service
 sudo install -Dm644 "$ROOT/src/99-hotspot.conf" /etc/sysctl.d/99-hotspot.conf
 sudo install -Dm644 "$ROOT/src/99-hotspot-powersave.conf" /etc/NetworkManager/conf.d/99-hotspot-powersave.conf
+
+# Icons installation (scalable SVG + multi-resolution PNGs)
 sudo install -Dm644 "$ROOT/icons/hotspot-hub.svg" /usr/share/icons/hicolor/scalable/apps/hotspot-hub.svg
+sudo install -Dm644 "$ROOT/icons/hotspot-hub.svg" /usr/share/pixmaps/hotspot-hub.svg
+sudo install -Dm644 "$ROOT/icons/hotspot-hub.svg" /usr/share/hotspot-hub/icons/hotspot-hub.svg
+
+for png in "$ROOT"/icons/hicolor/*/apps/hotspot-hub.png; do
+  if [ -f "$png" ]; then
+    res="$(basename "$(dirname "$(dirname "$png")")")"
+    sudo install -Dm644 "$png" "/usr/share/icons/hicolor/$res/apps/hotspot-hub.png"
+    sudo install -Dm644 "$png" "/usr/share/hotspot-hub/icons/hicolor/$res/apps/hotspot-hub.png"
+  fi
+done
+if [ -f "$ROOT/icons/hicolor/256x256/apps/hotspot-hub.png" ]; then
+  sudo install -Dm644 "$ROOT/icons/hicolor/256x256/apps/hotspot-hub.png" /usr/share/pixmaps/hotspot-hub.png
+fi
+
 sudo install -Dm644 "$ROOT/hotspot-hub.desktop" /usr/share/applications/hotspot-hub.desktop
 sudo install -Dm644 "$ROOT/hotspot-hub-flet.desktop" /usr/share/applications/hotspot-hub-flet.desktop
+sudo install -Dm644 "$ROOT/hotspot-hub-qt.desktop" /usr/share/applications/hotspot-hub-qt.desktop
 sudo install -Dm440 "$ROOT/src/hotspot-hub.sudoers" /etc/sudoers.d/hotspot-hub
 sudo install -Dm644 "$ROOT/man/hotspot-hub-cli.1" /usr/share/man/man1/hotspot-hub-cli.1
 sudo visudo -c
-sudo gtk-update-icon-cache -f /usr/share/icons/hicolor 2>/dev/null || \
+
+# Update system icon cache and desktop index
+sudo gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || \
   sudo update-icon-caches /usr/share/icons/hicolor 2>/dev/null || true
+sudo update-desktop-database /usr/share/applications 2>/dev/null || true
+
+# Refresh KDE Sycoca application index for current user
+if command -v kbuildsycoca6 >/dev/null 2>&1; then
+  if [ -n "${SUDO_USER:-}" ]; then
+    su - "$SUDO_USER" -c "kbuildsycoca6 --noincremental" >/dev/null 2>&1 || true
+  else
+    kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
+  fi
+elif command -v kbuildsycoca5 >/dev/null 2>&1; then
+  if [ -n "${SUDO_USER:-}" ]; then
+    su - "$SUDO_USER" -c "kbuildsycoca5 --noincremental" >/dev/null 2>&1 || true
+  else
+    kbuildsycoca5 --noincremental >/dev/null 2>&1 || true
+  fi
+fi
 
 echo "==> Installing Flet UI dependencies (pystray, pillow, flet)..."
 if command -v pip3 >/dev/null 2>&1 || command -v pip >/dev/null 2>&1; then
@@ -92,8 +141,17 @@ fi
 
 if [ "$NO_AUTOSTART" = 0 ]; then
   echo "==> Configuring autostart..."
-  mkdir -p ~/.config/autostart
-  cp -f "$ROOT/hotspot-hub.desktop" ~/.config/autostart/hotspot-hub.desktop
+  TARGET_HOME="${HOME}"
+  if [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != "root" ]; then
+    TARGET_HOME="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
+  fi
+  if [ -d "$TARGET_HOME" ]; then
+    mkdir -p "$TARGET_HOME/.config/autostart"
+    cp -f "$ROOT/hotspot-hub.desktop" "$TARGET_HOME/.config/autostart/hotspot-hub.desktop"
+    if [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != "root" ]; then
+      chown -R "$SUDO_USER:" "$TARGET_HOME/.config/autostart" 2>/dev/null || true
+    fi
+  fi
 else
   echo "==> Skipping autostart (--no-autostart)."
 fi
