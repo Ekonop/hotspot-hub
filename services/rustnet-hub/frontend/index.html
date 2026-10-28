@@ -3,125 +3,392 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hotspot Hub — Real-Time Traffic Inspector (RustNet)</title>
+  <title>Hotspot Hub — Network Analytics & Threat Radar (RustNet)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
     .tabular-nums { font-variant-numeric: tabular-nums; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0D1117; }
+    ::-webkit-scrollbar-thumb { background: #30363D; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #484F58; }
   </style>
 </head>
-<body class="bg-[#0D1117] text-slate-100 min-h-screen flex flex-col">
-  <!-- Top Navigation Bar -->
-  <nav class="border-b border-white/10 bg-[#161B22]/80 backdrop-blur sticky top-0 z-50 px-6 py-3.5 flex justify-between items-center">
-    <div class="flex items-center gap-3">
+<body class="bg-[#0D1117] text-slate-100 min-h-screen flex flex-col antialiased">
+
+  <!-- Top App Bar -->
+  <header class="border-b border-white/10 bg-[#161B22]/90 backdrop-blur sticky top-0 z-40 px-6 py-3.5 flex justify-between items-center">
+    <div class="flex items-center gap-3.5">
       <div class="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-        <i data-lucide="radio" class="w-5 h-5 text-emerald-400"></i>
+        <i data-lucide="shield-alert" class="w-5 h-5 text-emerald-400"></i>
       </div>
       <div>
         <div class="flex items-center gap-2">
-          <h1 class="text-base font-bold text-white tracking-tight">Hotspot Hub Traffic Inspector</h1>
-          <span id="conn-pill" class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
-            CONNECTING...
+          <h1 class="text-base font-bold text-white tracking-tight">Hotspot Hub Radar</h1>
+          <span id="conn-pill" class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> LIVE
           </span>
         </div>
-        <p class="text-xs text-slate-400">Powered by RustNet eBPF & Conntrack attribution</p>
+        <p class="text-xs text-slate-400">RustNet 1.7.0 eBPF · Conntrack attribution · Multi-Model Threat Engine</p>
       </div>
     </div>
 
+    <!-- Navigation Tabs -->
+    <div class="hidden md:flex items-center gap-1 bg-white/[0.04] p-1 rounded-xl border border-white/10 text-xs">
+      <button onclick="switchTab('flows')" id="tab-btn-flows" class="px-3.5 py-1.5 rounded-lg font-semibold bg-blue-600 text-white flex items-center gap-1.5 transition">
+        <i data-lucide="activity" class="w-3.5 h-3.5"></i> Live Flows
+      </button>
+      <button onclick="switchTab('analytics')" id="tab-btn-analytics" class="px-3.5 py-1.5 rounded-lg font-medium text-slate-400 hover:text-white flex items-center gap-1.5 transition">
+        <i data-lucide="bar-chart-3" class="w-3.5 h-3.5"></i> Analytics & Categories
+      </button>
+      <button onclick="switchTab('threats')" id="tab-btn-threats" class="px-3.5 py-1.5 rounded-lg font-medium text-slate-400 hover:text-white flex items-center gap-1.5 transition">
+        <i data-lucide="shield" class="w-3.5 h-3.5"></i> Threat Radar (<span id="tab-threat-count" class="text-amber-400 font-bold">0</span>)
+      </button>
+      <button onclick="switchTab('clients')" id="tab-btn-clients" class="px-3.5 py-1.5 rounded-lg font-medium text-slate-400 hover:text-white flex items-center gap-1.5 transition">
+        <i data-lucide="smartphone" class="w-3.5 h-3.5"></i> Client Devices
+      </button>
+    </div>
+
+    <!-- Action Buttons -->
     <div class="flex items-center gap-3">
-      <button id="btn-export" onclick="exportPcapng()" class="flex items-center gap-2 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white rounded-lg text-xs font-semibold shadow-lg transition">
+      <button onclick="exportPcapng()" id="btn-export" class="flex items-center gap-2 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white rounded-lg text-xs font-semibold shadow-lg transition">
         <i data-lucide="download" class="w-3.5 h-3.5"></i>
-        Export PCAPNG (Wireshark)
+        Export PCAPNG
       </button>
       <button onclick="clearBuffer()" class="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-slate-300 rounded-lg text-xs font-medium transition">
         Clear
       </button>
     </div>
-  </nav>
+  </header>
 
-  <!-- Metric Summary Cards -->
+  <!-- Metric Strip -->
+  <section class="max-w-7xl w-full mx-auto px-6 pt-6">
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-3.5">
+      <div class="bg-[#161B22] border border-white/10 rounded-xl p-3.5">
+        <div class="flex items-center justify-between text-slate-400 text-xs mb-1">
+          <span>Active Clients</span>
+          <i data-lucide="users" class="w-4 h-4 text-blue-400"></i>
+        </div>
+        <div id="stat-clients" class="text-xl font-bold text-white tabular-nums">0</div>
+      </div>
+      <div class="bg-[#161B22] border border-white/10 rounded-xl p-3.5">
+        <div class="flex items-center justify-between text-slate-400 text-xs mb-1">
+          <span>Total Live Flows</span>
+          <i data-lucide="radio" class="w-4 h-4 text-emerald-400"></i>
+        </div>
+        <div id="stat-flows" class="text-xl font-bold text-white tabular-nums">0</div>
+      </div>
+      <div class="bg-[#161B22] border border-white/10 rounded-xl p-3.5">
+        <div class="flex items-center justify-between text-slate-400 text-xs mb-1">
+          <span>Throughput</span>
+          <i data-lucide="arrow-down-up" class="w-4 h-4 text-cyan-400"></i>
+        </div>
+        <div id="stat-speed" class="text-xl font-bold text-emerald-400 tabular-nums">0.0 kbps</div>
+      </div>
+      <div class="bg-[#161B22] border border-white/10 rounded-xl p-3.5">
+        <div class="flex items-center justify-between text-slate-400 text-xs mb-1">
+          <span>Threats / Trackers</span>
+          <i data-lucide="alert-triangle" class="w-4 h-4 text-amber-400"></i>
+        </div>
+        <div id="stat-threats" class="text-xl font-bold text-amber-400 tabular-nums">0</div>
+      </div>
+      <div class="bg-[#161B22] border border-white/10 rounded-xl p-3.5 col-span-2 md:col-span-1">
+        <div class="flex items-center justify-between text-slate-400 text-xs mb-1">
+          <span>Classifier Models</span>
+          <i data-lucide="cpu" class="w-4 h-4 text-purple-400"></i>
+        </div>
+        <div class="text-xs font-semibold text-purple-300">5-Model Ensemble</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Main View Containers -->
   <main class="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
-    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-      <div class="bg-[#161B22] border border-white/10 rounded-xl p-4 flex items-center gap-4">
-        <div class="p-3 bg-blue-500/10 text-blue-400 rounded-lg"><i data-lucide="users" class="w-5 h-5"></i></div>
-        <div>
-          <div class="text-xs text-slate-400 font-medium">Active Clients</div>
-          <div id="stat-clients" class="text-xl font-bold text-white">0</div>
+
+    <!-- ── TAB 1: LIVE FLOWS ───────────────────────────────────────── -->
+    <div id="view-flows" class="space-y-4">
+      <!-- Search & Filters -->
+      <div class="bg-[#161B22] border border-white/10 rounded-xl p-3 flex flex-wrap gap-3 items-center justify-between">
+        <div class="flex items-center gap-3 flex-1 min-w-[280px]">
+          <i data-lucide="filter" class="w-4 h-4 text-slate-400 ml-1"></i>
+          <select id="client-filter" onchange="renderTable()" class="bg-[#0D1117] border border-white/10 text-xs text-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500">
+            <option value="all">All Connected Devices</option>
+          </select>
+          <select id="category-filter" onchange="renderTable()" class="bg-[#0D1117] border border-white/10 text-xs text-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500">
+            <option value="all">All Categories</option>
+            <option value="Streaming & Media">Streaming & Media</option>
+            <option value="Social & Chat">Social & Chat</option>
+            <option value="Telemetry & Ads">Telemetry & Ads</option>
+            <option value="Cloud & CDN">Cloud & CDN</option>
+            <option value="Web & Updates">Web & Updates</option>
+            <option value="High Risk Port">High Risk Port</option>
+          </select>
+          <div class="relative flex-1">
+            <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5"></i>
+            <input type="text" id="search-input" oninput="renderTable()" placeholder="Search domain, IP, process, or threat tag..." class="w-full bg-[#0D1117] border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-blue-500 placeholder-slate-500">
+          </div>
+        </div>
+        <div class="text-xs text-slate-400 tabular-nums">
+          Showing <span id="count-visible" class="text-white font-semibold">0</span> of <span id="count-total" class="text-white font-semibold">0</span> flows
         </div>
       </div>
-      <div class="bg-[#161B22] border border-white/10 rounded-xl p-4 flex items-center gap-4">
-        <div class="p-3 bg-emerald-500/10 text-emerald-400 rounded-lg"><i data-lucide="activity" class="w-5 h-5"></i></div>
-        <div>
-          <div class="text-xs text-slate-400 font-medium">Total Live Flows</div>
-          <div id="stat-flows" class="text-xl font-bold text-white">0</div>
-        </div>
-      </div>
-      <div class="bg-[#161B22] border border-white/10 rounded-xl p-4 flex items-center gap-4">
-        <div class="p-3 bg-purple-500/10 text-purple-400 rounded-lg"><i data-lucide="arrow-down-up" class="w-5 h-5"></i></div>
-        <div>
-          <div class="text-xs text-slate-400 font-medium">Live Throughput</div>
-          <div id="stat-speed" class="text-xl font-bold text-emerald-400 tabular-nums">0.0 kbps</div>
-        </div>
-      </div>
-      <div class="bg-[#161B22] border border-white/10 rounded-xl p-4 flex items-center gap-4">
-        <div class="p-3 bg-amber-500/10 text-amber-400 rounded-lg"><i data-lucide="hard-drive" class="w-5 h-5"></i></div>
-        <div>
-          <div class="text-xs text-slate-400 font-medium">Capture Engine</div>
-          <div class="text-sm font-semibold text-slate-200">RustNet 1.7.0 (ap0)</div>
+
+      <!-- Live Flows Table -->
+      <div class="bg-[#161B22] border border-white/10 rounded-xl overflow-hidden shadow-2xl">
+        <div class="overflow-x-auto max-h-[640px] overflow-y-auto">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-white/[0.03] text-slate-400 uppercase tracking-wider text-[11px] border-b border-white/10 sticky top-0 backdrop-blur z-10">
+              <tr>
+                <th class="px-4 py-3">Client Device</th>
+                <th class="px-4 py-3">Client IP & MAC</th>
+                <th class="px-4 py-3">Category</th>
+                <th class="px-4 py-3">Destination Domain / IP</th>
+                <th class="px-4 py-3">Risk Level</th>
+                <th class="px-4 py-3 text-right">Bandwidth</th>
+                <th class="px-4 py-3 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody id="traffic-rows" class="divide-y divide-white/5 font-mono">
+              <tr>
+                <td colspan="7" class="px-4 py-12 text-center text-slate-500 font-sans">
+                  Listening for network flows on hotspot interface ap0...
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
 
-    <!-- Controls & Filters -->
-    <div class="bg-[#161B22] border border-white/10 rounded-xl p-3 flex flex-wrap gap-3 items-center justify-between">
-      <div class="flex items-center gap-3 flex-1 min-w-[280px]">
-        <i data-lucide="filter" class="w-4 h-4 text-slate-400 ml-1"></i>
-        <select id="client-filter" onchange="renderTable()" class="bg-[#0D1117] border border-white/10 text-xs text-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500">
-          <option value="all">All Connected Devices</option>
-        </select>
-        <div class="relative flex-1">
-          <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5"></i>
-          <input type="text" id="search-input" oninput="renderTable()" placeholder="Search domain, IP, or process..." class="w-full bg-[#0D1117] border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-blue-500 placeholder-slate-500">
+    <!-- ── TAB 2: DEEP ANALYTICS & CATEGORIES ──────────────────────── -->
+    <div id="view-analytics" class="hidden space-y-6">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- Live Bandwidth Line Graph -->
+        <div class="bg-[#161B22] border border-white/10 rounded-xl p-5 space-y-3">
+          <div class="flex items-center justify-between">
+            <h2 class="text-sm font-bold text-white flex items-center gap-2">
+              <i data-lucide="line-chart" class="w-4 h-4 text-emerald-400"></i>
+              Real-Time Bandwidth Velocity
+            </h2>
+            <span class="text-xs text-slate-400">Last 30 snapshots</span>
+          </div>
+          <div class="h-64">
+            <canvas id="chart-bandwidth"></canvas>
+          </div>
+        </div>
+
+        <!-- Category Distribution Doughnut -->
+        <div class="bg-[#161B22] border border-white/10 rounded-xl p-5 space-y-3">
+          <div class="flex items-center justify-between">
+            <h2 class="text-sm font-bold text-white flex items-center gap-2">
+              <i data-lucide="pie-chart" class="w-4 h-4 text-purple-400"></i>
+              Traffic Category Distribution
+            </h2>
+            <span class="text-xs text-slate-400">Ensemble classification</span>
+          </div>
+          <div class="h-64 flex items-center justify-center">
+            <canvas id="chart-categories"></canvas>
+          </div>
         </div>
       </div>
-      <div class="text-xs text-slate-400 tabular-nums">
-        Showing <span id="count-visible" class="text-white font-semibold">0</span> flows
+
+      <!-- Leaderboards Grid -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- Top Talkers -->
+        <div class="bg-[#161B22] border border-white/10 rounded-xl p-5 space-y-3">
+          <h2 class="text-sm font-bold text-white flex items-center gap-2">
+            <i data-lucide="award" class="w-4 h-4 text-amber-400"></i>
+            Top Talkers (Bandwidth by Client)
+          </h2>
+          <div id="leaderboard-clients" class="space-y-2 text-xs font-sans">
+            <div class="text-slate-500 py-4 text-center">Aggregating client traffic...</div>
+          </div>
+        </div>
+
+        <!-- Top Destination Domains -->
+        <div class="bg-[#161B22] border border-white/10 rounded-xl p-5 space-y-3">
+          <h2 class="text-sm font-bold text-white flex items-center gap-2">
+            <i data-lucide="globe" class="w-4 h-4 text-cyan-400"></i>
+            Top Requested Domains
+          </h2>
+          <div id="leaderboard-domains" class="space-y-2 text-xs font-mono">
+            <div class="text-slate-500 py-4 text-center font-sans">Aggregating domain lookups...</div>
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- Real-Time Packet Stream Table -->
-    <div class="bg-[#161B22] border border-white/10 rounded-xl overflow-hidden shadow-2xl">
-      <div class="overflow-x-auto max-h-[620px] overflow-y-auto">
-        <table class="w-full text-left text-xs">
-          <thead class="bg-white/[0.03] text-slate-400 uppercase tracking-wider text-[11px] border-b border-white/10 sticky top-0 backdrop-blur z-10">
-            <tr>
-              <th class="px-4 py-3">Client Device</th>
-              <th class="px-4 py-3">Client IP & MAC</th>
-              <th class="px-4 py-3">Process / Service</th>
-              <th class="px-4 py-3">Destination Domain / IP</th>
-              <th class="px-4 py-3">Proto</th>
-              <th class="px-4 py-3 text-right">Bandwidth</th>
-              <th class="px-4 py-3 text-right">Time</th>
-            </tr>
-          </thead>
-          <tbody id="traffic-rows" class="divide-y divide-white/5 font-mono">
-            <tr>
-              <td colspan="7" class="px-4 py-12 text-center text-slate-500 font-sans">
-                Waiting for incoming traffic on hotspot interface ap0...
-              </td>
-            </tr>
-          </tbody>
-        </table>
+    <!-- ── TAB 3: THREAT RADAR & ANOMALIES ────────────────────────── -->
+    <div id="view-threats" class="hidden space-y-6">
+      <div class="bg-[#161B22] border border-white/10 rounded-xl p-5">
+        <div class="flex flex-wrap items-center justify-between gap-4 mb-4 pb-4 border-b border-white/10">
+          <div>
+            <h2 class="text-sm font-bold text-white flex items-center gap-2">
+              <i data-lucide="shield-alert" class="w-4 h-4 text-red-400"></i>
+              Threat Intelligence & Telemetry Radar
+            </h2>
+            <p class="text-xs text-slate-400">Classified by ThreatIntel, ProtocolAnomaly, PrivacyTracker, and EntropyDGA models</p>
+          </div>
+          <div class="flex items-center gap-4 text-xs">
+            <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-red-500"></span> Danger</div>
+            <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span> Suspicious / Tracker</div>
+            <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Clean</div>
+          </div>
+        </div>
+
+        <div id="threat-feed" class="space-y-2.5">
+          <div class="text-slate-500 text-xs py-8 text-center font-sans">No security anomalies or aggressive trackers flagged yet.</div>
+        </div>
       </div>
     </div>
+
+    <!-- ── TAB 4: CLIENT DEVICES ──────────────────────────────────── -->
+    <div id="view-clients" class="hidden space-y-6">
+      <div class="flex justify-between items-center">
+        <div>
+          <h2 class="text-sm font-bold text-white">Connected Hotspot Clients</h2>
+          <p class="text-xs text-slate-400">Inspect device activity, active sessions, and access control</p>
+        </div>
+      </div>
+      <div id="clients-grid" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <!-- Rendered client cards -->
+      </div>
+    </div>
+
   </main>
+
+  <!-- Flow Details Modal / Slideover -->
+  <div id="flow-modal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-[#161B22] border border-white/10 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl relative">
+      <div class="flex justify-between items-start">
+        <div>
+          <h3 class="text-base font-bold text-white flex items-center gap-2">
+            <i data-lucide="search" class="w-4 h-4 text-blue-400"></i>
+            Flow Inspection
+          </h3>
+          <p id="modal-domain" class="text-xs text-cyan-300 font-mono break-all mt-0.5">domain.com</p>
+        </div>
+        <button onclick="closeModal()" class="text-slate-400 hover:text-white p-1 rounded-lg">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div class="p-3 bg-white/[0.03] rounded-xl border border-white/5 space-y-1.5">
+          <div class="text-slate-400 font-semibold uppercase text-[10px]">Flow Attributes</div>
+          <div class="flex justify-between"><span class="text-slate-400">Client:</span> <span id="modal-client" class="text-white font-semibold">iPhone</span></div>
+          <div class="flex justify-between"><span class="text-slate-400">IP / MAC:</span> <span id="modal-ipmac" class="text-slate-300 font-mono">10.42.0.13</span></div>
+          <div class="flex justify-between"><span class="text-slate-400">Protocol:</span> <span id="modal-proto" class="text-slate-300 font-mono">TCP / HTTPS</span></div>
+          <div class="flex justify-between"><span class="text-slate-400">Bandwidth:</span> <span id="modal-bw" class="text-emerald-400 font-mono">25.3 kbps</span></div>
+        </div>
+
+        <div class="p-3 bg-white/[0.03] rounded-xl border border-white/5 space-y-2">
+          <div class="text-slate-400 font-semibold uppercase text-[10px]">Ensemble Model Verdicts</div>
+          <div id="modal-verdicts" class="space-y-1.5 font-sans">
+            <!-- Rendered model votes -->
+          </div>
+        </div>
+      </div>
+
+      <div class="flex gap-2 pt-2">
+        <button id="modal-block-btn" onclick="blockCurrentDevice()" class="flex-1 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/30 rounded-xl text-xs font-semibold transition">
+          Block & Kick Device
+        </button>
+        <button onclick="closeModal()" class="px-4 py-2 bg-white/10 hover:bg-white/15 text-slate-200 rounded-xl text-xs font-medium transition">
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
 
   <script>
     let trafficData = [];
-    const MAX_ROWS = 200;
+    const MAX_ROWS = 300;
     let knownClients = new Map();
+    let currentSelectedFlow = null;
     let ws = null;
+
+    // Charts
+    let chartBandwidth = null;
+    let chartCategories = null;
+    let bwHistory = Array(30).fill(0);
+    let categoryCounts = {
+      "Streaming & Media": 0,
+      "Social & Chat": 0,
+      "Telemetry & Ads": 0,
+      "Cloud & CDN": 0,
+      "Web & Updates": 0,
+      "High Risk Port": 0,
+      "General Web": 0
+    };
+
+    function initCharts() {
+      // 1. Bandwidth line sparkline
+      const ctxBw = document.getElementById('chart-bandwidth').getContext('2d');
+      chartBandwidth = new Chart(ctxBw, {
+        type: 'line',
+        data: {
+          labels: Array(30).fill(''),
+          datasets: [{
+            label: 'Throughput (kbps)',
+            data: bwHistory,
+            borderColor: '#10B981',
+            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+            fill: true,
+            tension: 0.35,
+            pointRadius: 0,
+            borderWidth: 2,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { display: false },
+            y: {
+              grid: { color: 'rgba(255, 255, 255, 0.05)' },
+              ticks: { color: '#94A3B8', font: { size: 10 } }
+            }
+          }
+        }
+      });
+
+      // 2. Categories donut
+      const ctxCat = document.getElementById('chart-categories').getContext('2d');
+      chartCategories = new Chart(ctxCat, {
+        type: 'doughnut',
+        data: {
+          labels: Object.keys(categoryCounts),
+          datasets: [{
+            data: Object.values(categoryCounts),
+            backgroundColor: [
+              '#A855F7', // Streaming (purple)
+              '#EC4899', // Social (pink)
+              '#F59E0B', // Telemetry (amber)
+              '#06B6D4', // Cloud (cyan)
+              '#3B82F6', // Web (blue)
+              '#EF4444', // High Risk (red)
+              '#64748B'  // General (slate)
+            ],
+            borderWidth: 0,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'right',
+              labels: { color: '#E2E8F0', font: { size: 11 }, boxWidth: 12, padding: 12 }
+            }
+          },
+          cutout: '68%'
+        }
+      });
+    }
 
     function connectWs() {
       const host = window.location.hostname || "localhost";
@@ -130,8 +397,8 @@
 
       ws.onopen = () => {
         const pill = document.getElementById("conn-pill");
-        pill.textContent = "● LIVE CAPTURE";
-        pill.className = "text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+        pill.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> LIVE`;
+        pill.className = "text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1";
       };
 
       ws.onclose = () => {
@@ -147,30 +414,66 @@
           trafficData.unshift(record);
           if (trafficData.length > MAX_ROWS) trafficData.pop();
 
-          // Track unique client
+          // Client tracking
           if (record.client_mac && record.client_mac !== "Unknown MAC") {
             if (!knownClients.has(record.client_mac)) {
-              knownClients.set(record.client_mac, `${record.client_name} (${record.client_ip})`);
+              knownClients.set(record.client_mac, {
+                name: record.client_name,
+                ip: record.client_ip,
+                bytes: 0,
+                flows: 0
+              });
               updateClientDropdown();
             }
+            let c = knownClients.get(record.client_mac);
+            c.bytes += (record.bandwidth_bps || 0) / 8;
+            c.flows += 1;
           }
 
-          updateStats();
+          // Category counters
+          if (categoryCounts[record.category] !== undefined) {
+            categoryCounts[record.category]++;
+          } else {
+            categoryCounts["General Web"]++;
+          }
+
           renderTable();
+          updateStats();
         } catch (e) {
           console.error(e);
         }
       };
     }
 
+    // Interval to refresh charts smoothly
+    setInterval(() => {
+      let currentBps = trafficData.slice(0, 15).reduce((acc, r) => acc + (r.bandwidth_bps || 0), 0);
+      let kbps = currentBps / 1024;
+      bwHistory.push(kbps);
+      bwHistory.shift();
+
+      if (chartBandwidth) {
+        chartBandwidth.data.datasets[0].data = bwHistory;
+        chartBandwidth.update('none');
+      }
+      if (chartCategories) {
+        chartCategories.data.datasets[0].data = Object.values(categoryCounts);
+        chartCategories.update('none');
+      }
+
+      updateLeaderboards();
+      updateThreatFeed();
+      renderClientCards();
+    }, 1000);
+
     function updateClientDropdown() {
       const select = document.getElementById("client-filter");
       const current = select.value;
       select.innerHTML = '<option value="all">All Connected Devices</option>';
-      knownClients.forEach((label, mac) => {
+      knownClients.forEach((info, mac) => {
         const opt = document.createElement("option");
         opt.value = mac;
-        opt.textContent = `${label} - ${mac}`;
+        opt.textContent = `${info.name} (${info.ip}) - ${mac}`;
         select.appendChild(opt);
       });
       select.value = current;
@@ -179,29 +482,164 @@
 
     function updateStats() {
       document.getElementById("stat-flows").textContent = trafficData.length;
+      document.getElementById("count-total").textContent = trafficData.length;
       let totalBps = trafficData.reduce((acc, row) => acc + (row.bandwidth_bps || 0), 0);
       document.getElementById("stat-speed").textContent = `${(totalBps / 1024).toFixed(1)} kbps`;
+
+      let threats = trafficData.filter(r => r.risk_level === 'danger' || r.risk_level === 'warning');
+      document.getElementById("stat-threats").textContent = threats.length;
+      document.getElementById("tab-threat-count").textContent = threats.length;
     }
 
-    function clearBuffer() {
-      trafficData = [];
-      renderTable();
-      updateStats();
+    function updateLeaderboards() {
+      // Top Talkers
+      const clientBoard = document.getElementById("leaderboard-clients");
+      const sortedClients = Array.from(knownClients.entries()).sort((a, b) => b[1].bytes - a[1].bytes);
+      if (sortedClients.length === 0) {
+        clientBoard.innerHTML = `<div class="text-slate-500 py-3 text-center">No active talkers recorded yet</div>`;
+      } else {
+        clientBoard.innerHTML = sortedClients.map(([mac, info], idx) => {
+          const mb = (info.bytes / (1024 * 1024)).toFixed(2);
+          return `
+            <div class="flex items-center justify-between p-2.5 bg-white/[0.02] rounded-xl border border-white/5">
+              <div class="flex items-center gap-3">
+                <span class="w-5 h-5 rounded-full bg-blue-500/10 text-blue-400 flex items-center justify-center font-bold text-[10px]">#${idx + 1}</span>
+                <div>
+                  <div class="font-semibold text-slate-200">${escapeHtml(info.name)}</div>
+                  <div class="text-[10px] text-slate-500 font-mono">${info.ip} · ${mac}</div>
+                </div>
+              </div>
+              <div class="text-right">
+                <div class="font-bold text-emerald-400 font-mono">${mb} MB</div>
+                <div class="text-[10px] text-slate-500">${info.flows} flows</div>
+              </div>
+            </div>
+          `;
+        }).join("");
+      }
+
+      // Top Domains
+      const domainBoard = document.getElementById("leaderboard-domains");
+      const domainCounts = {};
+      trafficData.forEach(r => {
+        domainCounts[r.domain] = (domainCounts[r.domain] || 0) + (r.bandwidth_bps || 0);
+      });
+      const sortedDomains = Object.entries(domainCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+      if (sortedDomains.length === 0) {
+        domainBoard.innerHTML = `<div class="text-slate-500 py-3 text-center font-sans">No domain stats yet</div>`;
+      } else {
+        domainBoard.innerHTML = sortedDomains.map(([dom, bps], idx) => {
+          const kbps = (bps / 1024).toFixed(1);
+          return `
+            <div class="flex items-center justify-between p-2.5 bg-white/[0.02] rounded-xl border border-white/5">
+              <div class="flex items-center gap-2 truncate max-w-[70%]">
+                <span class="text-slate-500 text-[10px]">#${idx + 1}</span>
+                <span class="text-cyan-300 truncate">${escapeHtml(dom)}</span>
+              </div>
+              <span class="font-bold text-slate-200 tabular-nums">${kbps} kbps</span>
+            </div>
+          `;
+        }).join("");
+      }
+    }
+
+    function updateThreatFeed() {
+      const feed = document.getElementById("threat-feed");
+      const threats = trafficData.filter(r => r.risk_level === 'danger' || r.risk_level === 'warning').slice(0, 10);
+      if (threats.length === 0) {
+        feed.innerHTML = `<div class="text-slate-500 text-xs py-8 text-center font-sans">No security anomalies or aggressive trackers flagged yet.</div>`;
+        return;
+      }
+      feed.innerHTML = threats.map(t => {
+        const isDanger = t.risk_level === 'danger';
+        const colorClass = isDanger ? 'border-red-500/30 bg-red-500/10 text-red-300' : 'border-amber-500/30 bg-amber-500/10 text-amber-300';
+        const tag = t.threat_tags && t.threat_tags.length ? t.threat_tags[0] : (isDanger ? 'Critical Anomaly' : 'Telemetry Tracker');
+        return `
+          <div class="flex items-center justify-between p-3 rounded-xl border ${colorClass} text-xs font-sans">
+            <div class="flex items-center gap-3">
+              <span class="px-2 py-0.5 rounded font-bold uppercase text-[10px] ${isDanger ? 'bg-red-500/20 text-red-400' : 'bg-amber-500/20 text-amber-400'}">
+                ${isDanger ? 'DANGER' : 'SUSPICIOUS'}
+              </span>
+              <div>
+                <span class="font-semibold text-slate-200">${escapeHtml(t.client_name)}</span>
+                <span class="text-slate-400 mx-1">→</span>
+                <span class="font-mono font-semibold text-white">${escapeHtml(t.domain)}</span>
+                <div class="text-[10px] text-slate-400 mt-0.5">${escapeHtml(tag)}</div>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="blockClientMac('${t.client_mac}')" class="px-2.5 py-1 bg-red-600/30 hover:bg-red-600/40 text-red-200 border border-red-500/40 rounded-lg text-[11px] font-semibold transition">
+                Block Client
+              </button>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function renderClientCards() {
+      const grid = document.getElementById("clients-grid");
+      if (knownClients.size === 0) {
+        grid.innerHTML = `<div class="col-span-3 text-slate-500 text-center py-12">No active hotspot devices connected yet</div>`;
+        return;
+      }
+      grid.innerHTML = Array.from(knownClients.entries()).map(([mac, info]) => {
+        const mb = (info.bytes / (1024 * 1024)).toFixed(2);
+        return `
+          <div class="bg-[#161B22] border border-white/10 rounded-xl p-5 space-y-4 shadow-lg">
+            <div class="flex items-start justify-between">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 font-bold">
+                  <i data-lucide="smartphone" class="w-5 h-5"></i>
+                </div>
+                <div>
+                  <h3 class="font-bold text-sm text-white">${escapeHtml(info.name)}</h3>
+                  <div class="text-[11px] text-slate-400 font-mono">${info.ip}</div>
+                </div>
+              </div>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                ACTIVE
+              </span>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2 text-xs p-2.5 bg-white/[0.02] rounded-xl border border-white/5 font-mono">
+              <div>
+                <div class="text-[10px] text-slate-500 uppercase font-sans">Bandwidth</div>
+                <div class="font-bold text-emerald-400">${mb} MB</div>
+              </div>
+              <div>
+                <div class="text-[10px] text-slate-500 uppercase font-sans">Active Flows</div>
+                <div class="font-bold text-slate-200">${info.flows}</div>
+              </div>
+            </div>
+
+            <div class="text-[10px] text-slate-500 font-mono break-all">MAC: ${mac}</div>
+
+            <button onclick="blockClientMac('${mac}')" class="w-full py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/30 rounded-lg text-xs font-semibold transition">
+              Disconnect & Block Device
+            </button>
+          </div>
+        `;
+      }).join("");
+      lucide.createIcons();
     }
 
     function renderTable() {
       const selectedMac = document.getElementById("client-filter").value;
+      const selectedCat = document.getElementById("category-filter").value;
       const query = document.getElementById("search-input").value.toLowerCase().trim();
       const tbody = document.getElementById("traffic-rows");
 
       const filtered = trafficData.filter(row => {
         const matchMac = (selectedMac === "all" || row.client_mac === selectedMac);
+        const matchCat = (selectedCat === "all" || row.category === selectedCat);
         const matchQuery = !query || 
           row.domain.toLowerCase().includes(query) || 
           row.process.toLowerCase().includes(query) ||
           row.client_ip.includes(query) ||
-          row.client_name.toLowerCase().includes(query);
-        return matchMac && matchQuery;
+          row.client_name.toLowerCase().includes(query) ||
+          (row.threat_tags && row.threat_tags.some(t => t.toLowerCase().includes(query)));
+        return matchMac && matchCat && matchQuery;
       });
 
       document.getElementById("count-visible").textContent = filtered.length;
@@ -211,9 +649,25 @@
         return;
       }
 
-      tbody.innerHTML = filtered.map(row => {
+      tbody.innerHTML = filtered.map((row, idx) => {
         const kbps = (row.bandwidth_bps / 1024).toFixed(1);
-        const timeStr = new Date(row.timestamp).toLocaleTimeString();
+
+        // Category badge styling
+        let catColor = "bg-slate-800 text-slate-300 border-white/10";
+        if (row.category.includes("Streaming")) catColor = "bg-purple-500/10 text-purple-300 border-purple-500/20";
+        else if (row.category.includes("Social")) catColor = "bg-pink-500/10 text-pink-300 border-pink-500/20";
+        else if (row.category.includes("Telemetry") || row.category.includes("Ads")) catColor = "bg-amber-500/10 text-amber-300 border-amber-500/20";
+        else if (row.category.includes("Cloud")) catColor = "bg-cyan-500/10 text-cyan-300 border-cyan-500/20";
+        else if (row.category.includes("Risk")) catColor = "bg-red-500/10 text-red-300 border-red-500/20";
+
+        // Risk pill styling
+        let riskPill = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">SAFE</span>`;
+        if (row.risk_level === 'danger') {
+          riskPill = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-red-500/20 text-red-400 border border-red-500/30">DANGER (${row.risk_score})</span>`;
+        } else if (row.risk_level === 'warning') {
+          riskPill = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">TRACKER (${row.risk_score})</span>`;
+        }
+
         return `
           <tr class="hover:bg-white/[0.03] transition">
             <td class="px-4 py-2.5 font-sans font-semibold text-slate-200">
@@ -225,26 +679,110 @@
               <div>${escapeHtml(row.client_ip)}</div>
               <div class="text-[10px] text-slate-500 font-mono">${escapeHtml(row.client_mac)}</div>
             </td>
-            <td class="px-4 py-2.5 font-semibold text-purple-300">
-              ${escapeHtml(row.process)}
+            <td class="px-4 py-2.5 font-sans">
+              <span class="px-2 py-0.5 rounded text-[11px] font-medium border ${catColor}">
+                ${escapeHtml(row.category)}
+              </span>
             </td>
             <td class="px-4 py-2.5 font-medium text-cyan-300 break-all">
               ${escapeHtml(row.domain)}
             </td>
             <td class="px-4 py-2.5">
-              <span class="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300 border border-white/10 font-bold">
-                ${escapeHtml(row.protocol)}
-              </span>
+              ${riskPill}
             </td>
             <td class="px-4 py-2.5 text-right font-bold text-emerald-400 tabular-nums">
               ${kbps} kbps
             </td>
-            <td class="px-4 py-2.5 text-right text-slate-500 text-[11px] tabular-nums">
-              ${timeStr}
+            <td class="px-4 py-2.5 text-right">
+              <button onclick="inspectFlow(${idx})" class="p-1 hover:bg-white/10 text-slate-400 hover:text-white rounded-lg transition" title="Inspect Ensemble Classification">
+                <i data-lucide="info" class="w-4 h-4"></i>
+              </button>
             </td>
           </tr>
         `;
       }).join("");
+      lucide.createIcons();
+    }
+
+    function inspectFlow(index) {
+      const flow = trafficData[index];
+      if (!flow) return;
+      currentSelectedFlow = flow;
+
+      document.getElementById("modal-domain").textContent = flow.domain;
+      document.getElementById("modal-client").textContent = flow.client_name;
+      document.getElementById("modal-ipmac").textContent = `${flow.client_ip} (${flow.client_mac})`;
+      document.getElementById("modal-proto").textContent = `${flow.protocol} / ${flow.process}`;
+      document.getElementById("modal-bw").textContent = `${(flow.bandwidth_bps / 1024).toFixed(1)} kbps`;
+
+      const verdictsDiv = document.getElementById("modal-verdicts");
+      if (flow.team_verdicts && flow.team_verdicts.length) {
+        verdictsDiv.innerHTML = flow.team_verdicts.map(v => {
+          const badgeClass = v.is_risk ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+          return `
+            <div class="flex items-center justify-between p-2 rounded-lg bg-black/20 border border-white/5">
+              <span class="font-semibold text-slate-300">${v.model_name}:</span>
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono border ${badgeClass}">
+                ${v.verdict} (${(v.confidence * 100).toFixed(0)}%)
+              </span>
+            </div>
+          `;
+        }).join("");
+      } else {
+        verdictsDiv.innerHTML = `<div class="text-slate-500">No raw model telemetry available for this flow.</div>`;
+      }
+
+      document.getElementById("flow-modal").classList.remove("hidden");
+      lucide.createIcons();
+    }
+
+    function closeModal() {
+      document.getElementById("flow-modal").classList.add("hidden");
+      currentSelectedFlow = null;
+    }
+
+    function blockCurrentDevice() {
+      if (currentSelectedFlow && currentSelectedFlow.client_mac) {
+        blockClientMac(currentSelectedFlow.client_mac);
+        closeModal();
+      }
+    }
+
+    async function blockClientMac(mac) {
+      if (!confirm(`Are you sure you want to disconnect and block MAC address ${mac}?`)) return;
+      try {
+        const host = window.location.hostname || "localhost";
+        const res = await fetch(`http://${host}:9090/api/clients/block`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mac })
+        });
+        const data = await res.json();
+        alert(data.message || `Client ${mac} blocked successfully.`);
+      } catch (e) {
+        alert("Failed to block client: " + e);
+      }
+    }
+
+    function switchTab(tab) {
+      ['flows', 'analytics', 'threats', 'clients'].forEach(t => {
+        const view = document.getElementById(`view-${t}`);
+        const btn = document.getElementById(`tab-btn-${t}`);
+        if (t === tab) {
+          view.classList.remove("hidden");
+          btn.className = "px-3.5 py-1.5 rounded-lg font-semibold bg-blue-600 text-white flex items-center gap-1.5 transition";
+        } else {
+          view.classList.add("hidden");
+          btn.className = "px-3.5 py-1.5 rounded-lg font-medium text-slate-400 hover:text-white flex items-center gap-1.5 transition";
+        }
+      });
+      lucide.createIcons();
+    }
+
+    function clearBuffer() {
+      trafficData = [];
+      renderTable();
+      updateStats();
     }
 
     async function exportPcapng() {
@@ -260,7 +798,7 @@
       } catch (e) {
         alert("Failed to trigger PCAPNG export: " + e);
       } finally {
-        btn.innerHTML = `<i data-lucide="download" class="w-3.5 h-3.5"></i> Export PCAPNG (Wireshark)`;
+        btn.innerHTML = `<i data-lucide="download" class="w-3.5 h-3.5"></i> Export PCAPNG`;
         btn.disabled = false;
         lucide.createIcons();
       }
@@ -273,6 +811,7 @@
 
     document.addEventListener("DOMContentLoaded", () => {
       lucide.createIcons();
+      initCharts();
       connectWs();
     });
   </script>

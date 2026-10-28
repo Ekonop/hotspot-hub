@@ -18,12 +18,21 @@ impl RollingDb {
                 process TEXT NOT NULL,
                 domain TEXT NOT NULL,
                 protocol TEXT NOT NULL,
-                bandwidth_bps INTEGER NOT NULL
+                bandwidth_bps INTEGER NOT NULL,
+                category TEXT NOT NULL DEFAULT 'General Web',
+                risk_level TEXT NOT NULL DEFAULT 'safe',
+                risk_score INTEGER NOT NULL DEFAULT 0,
+                threat_tags TEXT
             )",
             [],
         )?;
 
-        // Index for fast lookups
+        // Ensure new columns exist if upgraded
+        let _ = conn.execute("ALTER TABLE traffic_history ADD COLUMN category TEXT NOT NULL DEFAULT 'General Web'", []);
+        let _ = conn.execute("ALTER TABLE traffic_history ADD COLUMN risk_level TEXT NOT NULL DEFAULT 'safe'", []);
+        let _ = conn.execute("ALTER TABLE traffic_history ADD COLUMN risk_score INTEGER NOT NULL DEFAULT 0", []);
+        let _ = conn.execute("ALTER TABLE traffic_history ADD COLUMN threat_tags TEXT", []);
+
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_traffic_timestamp ON traffic_history(timestamp)",
             [],
@@ -44,12 +53,29 @@ impl RollingDb {
         domain: &str,
         protocol: &str,
         bandwidth_bps: u64,
+        category: &str,
+        risk_level: &str,
+        risk_score: u8,
+        threat_tags: &str,
     ) {
         if let Ok(conn) = self.conn.lock() {
             let _ = conn.execute(
-                "INSERT INTO traffic_history (timestamp, client_mac, client_ip, client_name, process, domain, protocol, bandwidth_bps)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                params![timestamp, client_mac, client_ip, client_name, process, domain, protocol, bandwidth_bps as i64],
+                "INSERT INTO traffic_history (timestamp, client_mac, client_ip, client_name, process, domain, protocol, bandwidth_bps, category, risk_level, risk_score, threat_tags)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                params![
+                    timestamp,
+                    client_mac,
+                    client_ip,
+                    client_name,
+                    process,
+                    domain,
+                    protocol,
+                    bandwidth_bps as i64,
+                    category,
+                    risk_level,
+                    risk_score as i32,
+                    threat_tags,
+                ],
             );
         }
     }

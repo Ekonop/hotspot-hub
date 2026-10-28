@@ -1,3 +1,4 @@
+mod classifier;
 mod conntrack;
 mod db;
 
@@ -10,6 +11,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use classifier::{EnsembleCoordinator, ModelVote};
 use conntrack::AttributionEngine;
 use db::RollingDb;
 use std::{net::Ipv4Addr, net::SocketAddr, sync::Arc, time::Duration};
@@ -26,6 +28,16 @@ pub struct TrafficRecord {
     pub domain: String,
     pub protocol: String,
     pub bandwidth_bps: u64,
+    pub category: String,
+    pub risk_level: String, // "safe", "low", "warning", "danger"
+    pub risk_score: u8,
+    pub threat_tags: Vec<String>,
+    pub team_verdicts: Vec<ModelVote>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct BlockRequest {
+    pub mac: String,
 }
 
 struct AppState {
@@ -36,7 +48,7 @@ struct AppState {
 
 #[tokio::main]
 async fn main() {
-    let (tx, _rx) = broadcast::channel::<String>(1000);
+    let (tx, _rx) = broadcast::channel::<String>(2000);
     let engine = Arc::new(Mutex::new(AttributionEngine::new()));
     let db = Arc::new(
         RollingDb::new("/tmp/hotspot_traffic.db").expect("Failed to initialize SQLite rolling database"),
@@ -70,6 +82,7 @@ async fn main() {
         .route("/", get(|| async { axum::response::Html(include_str!("../../frontend/index.html")) }))
         .route("/ws", get(ws_handler))
         .route("/api/export/pcapng", post(export_pcapng))
+        .route("/api/clients/block", post(block_client))
         .route("/api/health", get(|| async { Json(serde_json::json!({"status": "ok", "service": "rustnet-hub"})) }))
         .layer(CorsLayer::permissive())
         .with_state(state);
@@ -137,15 +150,16 @@ async fn run_rustnet_supervisor(
                                     let protocol = conn.get("protocol").and_then(|p| p.as_str()).unwrap_or("TCP");
                                     let local_ip_str = conn.get("local").and_then(|l| l.get("ip")).and_then(|i| i.as_str()).unwrap_or("");
                                     let remote_ip_str = conn.get("remote").and_then(|r| r.get("ip")).and_then(|i| i.as_str()).unwrap_or("");
+                                    let local_port = conn.get("local").and_then(|l| l.get("port")).and_then(|p| p.as_u64()).unwrap_or(0);
                                     let remote_port = conn.get("remote").and_then(|r| r.get("port")).and_then(|p| p.as_u64()).unwrap_or(0);
                                     let service = conn.get("service").and_then(|s| s.as_str()).unwrap_or("");
                                     let app = conn.get("application").and_then(|a| a.as_str()).unwrap_or("");
 
                                     // Identify if local or remote is the hotspot client (10.42.0.x)
-                                    let (client_ip_str, dst_str) = if local_ip_str.starts_with("10.42.0.") {
-                                        (local_ip_str, format!("{}:{}", remote_ip_str, remote_port))
+                                    let (client_ip_str, dst_str, dst_port) = if local_ip_str.starts_with("10.42.0.") {
+                                        (local_ip_str, format!("{}:{}", remote_ip_str, remote_port), remote_port)
                                     } else if remote_ip_str.starts_with("10.42.0.") {
-                                        (remote_ip_str, format!("{}:{}", local_ip_str, conn.get("local").and_then(|l| l.get("port")).and_then(|p| p.as_u64()).unwrap_or(0)))
+                                        (remote_ip_str, format!("{}:{}", local_ip_str, local_port), local_port)
                                     } else {
                                         continue;
                                     };
@@ -176,6 +190,9 @@ async fn run_rustnet_supervisor(
                                         dst_str
                                     };
 
+                                    // Run the Team of Classifiers on this flow!
+                                    let ensemble = EnsembleCoordinator::classify(&domain, dst_port as u16, protocol);
+
                                     let now_str = chrono::Utc::now().to_rfc3339();
                                     let record = TrafficRecord {
                                         timestamp: now_str.clone(),
@@ -186,8 +203,14 @@ async fn run_rustnet_supervisor(
                                         domain,
                                         protocol: protocol.to_string(),
                                         bandwidth_bps: total_bytes * 8,
+                                        category: ensemble.category,
+                                        risk_level: ensemble.risk_level,
+                                        risk_score: ensemble.risk_score,
+                                        threat_tags: ensemble.threat_tags.clone(),
+                                        team_verdicts: ensemble.team_verdicts,
                                     };
 
+                                    let tags_joined = ensemble.threat_tags.join(", ");
                                     db.insert(
                                         &record.timestamp,
                                         &record.client_mac,
@@ -197,6 +220,10 @@ async fn run_rustnet_supervisor(
                                         &record.domain,
                                         &record.protocol,
                                         record.bandwidth_bps,
+                                        &record.category,
+                                        &record.risk_level,
+                                        record.risk_score,
+                                        &tags_joined,
                                     );
 
                                     if let Ok(json_str) = serde_json::to_string(&record) {
@@ -239,4 +266,29 @@ async fn export_pcapng() -> Response {
         "file": filename,
         "message": "Wireshark PCAPNG capture generated with metadata"
     })).into_response()
+}
+
+/// Instant MAC address blocking endpoint
+async fn block_client(Json(req): Json<BlockRequest>) -> Response {
+    let mac = req.mac.trim().to_lowercase();
+    if mac.len() >= 17 {
+        // 1. Kick client immediately via iw
+        let _ = tokio::process::Command::new("sudo")
+            .args(["-n", "iw", "dev", "ap0", "station", "del", &mac])
+            .output()
+            .await;
+
+        // 2. Append to blocked_macs.txt in user config
+        if let Ok(home) = std::env::var("HOME") {
+            let path = format!("{}/.config/hotspot-hub/blocked_macs.txt", home);
+            use std::io::Write;
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+                let _ = writeln!(f, "{}", mac);
+            }
+        }
+
+        Json(serde_json::json!({"status": "ok", "message": format!("Blocked and kicked {}", mac)})).into_response()
+    } else {
+        Json(serde_json::json!({"status": "error", "message": "Invalid MAC address"})).into_response()
+    }
 }
