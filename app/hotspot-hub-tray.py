@@ -278,7 +278,10 @@ def main(page: ft.Page) -> None:
         page.window.min_width = 420
         page.window.min_height = 580
         page.window.prevent_close = True
-        page.window.visible = False
+        hide_on_start = os.environ.get("FLET_HIDE_WINDOW_ON_START", "true").lower() not in ("false", "0", "no")
+        if "--show" in sys.argv:
+            hide_on_start = False
+        page.window.visible = not hide_on_start
 
         try:
             icon_p = resolve_asset("hotspot-hub.svg", "icons")
@@ -2123,10 +2126,19 @@ def main(page: ft.Page) -> None:
 # ── Entry point ──────────────────────────────────────────────────────
 def run_app() -> None:
     os.environ["FLET_APP_ID"] = "hotspot-hub"
-    os.environ["FLET_HIDE_WINDOW_ON_START"] = "true"
+    hide_start = os.environ.get("FLET_HIDE_WINDOW_ON_START", "true").lower() not in ("false", "0", "no")
+    if "--show" in sys.argv:
+        hide_start = False
+    if hide_start:
+        os.environ["FLET_HIDE_WINDOW_ON_START"] = "true"
+        app_view = ft.AppView.FLET_APP_HIDDEN
+    else:
+        os.environ["FLET_HIDE_WINDOW_ON_START"] = "false"
+        app_view = ft.AppView.FLET_APP
+
     tray_t = threading.Thread(target=tray_thread, daemon=True)
     tray_t.start()
-    ft.run(main, view=ft.AppView.FLET_APP_HIDDEN)
+    ft.run(main, view=app_view)
     _quit_app.set()
     os._exit(0)
 
