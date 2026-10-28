@@ -111,35 +111,57 @@
     <div id="view-flows" class="space-y-4">
       <!-- Search & Filters -->
       <div class="bg-[#161B22] border border-white/10 rounded-xl p-3 flex flex-wrap gap-3 items-center justify-between">
-        <div class="flex items-center gap-3 flex-1 min-w-[280px]">
-          <i data-lucide="filter" class="w-4 h-4 text-slate-400 ml-1"></i>
-          <select id="client-filter" onchange="renderTable()" class="bg-[#0D1117] border border-white/10 text-xs text-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500">
-            <option value="all">All Connected Devices</option>
-          </select>
-          <select id="category-filter" onchange="renderTable()" class="bg-[#0D1117] border border-white/10 text-xs text-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500">
+        <div class="flex items-center gap-2.5 flex-1 min-w-[320px] flex-wrap">
+          <div class="flex items-center gap-2">
+            <i data-lucide="filter" class="w-4 h-4 text-slate-400 ml-1"></i>
+            <select id="client-filter" onchange="applyFiltersAndRender()" class="bg-[#0D1117] border border-white/10 text-xs text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-500">
+              <option value="all">All Connected Devices</option>
+            </select>
+          </div>
+          <select id="category-filter" onchange="applyFiltersAndRender()" class="bg-[#0D1117] border border-white/10 text-xs text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-500">
             <option value="all">All Categories</option>
+            <option value="threats_only">⚠️ Flagged Threats Only</option>
             <option value="Streaming & Media">Streaming & Media</option>
             <option value="Social & Chat">Social & Chat</option>
-            <option value="Telemetry & Ads">Telemetry & Ads</option>
+            <option value="Gaming & Entertainment">Gaming & Entertainment</option>
             <option value="Cloud & CDN">Cloud & CDN</option>
             <option value="Web & Updates">Web & Updates</option>
-            <option value="High Risk Port">High Risk Port</option>
+            <option value="Telemetry & Ads">Telemetry & Ads</option>
+            <option value="General Web">General Web</option>
           </select>
-          <div class="relative flex-1">
+          <select id="risk-filter" onchange="applyFiltersAndRender()" class="bg-[#0D1117] border border-white/10 text-xs text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-500">
+            <option value="all">All Risk Levels</option>
+            <option value="danger">🔴 Danger / High Risk</option>
+            <option value="warning">🟡 Suspicious / Tracker</option>
+            <option value="low">🔵 Low Risk</option>
+            <option value="safe">🟢 Clean / Safe</option>
+          </select>
+          <div class="relative flex-1 min-w-[200px]">
             <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5"></i>
-            <input type="text" id="search-input" oninput="renderTable()" placeholder="Search domain, IP, process, or threat tag..." class="w-full bg-[#0D1117] border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-blue-500 placeholder-slate-500">
+            <input type="text" id="search-input" oninput="applyFiltersAndRender()" placeholder="Search domain, IP, MAC, process, custom name..." class="w-full bg-[#0D1117] border border-white/10 rounded-lg pl-8 pr-7 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-blue-500 placeholder-slate-500">
+            <button id="clear-search-btn" onclick="clearSearch()" class="hidden absolute right-2.5 top-2 text-slate-500 hover:text-white text-xs font-bold" title="Clear Search">✕</button>
           </div>
         </div>
-        <div class="text-xs text-slate-400 tabular-nums">
-          Showing <span id="count-visible" class="text-white font-semibold">0</span> of <span id="count-total" class="text-white font-semibold">0</span> flows
+
+        <div class="flex items-center gap-3">
+          <button id="btn-autoscroll" onclick="toggleAutoScroll()" class="px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 border transition bg-emerald-500/10 text-emerald-400 border-emerald-500/20" title="Click to pause or resume real-time auto-scroll">
+            <span id="autoscroll-dot" class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span id="autoscroll-text">Auto-Scroll: ON</span>
+          </button>
+          <div class="text-xs text-slate-400 tabular-nums">
+            Showing <span id="count-visible" class="text-white font-semibold">0</span> of <span id="count-total" class="text-white font-semibold">0</span>
+          </div>
         </div>
       </div>
 
       <!-- Live Flows Table -->
-      <div class="bg-[#161B22] border border-white/10 rounded-xl overflow-hidden shadow-2xl">
-        <div class="overflow-x-auto max-h-[640px] overflow-y-auto">
+      <div class="bg-[#161B22] border border-white/10 rounded-xl overflow-hidden shadow-2xl relative">
+        <div id="paused-banner" class="hidden absolute top-2 right-4 z-20 px-3 py-1 bg-amber-500/90 text-black font-bold text-xs rounded-full shadow-lg cursor-pointer flex items-center gap-1.5 hover:bg-amber-400 transition" onclick="resumeAutoScroll()">
+          <span>⏸ Auto-scroll paused (<span id="paused-new-count">0</span> new) — Click to resume</span>
+        </div>
+        <div id="table-scroll-container" class="overflow-x-auto max-h-[640px] overflow-y-auto">
           <table class="w-full text-left text-xs">
-            <thead class="bg-white/[0.03] text-slate-400 uppercase tracking-wider text-[11px] border-b border-white/10 sticky top-0 backdrop-blur z-10">
+            <thead class="bg-white/[0.03] text-slate-400 uppercase tracking-wider text-[11px] border-b border-white/10 sticky top-0 backdrop-blur z-10 select-none">
               <tr>
                 <th class="px-4 py-3">Client Device</th>
                 <th class="px-4 py-3">Client IP & MAC</th>
@@ -390,6 +412,80 @@
       });
     }
 
+    let isAutoScroll = true;
+    let pausedNewCount = 0;
+    let renderScheduled = false;
+    let lastRenderTime = 0;
+    let lastFilteredList = [];
+
+    function toggleAutoScroll() {
+      setAutoScroll(!isAutoScroll);
+    }
+
+    function setAutoScroll(enabled) {
+      isAutoScroll = enabled;
+      const btn = document.getElementById("btn-autoscroll");
+      const dot = document.getElementById("autoscroll-dot");
+      const text = document.getElementById("autoscroll-text");
+      const banner = document.getElementById("paused-banner");
+
+      if (isAutoScroll) {
+        pausedNewCount = 0;
+        if (banner) banner.classList.add("hidden");
+        if (btn) {
+          btn.className = "px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 border transition bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+        }
+        if (dot) dot.className = "w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse";
+        if (text) text.textContent = "Auto-Scroll: ON";
+        const container = document.getElementById("table-scroll-container");
+        if (container) container.scrollTop = 0;
+        renderTable();
+      } else {
+        if (btn) {
+          btn.className = "px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 border transition bg-amber-500/10 text-amber-300 border-amber-500/20";
+        }
+        if (dot) dot.className = "w-1.5 h-1.5 rounded-full bg-amber-400";
+        if (text) text.textContent = "Auto-Scroll: PAUSED";
+      }
+    }
+
+    function resumeAutoScroll() {
+      setAutoScroll(true);
+    }
+
+    function clearSearch() {
+      const input = document.getElementById("search-input");
+      input.value = "";
+      const clearBtn = document.getElementById("clear-search-btn");
+      if (clearBtn) clearBtn.classList.add("hidden");
+      renderTable();
+    }
+
+    function applyFiltersAndRender() {
+      const searchVal = document.getElementById("search-input").value;
+      const clearBtn = document.getElementById("clear-search-btn");
+      if (clearBtn) {
+        if (searchVal.length > 0) clearBtn.classList.remove("hidden");
+        else clearBtn.classList.add("hidden");
+      }
+      renderTable();
+    }
+
+    function scheduleTableRender() {
+      const now = performance.now();
+      if (now - lastRenderTime > 200) {
+        lastRenderTime = now;
+        renderTable();
+      } else if (!renderScheduled) {
+        renderScheduled = true;
+        setTimeout(() => {
+          renderScheduled = false;
+          lastRenderTime = performance.now();
+          renderTable();
+        }, 200 - (now - lastRenderTime));
+      }
+    }
+
     function connectWs() {
       const host = window.location.hostname || "localhost";
       const wsUrl = `ws://${host}:9090/ws`;
@@ -411,23 +507,39 @@
       ws.onmessage = (event) => {
         try {
           const record = JSON.parse(event.data);
+          record.id = record.timestamp + "_" + Math.random().toString(36).substr(2, 6);
           trafficData.unshift(record);
           if (trafficData.length > MAX_ROWS) trafficData.pop();
 
+          if (!isAutoScroll) {
+            pausedNewCount++;
+            const banner = document.getElementById("paused-banner");
+            const countSpan = document.getElementById("paused-new-count");
+            if (banner && countSpan) {
+              countSpan.textContent = pausedNewCount;
+              banner.classList.remove("hidden");
+            }
+          }
+
           // Client tracking
           if (record.client_mac && record.client_mac !== "Unknown MAC") {
-            if (!knownClients.has(record.client_mac)) {
-              knownClients.set(record.client_mac, {
+            const macKey = record.client_mac.toLowerCase();
+            if (!knownClients.has(macKey)) {
+              knownClients.set(macKey, {
                 name: record.client_name,
                 ip: record.client_ip,
                 bytes: 0,
                 flows: 0
               });
-              updateClientDropdown();
             }
-            let c = knownClients.get(record.client_mac);
+            let c = knownClients.get(macKey);
+            if (record.client_name && record.client_name !== "Client Device" && record.client_name !== "Hotspot Client") {
+              c.name = record.client_name;
+            }
+            c.ip = record.client_ip;
             c.bytes += (record.bandwidth_bps || 0) / 8;
             c.flows += 1;
+            updateClientDropdown(macKey, c.name, c.ip);
           }
 
           // Category counters
@@ -437,7 +549,7 @@
             categoryCounts["General Web"]++;
           }
 
-          renderTable();
+          scheduleTableRender();
           updateStats();
         } catch (e) {
           console.error(e);
@@ -466,18 +578,25 @@
       renderClientCards();
     }, 1000);
 
-    function updateClientDropdown() {
+    function updateClientDropdown(mac, name, ip) {
       const select = document.getElementById("client-filter");
-      const current = select.value;
-      select.innerHTML = '<option value="all">All Connected Devices</option>';
-      knownClients.forEach((info, mac) => {
-        const opt = document.createElement("option");
-        opt.value = mac;
-        opt.textContent = `${info.name} (${info.ip}) - ${mac}`;
-        select.appendChild(opt);
-      });
-      select.value = current;
-      document.getElementById("stat-clients").textContent = knownClients.size;
+      if (!select || !mac) return;
+      const macLower = mac.toLowerCase();
+      let opt = Array.from(select.options).find(o => o.value.toLowerCase() === macLower);
+      const label = `${name} (${ip}) — ${macLower}`;
+
+      if (opt) {
+        if (opt.textContent !== label) {
+          opt.textContent = label;
+        }
+      } else {
+        const newOpt = document.createElement("option");
+        newOpt.value = macLower;
+        newOpt.textContent = label;
+        select.appendChild(newOpt);
+      }
+      const countEl = document.getElementById("stat-clients");
+      if (countEl) countEl.textContent = knownClients.size;
     }
 
     function updateStats() {
@@ -625,27 +744,46 @@
     }
 
     function renderTable() {
-      const selectedMac = document.getElementById("client-filter").value;
+      const selectedMac = document.getElementById("client-filter").value.toLowerCase();
       const selectedCat = document.getElementById("category-filter").value;
+      const selectedRisk = document.getElementById("risk-filter").value;
       const query = document.getElementById("search-input").value.toLowerCase().trim();
       const tbody = document.getElementById("traffic-rows");
+      const scrollContainer = document.getElementById("table-scroll-container");
+      const prevScrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
 
       const filtered = trafficData.filter(row => {
-        const matchMac = (selectedMac === "all" || row.client_mac === selectedMac);
-        const matchCat = (selectedCat === "all" || row.category === selectedCat);
+        const rowMac = (row.client_mac || "").toLowerCase();
+        const matchMac = (selectedMac === "all" || rowMac === selectedMac);
+
+        let matchCat = true;
+        if (selectedCat === "threats_only") {
+          matchCat = (row.risk_level === "danger" || row.risk_level === "warning" || (row.threat_tags && row.threat_tags.length > 0));
+        } else if (selectedCat !== "all") {
+          matchCat = (row.category || "").toLowerCase().includes(selectedCat.toLowerCase());
+        }
+
+        let matchRisk = true;
+        if (selectedRisk !== "all") {
+          matchRisk = (row.risk_level === selectedRisk);
+        }
+
         const matchQuery = !query || 
-          row.domain.toLowerCase().includes(query) || 
-          row.process.toLowerCase().includes(query) ||
-          row.client_ip.includes(query) ||
-          row.client_name.toLowerCase().includes(query) ||
+          (row.domain || "").toLowerCase().includes(query) || 
+          (row.process || "").toLowerCase().includes(query) ||
+          (row.client_ip || "").includes(query) ||
+          rowMac.includes(query) ||
+          (row.client_name || "").toLowerCase().includes(query) ||
           (row.threat_tags && row.threat_tags.some(t => t.toLowerCase().includes(query)));
-        return matchMac && matchCat && matchQuery;
+
+        return matchMac && matchCat && matchRisk && matchQuery;
       });
 
+      lastFilteredList = filtered;
       document.getElementById("count-visible").textContent = filtered.length;
 
       if (filtered.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" class="px-4 py-8 text-center text-slate-500 font-sans">No matching flows found</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" class="px-4 py-12 text-center text-slate-500 font-sans">No matching flows found</td></tr>`;
         return;
       }
 
@@ -656,9 +794,10 @@
         let catColor = "bg-slate-800 text-slate-300 border-white/10";
         if (row.category.includes("Streaming")) catColor = "bg-purple-500/10 text-purple-300 border-purple-500/20";
         else if (row.category.includes("Social")) catColor = "bg-pink-500/10 text-pink-300 border-pink-500/20";
+        else if (row.category.includes("Gaming")) catColor = "bg-indigo-500/10 text-indigo-300 border-indigo-500/20";
         else if (row.category.includes("Telemetry") || row.category.includes("Ads")) catColor = "bg-amber-500/10 text-amber-300 border-amber-500/20";
         else if (row.category.includes("Cloud")) catColor = "bg-cyan-500/10 text-cyan-300 border-cyan-500/20";
-        else if (row.category.includes("Risk")) catColor = "bg-red-500/10 text-red-300 border-red-500/20";
+        else if (row.category.includes("Updates")) catColor = "bg-blue-500/10 text-blue-300 border-blue-500/20";
 
         // Risk pill styling
         let riskPill = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">SAFE</span>`;
@@ -666,17 +805,27 @@
           riskPill = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-red-500/20 text-red-400 border border-red-500/30">DANGER (${row.risk_score})</span>`;
         } else if (row.risk_level === 'warning') {
           riskPill = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">TRACKER (${row.risk_score})</span>`;
+        } else if (row.risk_level === 'low') {
+          riskPill = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/10 text-blue-300 border border-blue-500/20">LOW (${row.risk_score})</span>`;
         }
 
+        const isCustomName = (row.client_name !== "Client Device" && row.client_name !== "Hotspot Client");
+        const clientBadge = isCustomName 
+          ? `<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-blue-500/15 text-blue-300 border border-blue-500/30 font-medium">
+               <span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
+               ${escapeHtml(row.client_name)}
+             </span>`
+          : `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-white/5">
+               ${escapeHtml(row.client_name)}
+             </span>`;
+
         return `
-          <tr class="hover:bg-white/[0.03] transition">
-            <td class="px-4 py-2.5 font-sans font-semibold text-slate-200">
-              <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20">
-                ${escapeHtml(row.client_name)}
-              </span>
+          <tr class="hover:bg-white/[0.04] transition group">
+            <td class="px-4 py-2.5 font-sans text-xs">
+              ${clientBadge}
             </td>
             <td class="px-4 py-2.5 text-slate-300">
-              <div>${escapeHtml(row.client_ip)}</div>
+              <div class="font-mono text-slate-200">${escapeHtml(row.client_ip)}</div>
               <div class="text-[10px] text-slate-500 font-mono">${escapeHtml(row.client_mac)}</div>
             </td>
             <td class="px-4 py-2.5 font-sans">
@@ -684,7 +833,7 @@
                 ${escapeHtml(row.category)}
               </span>
             </td>
-            <td class="px-4 py-2.5 font-medium text-cyan-300 break-all">
+            <td class="px-4 py-2.5 font-medium text-cyan-300 break-all max-w-[280px]">
               ${escapeHtml(row.domain)}
             </td>
             <td class="px-4 py-2.5">
@@ -701,11 +850,21 @@
           </tr>
         `;
       }).join("");
+
       lucide.createIcons();
+
+      // Maintain scroll position if user is reading or paused
+      if (scrollContainer) {
+        if (isAutoScroll) {
+          scrollContainer.scrollTop = 0;
+        } else {
+          scrollContainer.scrollTop = prevScrollTop;
+        }
+      }
     }
 
     function inspectFlow(index) {
-      const flow = trafficData[index];
+      const flow = lastFilteredList[index] || trafficData[index];
       if (!flow) return;
       currentSelectedFlow = flow;
 
@@ -813,6 +972,21 @@
       lucide.createIcons();
       initCharts();
       connectWs();
+
+      const container = document.getElementById("table-scroll-container");
+      if (container) {
+        container.addEventListener("scroll", () => {
+          if (container.scrollTop > 40) {
+            if (isAutoScroll) {
+              setAutoScroll(false);
+            }
+          } else if (container.scrollTop <= 10) {
+            if (!isAutoScroll && pausedNewCount === 0) {
+              setAutoScroll(true);
+            }
+          }
+        }, { passive: true });
+      }
     });
   </script>
 </body>

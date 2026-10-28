@@ -25,19 +25,77 @@ pub struct NatFlow {
 
 pub struct AttributionEngine {
     pub clients_by_ip: HashMap<Ipv4Addr, ClientDevice>,
+    pub custom_names: HashMap<String, String>,
 }
 
 impl AttributionEngine {
     pub fn new() -> Self {
         let mut engine = Self {
             clients_by_ip: HashMap::new(),
+            custom_names: HashMap::new(),
         };
+        engine.refresh_custom_names();
         engine.refresh_leases();
         engine
     }
 
-    /// Read active DHCP leases from NetworkManager / dnsmasq
+    /// Load user-assigned custom device names from Hotspot Hub's devicenames.json
+    pub fn refresh_custom_names(&mut self) {
+        let mut candidates = Vec::new();
+        if let Ok(home) = std::env::var("HOME") {
+            candidates.push(format!("{}/.config/hotspot-hub/devicenames.json", home));
+        }
+        if let Ok(entries) = std::fs::read_dir("/home") {
+            for entry in entries.flatten() {
+                let p = entry.path().join(".config/hotspot-hub/devicenames.json");
+                if p.is_file() {
+                    candidates.push(p.to_string_lossy().to_string());
+                }
+            }
+        }
+        candidates.push("/root/.config/hotspot-hub/devicenames.json".to_string());
+
+        for path in candidates {
+            if let Ok(file) = File::open(&path) {
+                let reader = BufReader::new(file);
+                if let Ok(map) = serde_json::from_reader::<_, HashMap<String, String>>(reader) {
+                    for (mac, name) in map {
+                        let trimmed = name.trim();
+                        if !trimmed.is_empty() {
+                            self.custom_names.insert(mac.to_lowercase(), trimmed.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Read active ARP table entries on ap0 interface
+    pub fn refresh_arp(&mut self) {
+        if let Ok(file) = File::open("/proc/net/arp") {
+            let reader = BufReader::new(file);
+            for line in reader.lines().flatten().skip(1) {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 6 {
+                    let ip_str = parts[0];
+                    let mac = parts[3].to_lowercase();
+                    let device = parts[5];
+                    if device == "ap0" && mac != "00:00:00:00:00:00" {
+                        if let Ok(ip) = ip_str.parse::<Ipv4Addr>() {
+                            let hostname = self.custom_names.get(&mac).cloned().unwrap_or_else(|| "Client Device".into());
+                            self.clients_by_ip.entry(ip).or_insert(ClientDevice { ip, mac, hostname });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Read active DHCP leases from NetworkManager / dnsmasq and correlate with custom names
     pub fn refresh_leases(&mut self) {
+        self.refresh_custom_names();
+        self.refresh_arp();
+
         let lease_paths = [
             "/var/lib/NetworkManager/dnsmasq-ap0.leases",
             "/var/lib/misc/dnsmasq.leases",
@@ -51,7 +109,9 @@ impl AttributionEngine {
                     if parts.len() >= 4 {
                         let mac = parts[1].to_lowercase();
                         if let Ok(ip) = parts[2].parse::<Ipv4Addr>() {
-                            let hostname = if parts[3] != "*" && !parts[3].is_empty() {
+                            let hostname = if let Some(custom) = self.custom_names.get(&mac) {
+                                custom.clone()
+                            } else if parts[3] != "*" && !parts[3].is_empty() {
                                 parts[3].to_string()
                             } else {
                                 "Client Device".into()
@@ -64,10 +124,18 @@ impl AttributionEngine {
         }
     }
 
-    /// Look up client device by IP address
+    /// Look up client device by IP address (custom names prioritized)
     pub fn lookup(&self, ip: &Ipv4Addr) -> (String, String) {
         match self.clients_by_ip.get(ip) {
-            Some(dev) => (dev.mac.clone(), dev.hostname.clone()),
+            Some(dev) => {
+                let mac = dev.mac.clone();
+                let name = if let Some(custom) = self.custom_names.get(&mac) {
+                    custom.clone()
+                } else {
+                    dev.hostname.clone()
+                };
+                (mac, name)
+            }
             None => ("Unknown MAC".into(), "Hotspot Client".into()),
         }
     }
