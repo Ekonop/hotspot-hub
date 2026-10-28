@@ -328,6 +328,8 @@
   <script>
     let trafficData = [];
     const MAX_ROWS = 300;
+    let activeFlowsMap = new Map();
+    let latestIfaceBps = 0;
     let knownClients = new Map();
     let currentSelectedFlow = null;
     let ws = null;
@@ -543,71 +545,95 @@
 
       ws.onmessage = (event) => {
         try {
-          const record = JSON.parse(event.data);
-          record.id = record.timestamp + "_" + Math.random().toString(36).substr(2, 6);
-          trafficData.unshift(record);
-          if (trafficData.length > MAX_ROWS) trafficData.pop();
+          const data = JSON.parse(event.data);
+          const records = Array.isArray(data.records) ? data.records : (data ? [data] : []);
+          if (typeof data.iface_bps === "number") {
+            latestIfaceBps = data.iface_bps;
+          }
 
-          if (!isAutoScroll) {
-            pausedNewCount++;
-            const banner = document.getElementById("paused-banner");
-            const countSpan = document.getElementById("paused-new-count");
-            if (banner && countSpan) {
-              countSpan.textContent = pausedNewCount;
-              banner.classList.remove("hidden");
+          const now = Date.now();
+          for (let i = 0; i < records.length; i++) {
+            const record = records[i];
+            const flowKey = record.conn_id || `${record.client_ip}_${record.domain}_${record.process}_${record.protocol}`;
+            record._lastSeen = now;
+            activeFlowsMap.set(flowKey, record);
+
+            // Client tracking
+            if (record.client_mac && record.client_mac !== "Unknown MAC") {
+              const macKey = record.client_mac.toLowerCase();
+              if (!knownClients.has(macKey)) {
+                knownClients.set(macKey, {
+                  name: record.client_name,
+                  ip: record.client_ip,
+                  bytes: 0,
+                  flows: 0,
+                  connMap: new Map()
+                });
+              }
+              let c = knownClients.get(macKey);
+              if (record.client_name && record.client_name !== "Client Device" && record.client_name !== "Hotspot Client") {
+                c.name = record.client_name;
+              }
+              c.ip = record.client_ip;
+              if (!c.connMap) c.connMap = new Map();
+              const connKey = record.conn_id || (record.domain + "_" + record.process);
+              const prevB = c.connMap.get(connKey) || 0;
+              const currB = record.total_bytes || (record.bandwidth_bps / 8) || 0;
+              if (currB > prevB) {
+                c.bytes += (currB - prevB);
+                c.connMap.set(connKey, currB);
+              }
+              if (c.connMap.size > 150) {
+                const keys = Array.from(c.connMap.keys()).slice(0, 50);
+                for (const k of keys) c.connMap.delete(k);
+              }
+              updateClientDropdown(macKey, c.name, c.ip);
+            }
+
+            // Category counters
+            if (categoryCounts[record.category] !== undefined) {
+              categoryCounts[record.category]++;
+            } else {
+              categoryCounts["General Web"]++;
             }
           }
 
-          // Client tracking
-          if (record.client_mac && record.client_mac !== "Unknown MAC") {
-            const macKey = record.client_mac.toLowerCase();
-            if (!knownClients.has(macKey)) {
-              knownClients.set(macKey, {
-                name: record.client_name,
-                ip: record.client_ip,
-                bytes: 0,
-                flows: 0,
-                connMap: new Map()
-              });
+          // Prune flows inactive for > 12 seconds
+          if (activeFlowsMap.size > 100) {
+            for (const [k, v] of activeFlowsMap.entries()) {
+              if (now - (v._lastSeen || 0) > 12000) {
+                activeFlowsMap.delete(k);
+              }
             }
-            let c = knownClients.get(macKey);
-            if (record.client_name && record.client_name !== "Client Device" && record.client_name !== "Hotspot Client") {
-              c.name = record.client_name;
-            }
-            c.ip = record.client_ip;
-            if (!c.connMap) c.connMap = new Map();
-            const connKey = record.domain + "_" + record.process;
-            const prevB = c.connMap.get(connKey) || 0;
-            const currB = record.total_bytes || (record.bandwidth_bps / 8) || 0;
-            if (currB > prevB) {
-              c.bytes += (currB - prevB);
-              c.connMap.set(connKey, currB);
-            }
-            c.flows += 1;
-            updateClientDropdown(macKey, c.name, c.ip);
           }
 
-          // Category counters
-          if (categoryCounts[record.category] !== undefined) {
-            categoryCounts[record.category]++;
-          } else {
-            categoryCounts["General Web"]++;
+          // Convert active flows to list sorted by bandwidth / activity
+          trafficData = Array.from(activeFlowsMap.values()).sort((a, b) => {
+            return (b.bandwidth_bps || 0) - (a.bandwidth_bps || 0) || (b._lastSeen || 0) - (a._lastSeen || 0);
+          });
+
+          // Update client active flow counts
+          for (const c of knownClients.values()) {
+            c.flows = 0;
+          }
+          for (const f of trafficData) {
+            if (f.client_mac) {
+              const c = knownClients.get(f.client_mac.toLowerCase());
+              if (c) c.flows++;
+            }
           }
 
           scheduleTableRender();
           updateStats();
         } catch (e) {
-          console.error(e);
+          console.error("WS parse error:", e);
         }
       };
     }
 
     // Interval to refresh charts smoothly
     setInterval(() => {
-      const now = Date.now();
-      const recentFlows = trafficData.filter(r => (now - new Date(r.timestamp).getTime()) <= 2000);
-      let currentBps = recentFlows.reduce((acc, r) => acc + (r.bandwidth_bps || 0), 0);
-      let kbSec = (currentBps / 8) / 1024;
+      let kbSec = (latestIfaceBps / 8) / 1024;
       bwHistory.push(kbSec);
       bwHistory.shift();
 
@@ -647,12 +673,10 @@
     }
 
     function updateStats() {
-      document.getElementById("stat-flows").textContent = trafficData.length;
-      document.getElementById("count-total").textContent = trafficData.length;
-      const now = Date.now();
-      const recentFlows = trafficData.filter(r => (now - new Date(r.timestamp).getTime()) <= 2000);
-      let liveBps = recentFlows.reduce((acc, row) => acc + (row.bandwidth_bps || 0), 0);
-      document.getElementById("stat-speed").textContent = formatBps(liveBps);
+      const activeCount = activeFlowsMap.size || trafficData.length;
+      document.getElementById("stat-flows").textContent = activeCount;
+      document.getElementById("count-total").textContent = activeCount;
+      document.getElementById("stat-speed").textContent = formatBps(latestIfaceBps);
 
       let threats = trafficData.filter(r => r.risk_level === 'danger' || r.risk_level === 'warning');
       document.getElementById("stat-threats").textContent = threats.length;
@@ -755,7 +779,7 @@
             <div class="flex items-start justify-between">
               <div class="flex items-center gap-3">
                 <div class="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 font-bold">
-                  <i data-lucide="smartphone" class="w-5 h-5"></i>
+                  <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></svg>
                 </div>
                 <div>
                   <h3 class="font-bold text-sm text-white">${escapeHtml(info.name)}</h3>
@@ -786,7 +810,6 @@
           </div>
         `;
       }).join("");
-      lucide.createIcons();
     }
 
     function renderTable() {
@@ -826,14 +849,15 @@
       });
 
       lastFilteredList = filtered;
-      document.getElementById("count-visible").textContent = filtered.length;
+      const displayRows = filtered.slice(0, 50);
+      document.getElementById("count-visible").textContent = `${displayRows.length} of ${filtered.length}`;
 
-      if (filtered.length === 0) {
+      if (displayRows.length === 0) {
         tbody.innerHTML = `<tr><td colspan="7" class="px-4 py-12 text-center text-slate-500 font-sans">No matching flows found</td></tr>`;
         return;
       }
 
-      tbody.innerHTML = filtered.map((row, idx) => {
+      tbody.innerHTML = displayRows.map((row, idx) => {
         const speedStr = formatBps(row.bandwidth_bps);
         const volStr = row.total_bytes ? formatBytes(row.total_bytes) : "";
 
@@ -892,14 +916,12 @@
             </td>
             <td class="px-4 py-2.5 text-right">
               <button onclick="inspectFlow(${idx})" class="p-1 hover:bg-white/10 text-slate-400 hover:text-white rounded-lg transition" title="Inspect Ensemble Classification">
-                <i data-lucide="info" class="w-4 h-4"></i>
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
               </button>
             </td>
           </tr>
         `;
       }).join("");
-
-      lucide.createIcons();
 
       // Maintain scroll position if user is reading or paused
       if (scrollContainer) {
@@ -987,6 +1009,7 @@
     }
 
     function clearBuffer() {
+      if (activeFlowsMap) activeFlowsMap.clear();
       trafficData = [];
       renderTable();
       updateStats();

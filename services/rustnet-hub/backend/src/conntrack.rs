@@ -83,7 +83,19 @@ impl AttributionEngine {
                     if device == "ap0" && mac != "00:00:00:00:00:00" {
                         if let Ok(ip) = ip_str.parse::<Ipv4Addr>() {
                             let hostname = self.custom_names.get(&mac).cloned().unwrap_or_else(|| "Client Device".into());
-                            self.clients_by_ip.entry(ip).or_insert(ClientDevice { ip, mac, hostname });
+                            match self.clients_by_ip.get_mut(&ip) {
+                                Some(existing) => {
+                                    existing.mac = mac.clone();
+                                    if let Some(custom) = self.custom_names.get(&mac) {
+                                        existing.hostname = custom.clone();
+                                    } else if existing.hostname == "Client Device" && hostname != "Client Device" {
+                                        existing.hostname = hostname;
+                                    }
+                                }
+                                None => {
+                                    self.clients_by_ip.insert(ip, ClientDevice { ip, mac, hostname });
+                                }
+                            }
                         }
                     }
                 }
@@ -128,11 +140,13 @@ impl AttributionEngine {
     pub fn lookup(&self, ip: &Ipv4Addr) -> (String, String) {
         match self.clients_by_ip.get(ip) {
             Some(dev) => {
-                let mac = dev.mac.clone();
+                let mac = dev.mac.to_lowercase();
                 let name = if let Some(custom) = self.custom_names.get(&mac) {
                     custom.clone()
-                } else {
+                } else if !dev.hostname.is_empty() && dev.hostname != "Client Device" {
                     dev.hostname.clone()
+                } else {
+                    "Client Device".into()
                 };
                 (mac, name)
             }

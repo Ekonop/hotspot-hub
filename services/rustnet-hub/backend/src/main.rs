@@ -20,6 +20,7 @@ use tower_http::cors::CorsLayer;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TrafficRecord {
+    pub conn_id: String,
     pub timestamp: String,
     pub client_mac: String,
     pub client_ip: String,
@@ -34,6 +35,31 @@ pub struct TrafficRecord {
     pub risk_score: u8,
     pub threat_tags: Vec<String>,
     pub team_verdicts: Vec<ModelVote>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FlowBatch {
+    pub timestamp: String,
+    pub iface_bps: u64,
+    pub iface_rx_bps: u64,
+    pub iface_tx_bps: u64,
+    pub records: Vec<TrafficRecord>,
+}
+
+fn read_ap0_bytes() -> (u64, u64) {
+    if let Ok(content) = std::fs::read_to_string("/proc/net/dev") {
+        for line in content.lines() {
+            if line.contains("ap0:") {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 10 {
+                    let rx = parts[1].parse::<u64>().unwrap_or(0);
+                    let tx = parts[9].parse::<u64>().unwrap_or(0);
+                    return (rx, tx);
+                }
+            }
+        }
+    }
+    (0, 0)
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -138,7 +164,9 @@ async fn run_rustnet_supervisor(
         match child {
             Ok(mut proc) => {
                 use tokio::io::{AsyncBufReadExt, BufReader};
-                let mut conn_rate_map: std::collections::HashMap<String, (u64, std::time::Instant)> = std::collections::HashMap::new();
+                let mut conn_rate_map: std::collections::HashMap<String, (u64, f64, std::time::Instant)> = std::collections::HashMap::new();
+                let (mut last_ap0_rx, mut last_ap0_tx) = read_ap0_bytes();
+                let mut last_ap0_time = std::time::Instant::now();
 
                 if let Some(stdout) = proc.stdout.take() {
                     let mut reader = BufReader::new(stdout).lines();
@@ -148,6 +176,8 @@ async fn run_rustnet_supervisor(
                             if let Some(conns) = val.get("connections").and_then(|c| c.as_array()) {
                                 let mut eng = engine.lock().await;
                                 eng.refresh_leases();
+
+                                let mut batch_records = Vec::new();
 
                                 for conn in conns {
                                     let conn_id = conn.get("id").and_then(|i| i.as_str()).unwrap_or("").to_string();
@@ -184,10 +214,12 @@ async fn run_rustnet_supervisor(
                                     let now_inst = std::time::Instant::now();
                                     let rate_bytes_sec = if (out_rate + in_rate) > 0.0 {
                                         out_rate + in_rate
-                                    } else if let Some((prev_b, prev_t)) = conn_rate_map.get(&conn_id) {
+                                    } else if let Some((prev_b, prev_rate, prev_t)) = conn_rate_map.get(&conn_id) {
                                         let dt = now_inst.duration_since(*prev_t).as_secs_f64();
-                                        if dt > 0.0 && total_bytes >= *prev_b {
+                                        if dt > 0.0 && total_bytes > *prev_b {
                                             (total_bytes - *prev_b) as f64 / dt
+                                        } else if dt < 3.0 && *prev_rate > 0.0 {
+                                            *prev_rate * 0.85
                                         } else {
                                             0.0
                                         }
@@ -196,7 +228,11 @@ async fn run_rustnet_supervisor(
                                     };
 
                                     if !conn_id.is_empty() {
-                                        conn_rate_map.insert(conn_id, (total_bytes, now_inst));
+                                        conn_rate_map.insert(conn_id.clone(), (total_bytes, rate_bytes_sec, now_inst));
+                                    }
+
+                                    if conn_rate_map.len() > 3000 {
+                                        conn_rate_map.retain(|_, (_, _, t)| now_inst.duration_since(*t).as_secs() < 60);
                                     }
 
                                     let process_name = if let Some(proc) = conn.get("process").and_then(|p| p.get("name")).and_then(|n| n.as_str()) {
@@ -220,6 +256,7 @@ async fn run_rustnet_supervisor(
 
                                     let now_str = chrono::Utc::now().to_rfc3339();
                                     let record = TrafficRecord {
+                                        conn_id: conn_id.clone(),
                                         timestamp: now_str.clone(),
                                         client_mac: mac,
                                         client_ip: client_ip_str.to_string(),
@@ -252,9 +289,38 @@ async fn run_rustnet_supervisor(
                                         &tags_joined,
                                     );
 
-                                    if let Ok(json_str) = serde_json::to_string(&record) {
-                                        let _ = tx.send(json_str);
-                                    }
+                                    batch_records.push(record);
+                                }
+
+                                // Compute real kernel interface throughput on ap0
+                                let now_inst = std::time::Instant::now();
+                                let (cur_rx, cur_tx) = read_ap0_bytes();
+                                let dt_iface = now_inst.duration_since(last_ap0_time).as_secs_f64();
+
+                                let (iface_rx_rate, iface_tx_rate) = if dt_iface > 0.0 && cur_rx >= last_ap0_rx && cur_tx >= last_ap0_tx {
+                                    ((cur_rx - last_ap0_rx) as f64 / dt_iface, (cur_tx - last_ap0_tx) as f64 / dt_iface)
+                                } else {
+                                    (0.0, 0.0)
+                                };
+
+                                last_ap0_rx = cur_rx;
+                                last_ap0_tx = cur_tx;
+                                last_ap0_time = now_inst;
+
+                                let iface_bps = ((iface_rx_rate + iface_tx_rate) * 8.0) as u64;
+                                let iface_rx_bps = (iface_rx_rate * 8.0) as u64;
+                                let iface_tx_bps = (iface_tx_rate * 8.0) as u64;
+
+                                let batch = FlowBatch {
+                                    timestamp: chrono::Utc::now().to_rfc3339(),
+                                    iface_bps,
+                                    iface_rx_bps,
+                                    iface_tx_bps,
+                                    records: batch_records,
+                                };
+
+                                if let Ok(json_str) = serde_json::to_string(&batch) {
+                                    let _ = tx.send(json_str);
                                 }
                             }
                         }
