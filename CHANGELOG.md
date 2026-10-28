@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-28
+
 ### Fixed
 - **False "Degraded / limited connectivity" on ICMP-blocking networks**: both
   `health_check()` and `check_connectivity()` no longer treat a failed gateway
