@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 """Hotspot Hub — Flet + pystray system tray application.
 
-Full-featured modern UI with system tray integration.
-All backend logic shared with core services and app/hotspot-hub.py.
+Senior Desktop UI/UX Refactor:
+- 3-Tab Segmented Navigation (Overview, Access & Clients, System & Schedule)
+- Eliminates vertical scrolling on default window size
+- Standardized single subtle 1px border and flat obsidian palette
+- De-noised status indicators and unified switch styling
+- Monospace fixed tabular-nums bandwidth display with directional accents
+- Single-switch Cloudflare WARP control
+- Preserves all underlying backend services, IPC, CLI, and polling logic
 """
 
 from __future__ import annotations
@@ -56,6 +62,7 @@ def resolve_asset(filename: str, subdir: str = "assets") -> str | None:
             return p
     return None
 
+
 # ── Shared state & events ────────────────────────────────────────────
 _show_window = threading.Event()
 _show_clients = threading.Event()
@@ -72,16 +79,18 @@ DANGER = "#EF4444"
 MUTED_GRAY = "#94A3B8"
 
 BG_DARK = "#0D1117"
-BG_LIGHT = "#F4F6F9"
+BG_LIGHT = "#F8FAFC"
 CARD_DARK = "#151B23"
 CARD_LIGHT = "#FFFFFF"
+BORDER_DARK = "#272D38"
+BORDER_LIGHT = "#E2E8F0"
 TEXT_DARK = "#F8FAFC"
 TEXT_LIGHT = "#0F172A"
 MUTED_DARK = "#94A3B8"
 MUTED_LIGHT = "#64748B"
 
-RADIUS_CARD = 14
-RADIUS_BTN = 10
+RADIUS_CARD = 12
+RADIUS_BTN = 8
 FAULT_WINDOW_S = 120
 
 
@@ -109,32 +118,18 @@ def card_bg(page: ft.Page) -> str:
 def card_border(page: ft.Page, accent: bool = False) -> ft.Border:
     if is_dark(page):
         if accent:
-            return ft.Border.all(1.4, ft.Colors.with_opacity(0.65, "#38BDF8"))
-        return ft.Border.all(1.2, ft.Colors.with_opacity(0.35, ft.Colors.WHITE))
+            return ft.Border.all(1.2, ft.Colors.with_opacity(0.45, PRIMARY))
+        return ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.WHITE))
     if accent:
         return ft.Border.all(1.2, PRIMARY)
-    return ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.BLACK))
+    return ft.Border.all(1, BORDER_LIGHT)
 
 
 def card_shadow(page: ft.Page, accent: bool = False) -> ft.BoxShadow:
-    if is_dark(page):
-        if accent:
-            return ft.BoxShadow(
-                spread_radius=0,
-                blur_radius=14,
-                color=ft.Colors.with_opacity(0.24, "#38BDF8"),
-                offset=ft.Offset(0, 0),
-            )
-        return ft.BoxShadow(
-            spread_radius=0,
-            blur_radius=12,
-            color=ft.Colors.with_opacity(0.18, ft.Colors.WHITE),
-            offset=ft.Offset(0, 0),
-        )
     return ft.BoxShadow(
         spread_radius=0,
-        blur_radius=6,
-        color=ft.Colors.with_opacity(0.05, ft.Colors.BLACK),
+        blur_radius=4,
+        color=ft.Colors.with_opacity(0.04, ft.Colors.BLACK),
         offset=ft.Offset(0, 1),
     )
 
@@ -175,16 +170,19 @@ def copy_to_clipboard(text: str) -> bool:
 # ── Tray icon helpers ────────────────────────────────────────────────
 def create_tray_icon(state: str = "off") -> Image.Image:
     """Create a colored tray icon based on hotspot state."""
-    colors = {"on": "#22C55E", "off": "#94A3B8", "error": "#EF4444"}
-    color = colors.get(state, colors["off"])
+    colors = {
+        "on": "#22C55E",
+        "off": "#94A3B8",
+        "error": "#EF4444",
+    }
+    color = colors.get(state, "#94A3B8")
     img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    # Broadcast rings
-    draw.ellipse([12, 12, 52, 52], fill=color)
-    draw.ellipse([22, 22, 42, 42], fill="#FFFFFF")
-    draw.ellipse([28, 28, 36, 36], fill=color)
-    # Status dot (bottom-right)
-    draw.ellipse([44, 44, 60, 60], fill=color, outline="#FFFFFF", width=2)
+    draw.ellipse([4, 4, 60, 60], fill="#1E293B")
+    draw.ellipse([8, 8, 56, 56], fill="#0F172A")
+    draw.ellipse([20, 20, 44, 44], fill=color)
+    draw.arc([14, 14, 50, 50], start=200, end=340, fill=color, width=3)
+    draw.arc([8, 8, 56, 56], start=210, end=330, fill=color, width=3)
     return img
 
 
@@ -270,14 +268,14 @@ def main(page: ft.Page) -> None:
     page.title = "Hotspot Hub"
     page.theme_mode = ft.ThemeMode.DARK
     page.bgcolor = page_bg(page)
-    page.padding = 16
+    page.padding = 12
 
     if not page.web:
-        page.window.width = 540
-        page.window.height = 840
+        page.window.width = 440
+        page.window.height = 660
         page.window.resizable = True
-        page.window.min_width = 440
-        page.window.min_height = 560
+        page.window.min_width = 420
+        page.window.min_height = 580
         page.window.prevent_close = True
         page.window.visible = False
 
@@ -305,8 +303,8 @@ def main(page: ft.Page) -> None:
         themed_muted.append(t)
         return t
 
-    def flat_neon_card(
-        content: ft.Control, padding: int = 16, accent: bool = False
+    def app_card(
+        content: ft.Control, padding: int = 14, accent: bool = False
     ) -> ft.Container:
         c = ft.Container(
             content=content,
@@ -321,78 +319,77 @@ def main(page: ft.Page) -> None:
         )
         return register_card(c)
 
-    ios_card = flat_neon_card
+    # Backwards compatibility alias
+    ios_card = app_card
 
-    def ios_button(
+    def unified_switch(
+        value: bool, on_change: Any = None, disabled: bool = False
+    ) -> ft.Switch:
+        """Single standardized Switch component for all app toggles."""
+        return ft.Switch(
+            value=value,
+            on_change=on_change,
+            disabled=disabled,
+            active_color=PRIMARY,
+            active_track_color=PRIMARY,
+            inactive_thumb_color="#94A3B8",
+            inactive_track_color="#272B36",
+        )
+
+    def action_btn(
         label: str,
         on_click: Any,
-        variant: str = "primary",
+        variant: str = "quiet",
         icon: Any = None,
-        compact: bool = False,
-    ) -> ft.FilledButton:
+        compact: bool = True,
+        disabled: bool = False,
+    ) -> ft.Container:
         colors = {
-            "primary": (PRIMARY, ft.Colors.WHITE),
-            "success": (SUCCESS, ft.Colors.WHITE),
-            "danger": (DANGER, ft.Colors.WHITE),
+            "primary": (PRIMARY, ft.Colors.WHITE, PRIMARY),
+            "success": (SUCCESS, ft.Colors.WHITE, SUCCESS),
+            "danger": (DANGER, ft.Colors.WHITE, DANGER),
             "quiet": (
-                ft.Colors.with_opacity(0.12, PRIMARY),
+                ft.Colors.with_opacity(0.10, PRIMARY),
                 PRIMARY,
+                ft.Colors.with_opacity(0.18, PRIMARY),
             ),
-            "warning": (WARNING, ft.Colors.WHITE),
+            "outlined": (
+                ft.Colors.TRANSPARENT,
+                PRIMARY,
+                ft.Colors.with_opacity(0.30, PRIMARY),
+            ),
         }
-        bg, fg = colors.get(
-            variant, (ft.Colors.with_opacity(0.12, PRIMARY), PRIMARY)
+        bg, fg, border_c = colors.get(
+            variant, (ft.Colors.with_opacity(0.10, PRIMARY), PRIMARY, PRIMARY)
         )
-        h = 34 if compact else 42
-        pv = 6 if compact else 10
-        ph = 14 if compact else 18
+        h = 30 if compact else 36
         items: list[ft.Control] = []
         if icon:
-            items.append(ft.Icon(icon, size=15 if compact else 18, color=fg))
+            items.append(ft.Icon(icon, size=14 if compact else 16, color=fg))
         items.append(
-            ft.Text(
-                label,
-                size=12 if compact else 14,
-                weight=ft.FontWeight.W_600,
-                color=fg,
-            )
-        )
-        return ft.FilledButton(
-            content=ft.Row(
-                items,
-                spacing=5,
-                alignment=ft.MainAxisAlignment.CENTER,
-                tight=True,
-            ),
-            style=ft.ButtonStyle(
-                color=fg,
-                bgcolor=bg,
-                shape=ft.RoundedRectangleBorder(radius=999),
-                padding=ft.Padding(left=ph, top=pv, right=ph, bottom=pv),
-                elevation=0,
-                overlay_color=ft.Colors.with_opacity(0.12, fg),
-            ),
-            on_click=on_click,
-            height=h,
+            ft.Text(label, size=12 if compact else 13, weight=ft.FontWeight.W_600, color=fg)
         )
 
-    def status_chip(text: str, color: str) -> ft.Container:
         return ft.Container(
-            content=ft.Row(
-                [
-                    ft.Container(
-                        width=7, height=7, border_radius=4, bgcolor=color
-                    ),
-                    ft.Text(
-                        text, size=11, weight=ft.FontWeight.W_700, color=color
-                    ),
-                ],
-                spacing=5,
-                tight=True,
-            ),
-            bgcolor=ft.Colors.with_opacity(0.12, color),
-            border_radius=999,
+            content=ft.Row(items, spacing=5, tight=True, alignment=ft.MainAxisAlignment.CENTER),
+            bgcolor=bg if not disabled else ft.Colors.with_opacity(0.05, MUTED_GRAY),
+            border=ft.Border.all(1, border_c if not disabled else ft.Colors.TRANSPARENT),
+            border_radius=RADIUS_BTN,
             padding=ft.Padding(left=10, top=4, right=10, bottom=4),
+            height=h,
+            on_click=on_click if not disabled else None,
+            opacity=1.0 if not disabled else 0.5,
+        )
+
+    # Backwards compatibility alias
+    ios_button = action_btn
+
+    def status_dot(color: str = MUTED_GRAY, size: int = 8) -> ft.Container:
+        return ft.Container(
+            width=size,
+            height=size,
+            border_radius=size // 2,
+            bgcolor=color,
         )
 
     def show_snack(msg: str, color: str = PRIMARY) -> None:
@@ -408,7 +405,6 @@ def main(page: ft.Page) -> None:
             pass
 
     # ── Action Worker (non-blocking async operations) ─────────────────
-    action_lock = threading.Lock()
     action_busy = False
     last_error_time: float = 0.0
     pending_toggle: bool | None = None
@@ -445,41 +441,34 @@ def main(page: ft.Page) -> None:
     schedule_last_action: str | None = None
     battery_action_taken = False
 
-    # ── Header controls ──────────────────────────────────────────────
-    header_lamp = ft.Container(
-        width=10, height=10, border_radius=5, bgcolor=MUTED_GRAY
+    # ── 1. Compact Header ────────────────────────────────────────────
+    flame_path = resolve_asset("flame.svg", "assets")
+    if flame_path:
+        flame_widget = ft.Image(src=flame_path, width=22, height=22)
+    else:
+        flame_widget = ft.Icon(ft.Icons.WIFI_TETHERING, size=20, color=PRIMARY)
+
+    title_text = register_text(
+        ft.Text("Hotspot Hub", size=16, weight=ft.FontWeight.W_700)
     )
-    header_pill_text = ft.Text(
-        "STANDBY", size=12, weight=ft.FontWeight.W_700, color=MUTED_GRAY
+    subtitle_text = register_muted(
+        ft.Text("Concurrent STA + AP", size=11, color=muted_color(page))
     )
-    header_pill = ft.Container(
-        content=ft.Row(
-            [header_lamp, header_pill_text], spacing=6, tight=True
-        ),
-        bgcolor=ft.Colors.with_opacity(0.12, MUTED_GRAY),
-        border_radius=999,
-        padding=ft.Padding(left=12, top=6, right=12, bottom=6),
+
+    btn_docs = ft.IconButton(
+        icon=ft.Icons.HELP_OUTLINE_ROUNDED,
+        icon_size=18,
+        icon_color=MUTED_DARK,
+        tooltip="Documentation",
+        on_click=lambda e: subprocess.Popen(["xdg-open", DOC_PATH]),
     )
 
     theme_btn = ft.IconButton(
         icon=ft.Icons.LIGHT_MODE,
+        icon_size=18,
         icon_color=MUTED_DARK,
         tooltip="Toggle Dark/Light Mode",
         on_click=lambda e: toggle_theme(),
-    )
-
-    flame_path = resolve_asset("flame.svg", "assets")
-    flame_widget: ft.Control
-    if flame_path:
-        flame_widget = ft.Image(src=flame_path, width=28, height=28)
-    else:
-        flame_widget = ft.Icon(ft.Icons.WIFI, size=24, color=PRIMARY)
-
-    title_text = register_text(
-        ft.Text("Hotspot Hub", size=22, weight=ft.FontWeight.W_700)
-    )
-    subtitle_text = register_muted(
-        ft.Text("Concurrent STA + AP control", size=13)
     )
 
     header = ft.Row(
@@ -487,68 +476,91 @@ def main(page: ft.Page) -> None:
             ft.Row(
                 [
                     flame_widget,
-                    ft.Column([title_text, subtitle_text], spacing=1),
+                    ft.Column([title_text, subtitle_text], spacing=0),
                 ],
-                spacing=10,
-                expand=True,
+                spacing=8,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            header_pill,
-            theme_btn,
+            ft.Row(
+                [btn_docs, theme_btn],
+                spacing=0,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
         ],
         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+        height=36,
     )
 
-    # ── Card 1: Hotspot (Hero Card) ──────────────────────────────────
-    hero_lamp = ft.Container(
-        width=14, height=14, border_radius=7, bgcolor=MUTED_GRAY
-    )
-    hero_state_text = ft.Text(
-        "STANDBY", size=20, weight=ft.FontWeight.W_800, color=MUTED_GRAY
-    )
+    # ── 2. Segmented Navigation Bar ──────────────────────────────────
+    current_tab = "overview"
 
-    cfg = hub.load_app_config()
-
-    band_dropdown = ft.Dropdown(
-        label="Band",
-        options=[
-            ft.dropdown.Option("Auto"),
-            ft.dropdown.Option("2.4GHz"),
-            ft.dropdown.Option("5GHz"),
-        ],
-        value=cfg.get("band", "Auto"),
-        width=110,
-        text_size=12,
-        content_padding=ft.Padding(left=10, top=4, right=10, bottom=4),
-        on_select=lambda e: on_band_change(e.control.value),
-    )
-
-    def on_band_change(val: str) -> None:
-        if not val:
-            return
-        run_async_action(
-            lambda: hub.modify_hotspot_band(val),
-            feedback=f"Band changed to {val}",
+    def make_nav_tab(name: str, label: str, icon: Any) -> ft.Container:
+        is_sel = (name == current_tab)
+        bg = PRIMARY if is_sel else ft.Colors.TRANSPARENT
+        fg = ft.Colors.WHITE if is_sel else muted_color(page)
+        return ft.Container(
+            content=ft.Row(
+                [
+                    ft.Icon(icon, size=14, color=fg),
+                    ft.Text(label, size=12, weight=ft.FontWeight.W_700 if is_sel else ft.FontWeight.W_500, color=fg),
+                ],
+                spacing=5,
+                alignment=ft.MainAxisAlignment.CENTER,
+                tight=True,
+            ),
+            bgcolor=bg,
+            border_radius=RADIUS_BTN,
+            padding=ft.Padding(left=10, top=6, right=10, bottom=6),
+            expand=True,
+            on_click=lambda e: select_tab(name),
         )
 
-    btn_configure = ios_button(
-        "Configure",
-        lambda e: show_configure_dialog(),
-        variant="quiet",
-        compact=True,
+    tab_overview = make_nav_tab("overview", "Overview", ft.Icons.DASHBOARD_ROUNDED)
+    tab_clients = make_nav_tab("clients", "Access & Clients", ft.Icons.DEVICES_ROUNDED)
+    tab_system = make_nav_tab("system", "System & Schedule", ft.Icons.TUNE_ROUNDED)
+
+    nav_bar = ft.Container(
+        content=ft.Row(
+            [tab_overview, tab_clients, tab_system],
+            spacing=4,
+            expand=True,
+        ),
+        bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.WHITE) if is_dark(page) else "#E2E8F0",
+        border_radius=RADIUS_BTN + 2,
+        padding=ft.Padding(3, 3, 3, 3),
     )
 
-    hero_readout = register_text(
-        ft.Text("Loading…", size=14, font_family="monospace")
-    )
+    def select_tab(name: str) -> None:
+        nonlocal current_tab
+        current_tab = name
+        overview_view.visible = (current_tab == "overview")
+        clients_view.visible = (current_tab == "clients")
+        system_view.visible = (current_tab == "system")
+        update_nav_bar()
+        if current_tab == "clients":
+            render_clients_tab()
+        page.update()
 
-    master_switch = ft.Switch(
-        value=False,
-        active_color=PRIMARY,
-        on_change=lambda e: on_master_toggle(e.control.value),
-    )
-    master_label = register_text(
-        ft.Text("Off", size=14, weight=ft.FontWeight.W_700)
-    )
+    def update_nav_bar() -> None:
+        for name, tab_ctrl in [
+            ("overview", tab_overview),
+            ("clients", tab_clients),
+            ("system", tab_system),
+        ]:
+            is_sel = (name == current_tab)
+            tab_ctrl.bgcolor = PRIMARY if is_sel else ft.Colors.TRANSPARENT
+            fg = ft.Colors.WHITE if is_sel else muted_color(page)
+            tab_ctrl.content.controls[0].color = fg
+            tab_ctrl.content.controls[1].color = fg
+            tab_ctrl.content.controls[1].weight = ft.FontWeight.W_700 if is_sel else ft.FontWeight.W_500
+
+    # ── TAB 1: OVERVIEW COMPONENTS ───────────────────────────────────
+
+    # A. Access Point Card
+    ap_status_dot = status_dot(MUTED_GRAY, size=8)
+    ap_status_text = ft.Text("STANDBY", size=12, weight=ft.FontWeight.W_700, color=MUTED_GRAY)
+
+    cfg = hub.load_app_config()
 
     def on_master_toggle(checked: bool) -> None:
         nonlocal pending_toggle
@@ -568,227 +580,590 @@ def main(page: ft.Page) -> None:
         else:
             run_async_action(hub.hotspot_off_service, feedback="Hotspot OFF")
 
-    btn_restart = ios_button(
-        "Restart",
-        lambda e: run_async_action(
-            hub.hotspot_restart_service, feedback="Hotspot restarted"
-        ),
-        variant="quiet",
-        compact=True,
-    )
-    btn_clients = ios_button(
-        "Clients",
-        lambda e: show_clients_dialog(),
-        variant="quiet",
-        compact=True,
-    )
-    btn_qr = ios_button(
-        "QR Code", lambda e: show_qr_dialog(), variant="quiet", compact=True
+    master_switch = unified_switch(
+        value=False,
+        on_change=lambda e: on_master_toggle(e.control.value),
     )
 
-    hotspot_card = ios_card(
+    ap_ssid_text = register_text(
+        ft.Text("Hotspot AP", size=17, weight=ft.FontWeight.W_800)
+    )
+
+    def on_copy_password(e: Any = None) -> None:
+        psk = hub.run([
+            "nmcli", "-s", "-g", "802-11-wireless-security.psk", "connection", "show", hub.HOTSPOT_CON
+        ]).strip()
+        if psk:
+            copy_to_clipboard(psk)
+            show_snack("Hotspot password copied to clipboard ✓", SUCCESS)
+        else:
+            show_snack("Could not retrieve password", DANGER)
+
+    btn_copy_pwd = ft.IconButton(
+        icon=ft.Icons.CONTENT_COPY_ROUNDED,
+        icon_size=15,
+        icon_color=MUTED_DARK,
+        tooltip="Copy hotspot passphrase",
+        on_click=on_copy_password,
+    )
+
+    # Metadata pills
+    badge_ap_ch = ft.Container(
+        content=ft.Text("ch--", size=11, font_family="monospace", color=text_color(page)),
+        bgcolor=ft.Colors.with_opacity(0.12, MUTED_GRAY),
+        border_radius=999,
+        padding=ft.Padding(left=8, top=2, right=8, bottom=2),
+    )
+    badge_ap_sec = ft.Container(
+        content=ft.Text("WPA2", size=11, font_family="monospace", color=text_color(page)),
+        bgcolor=ft.Colors.with_opacity(0.12, MUTED_GRAY),
+        border_radius=999,
+        padding=ft.Padding(left=8, top=2, right=8, bottom=2),
+    )
+    badge_ap_clients = ft.Container(
+        content=ft.Row(
+            [
+                ft.Icon(ft.Icons.PEOPLE_ROUNDED, size=12, color=PRIMARY),
+                ft.Text("0 Clients", size=11, weight=ft.FontWeight.W_600, color=PRIMARY),
+            ],
+            spacing=4,
+            tight=True,
+        ),
+        bgcolor=ft.Colors.with_opacity(0.12, PRIMARY),
+        border_radius=999,
+        padding=ft.Padding(left=8, top=2, right=8, bottom=2),
+        on_click=lambda e: select_tab("clients"),
+        tooltip="View connected devices in Access & Clients",
+    )
+
+    # Compact Band Segmented Selector
+    selected_band = cfg.get("band", "Auto")
+
+    def on_band_select(band: str) -> None:
+        nonlocal selected_band
+        if band == selected_band:
+            return
+        selected_band = band
+        run_async_action(
+            lambda: hub.modify_hotspot_band(band),
+            feedback=f"Band preference set to {band}",
+        )
+        update_band_pills()
+
+    band_pills: dict[str, ft.Container] = {}
+
+    def make_band_pill(label: str) -> ft.Container:
+        c = ft.Container(
+            content=ft.Text(label, size=11, weight=ft.FontWeight.W_600),
+            border_radius=RADIUS_BTN,
+            padding=ft.Padding(left=8, top=4, right=8, bottom=4),
+            on_click=lambda e, b=label: on_band_select(b),
+        )
+        band_pills[label] = c
+        return c
+
+    def update_band_pills() -> None:
+        for b, pill in band_pills.items():
+            is_b = (b == selected_band)
+            pill.bgcolor = PRIMARY if is_b else ft.Colors.TRANSPARENT
+            pill.content.color = ft.Colors.WHITE if is_b else muted_color(page)
+            pill.border = None if is_b else ft.Border.all(1, ft.Colors.with_opacity(0.15, MUTED_GRAY))
+
+    band_selector = ft.Container(
+        content=ft.Row(
+            [make_band_pill("2.4GHz"), make_band_pill("5GHz"), make_band_pill("Auto")],
+            spacing=3,
+            tight=True,
+        ),
+        bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.WHITE) if is_dark(page) else "#E2E8F0",
+        border_radius=RADIUS_BTN + 2,
+        padding=ft.Padding(2, 2, 2, 2),
+    )
+    update_band_pills()
+
+    btn_configure = action_btn(
+        "Configure",
+        lambda e: show_configure_dialog(),
+        icon=ft.Icons.TUNE_ROUNDED,
+        variant="quiet",
+    )
+    btn_restart = action_btn(
+        "Restart",
+        lambda e: run_async_action(hub.hotspot_restart_service, feedback="Hotspot restarted"),
+        icon=ft.Icons.REFRESH_ROUNDED,
+        variant="quiet",
+    )
+    btn_qr = action_btn(
+        "QR Code",
+        lambda e: show_qr_dialog(),
+        icon=ft.Icons.QR_CODE_ROUNDED,
+        variant="quiet",
+    )
+
+    hotspot_card = app_card(
         ft.Column(
             [
                 ft.Row(
                     [
                         ft.Row(
-                            [hero_lamp, hero_state_text],
-                            spacing=10,
+                            [
+                                ft.Icon(ft.Icons.ROUTER_ROUNDED, size=16, color=PRIMARY),
+                                register_text(ft.Text("Access Point", size=14, weight=ft.FontWeight.W_700)),
+                                ap_status_dot,
+                                ap_status_text,
+                            ],
+                            spacing=6,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         ),
-                        ft.Container(expand=True),
-                        band_dropdown,
-                        btn_configure,
+                        master_switch,
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
-                hero_readout,
                 ft.Row(
-                    [master_switch, master_label],
-                    spacing=10,
+                    [
+                        ap_ssid_text,
+                        btn_copy_pwd,
+                        ft.Container(expand=True),
+                        badge_ap_ch,
+                        badge_ap_sec,
+                        badge_ap_clients,
+                    ],
+                    spacing=4,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
                 ft.Row(
-                    [btn_restart, btn_clients, btn_qr],
-                    spacing=8,
-                    alignment=ft.MainAxisAlignment.START,
+                    [
+                        band_selector,
+                        ft.Container(expand=True),
+                        btn_configure,
+                        btn_restart,
+                        btn_qr,
+                    ],
+                    spacing=6,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
             ],
-            spacing=12,
+            spacing=10,
         )
     )
 
-    # ── Card 2: Wi-Fi Uplink (Prominent & Highlighted) ────────────────
-    wifi_chip = status_chip("DISCONNECTED", MUTED_GRAY)
-    wifi_icon = ft.Icon(ft.Icons.WIFI_ROUNDED, size=26, color=PRIMARY)
+    # B. Wi-Fi Uplink Card
+    wifi_status_dot = status_dot(MUTED_GRAY, size=8)
+    wifi_status_text = ft.Text("OFFLINE", size=12, weight=ft.FontWeight.W_700, color=MUTED_GRAY)
     wifi_ssid_text = register_text(
-        ft.Text("Scanning…", size=18, weight=ft.FontWeight.W_800)
+        ft.Text("Scanning…", size=16, weight=ft.FontWeight.W_800)
     )
 
     badge_speed_text = ft.Text("… MBit/s", size=11, weight=ft.FontWeight.W_700, color=PRIMARY)
     badge_speed = ft.Container(
         content=ft.Row(
             [
-                ft.Icon(ft.Icons.SPEED, size=14, color=PRIMARY),
+                ft.Icon(ft.Icons.SPEED, size=13, color=PRIMARY),
                 badge_speed_text,
             ],
             spacing=4,
             tight=True,
         ),
-        bgcolor=ft.Colors.with_opacity(0.14, PRIMARY),
+        bgcolor=ft.Colors.with_opacity(0.12, PRIMARY),
         border_radius=999,
-        padding=ft.Padding(left=10, top=4, right=10, bottom=4),
+        padding=ft.Padding(left=8, top=3, right=8, bottom=3),
     )
 
     badge_sig_text = ft.Text("… dBm", size=11, weight=ft.FontWeight.W_700, color=SUCCESS)
     badge_signal = ft.Container(
         content=ft.Row(
             [
-                ft.Icon(ft.Icons.SIGNAL_WIFI_4_BAR, size=14, color=SUCCESS),
+                ft.Icon(ft.Icons.SIGNAL_WIFI_4_BAR, size=13, color=SUCCESS),
                 badge_sig_text,
             ],
             spacing=4,
             tight=True,
         ),
-        bgcolor=ft.Colors.with_opacity(0.14, SUCCESS),
+        bgcolor=ft.Colors.with_opacity(0.12, SUCCESS),
         border_radius=999,
-        padding=ft.Padding(left=10, top=4, right=10, bottom=4),
+        padding=ft.Padding(left=8, top=3, right=8, bottom=3),
     )
 
     badge_ch_text = ft.Text("ch…", size=11, weight=ft.FontWeight.W_700, color=MUTED_GRAY)
     badge_channel = ft.Container(
         content=badge_ch_text,
-        bgcolor=ft.Colors.with_opacity(0.14, MUTED_GRAY),
+        bgcolor=ft.Colors.with_opacity(0.12, MUTED_GRAY),
         border_radius=999,
-        padding=ft.Padding(left=10, top=4, right=10, bottom=4),
+        padding=ft.Padding(left=8, top=3, right=8, bottom=3),
     )
 
     wifi_health_text = register_text(
-        ft.Text("Health: checking gateway…", size=12, font_family="monospace")
+        ft.Text("Health: checking gateway…", size=11, font_family="monospace")
     )
 
-    wifi_card = flat_neon_card(
+    wifi_card = app_card(
         ft.Column(
             [
                 ft.Row(
                     [
-                        register_text(
-                            ft.Text(
-                                "Wi-Fi Uplink",
-                                size=16,
-                                weight=ft.FontWeight.W_700,
-                            )
+                        ft.Row(
+                            [
+                                ft.Icon(ft.Icons.WIFI_ROUNDED, size=16, color=PRIMARY),
+                                register_text(ft.Text("Wi-Fi Uplink", size=14, weight=ft.FontWeight.W_700)),
+                                wifi_status_dot,
+                                wifi_status_text,
+                            ],
+                            spacing=6,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         ),
-                        wifi_chip,
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
                 ft.Row(
-                    [wifi_icon, wifi_ssid_text],
-                    spacing=8,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
-                ft.Row(
-                    [badge_speed, badge_signal, badge_channel],
+                    [
+                        wifi_ssid_text,
+                        ft.Container(expand=True),
+                        badge_speed,
+                        badge_signal,
+                        badge_channel,
+                    ],
                     spacing=6,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
                 wifi_health_text,
             ],
-            spacing=10,
+            spacing=8,
+        ),
+        accent=True,
+    )
+
+    # C. Bandwidth & Cloudflare WARP Section (Compact 2-in-1 Card)
+    bw_sta_rx = ft.Text("0 B/s", size=11, font_family="monospace", weight=ft.FontWeight.W_600, color="#38BDF8")
+    bw_sta_tx = ft.Text("0 B/s", size=11, font_family="monospace", weight=ft.FontWeight.W_600, color="#34D399")
+    bw_ap_rx = ft.Text("0 B/s", size=11, font_family="monospace", weight=ft.FontWeight.W_600, color="#38BDF8")
+    bw_ap_tx = ft.Text("0 B/s", size=11, font_family="monospace", weight=ft.FontWeight.W_600, color="#34D399")
+
+    bw_block = ft.Column(
+        [
+            ft.Row(
+                [
+                    ft.Icon(ft.Icons.SWAP_VERT_ROUNDED, size=15, color=PRIMARY),
+                    register_text(ft.Text("Network Throughput", size=13, weight=ft.FontWeight.W_600)),
+                ],
+                spacing=5,
+            ),
+            ft.Row(
+                [
+                    ft.Text(f"{hub.STA_IF} (Uplink):", size=11, font_family="monospace", color=muted_color(page), width=105),
+                    ft.Text("↓", size=11, color="#38BDF8"),
+                    bw_sta_rx,
+                    ft.Container(width=10),
+                    ft.Text("↑", size=11, color="#34D399"),
+                    bw_sta_tx,
+                ],
+                spacing=4,
+            ),
+            ft.Row(
+                [
+                    ft.Text(f"{hub.AP_IF}  (Hotspot):", size=11, font_family="monospace", color=muted_color(page), width=105),
+                    ft.Text("↓", size=11, color="#38BDF8"),
+                    bw_ap_rx,
+                    ft.Container(width=10),
+                    ft.Text("↑", size=11, color="#34D399"),
+                    bw_ap_tx,
+                ],
+                spacing=4,
+            ),
+        ],
+        spacing=4,
+    )
+
+    # Single Switch Cloudflare WARP Control
+    warp_status_text = ft.Text("Disconnected", size=11, font_family="monospace", color=MUTED_GRAY)
+
+    def on_warp_toggle(checked: bool) -> None:
+        if checked:
+            run_async_action(lambda: hub.warp("connect"), feedback="WARP connected")
+        else:
+            run_async_action(lambda: hub.warp("disconnect"), feedback="WARP disconnected")
+
+    warp_switch = unified_switch(
+        value=False,
+        on_change=lambda e: on_warp_toggle(e.control.value),
+    )
+
+    warp_block = ft.Row(
+        [
+            ft.Row(
+                [
+                    ft.Icon(ft.Icons.SHIELD_ROUNDED, size=16, color=PRIMARY),
+                    ft.Column(
+                        [
+                            register_text(ft.Text("Cloudflare WARP", size=13, weight=ft.FontWeight.W_600)),
+                            warp_status_text,
+                        ],
+                        spacing=1,
+                    ),
+                ],
+                spacing=8,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            warp_switch,
+        ],
+        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+    )
+
+    traffic_warp_card = app_card(
+        ft.Column(
+            [
+                bw_block,
+                ft.Divider(height=1, color=ft.Colors.with_opacity(0.08, ft.Colors.WHITE) if is_dark(page) else BORDER_LIGHT),
+                warp_block,
+            ],
+            spacing=8,
         )
     )
 
-    # ── Card 3: Bandwidth ────────────────────────────────────────────
-    bw_chip = status_chip("IDLE", MUTED_GRAY)
-    bw_readout = register_text(
-        ft.Text("Sampling…", size=13, font_family="monospace")
+    overview_view = ft.Column(
+        [
+            hotspot_card,
+            ft.Container(height=4),
+            wifi_card,
+            ft.Container(height=4),
+            traffic_warp_card,
+        ],
+        spacing=4,
+        visible=True,
     )
 
-    bw_card = ios_card(
+    # ── TAB 2: ACCESS & CLIENTS COMPONENTS ───────────────────────────
+    clients_count_badge = ft.Text("0 Active", size=11, weight=ft.FontWeight.W_700, color=PRIMARY)
+    clients_summary_text = ft.Text("DHCP leases: …", size=11, font_family="monospace", color=muted_color(page))
+    clients_list_col = ft.Column(spacing=6, scroll=ft.ScrollMode.AUTO, height=240)
+
+    def render_clients_tab() -> None:
+        stations = hub.station_dump()
+        leases = hub.read_leases()
+        oui = hub._load_oui_vendors()
+        allowed_macs = hub.load_mac_file(hub.ALLOWED_MACS_FILE)
+
+        clients_count_badge.value = f"{len(stations)} Active"
+        clients_summary_text.value = f"DHCP leases: {hub.lease_count()} on {hub.AP_IF} (10.42.0.1/24)"
+
+        items: list[ft.Control] = []
+        if not stations:
+            empty_path = resolve_asset("clients-empty.svg", "assets")
+            empty_controls: list[ft.Control] = []
+            if empty_path:
+                empty_controls.append(ft.Image(src=empty_path, width=140, height=80))
+            empty_controls.append(
+                ft.Text(
+                    f"No clients connected (or {hub.AP_IF} is inactive).",
+                    size=12,
+                    color=muted_color(page),
+                    italic=True,
+                )
+            )
+            items.append(
+                ft.Container(
+                    content=ft.Column(empty_controls, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=6),
+                    alignment=ft.Alignment(0, 0),
+                    padding=ft.Padding(0, 24, 0, 24),
+                )
+            )
+        else:
+            for mac, sig in stations:
+                name = hub.client_device_name(mac, leases, oui) or "Unnamed device"
+                is_allowed = mac.lower() in allowed_macs
+
+                def make_name_h(m: str) -> Any:
+                    return lambda e: prompt_name_client(m)
+
+                def make_allow_h(m: str) -> Any:
+                    return lambda e: allow_client(m)
+
+                def make_kick_h(m: str) -> Any:
+                    return lambda e: kick_client_action(m)
+
+                btn_allow = action_btn(
+                    "Allowed" if is_allowed else "+ Allow",
+                    None if is_allowed else make_allow_h(mac),
+                    variant="quiet" if is_allowed else "primary",
+                    compact=True,
+                    disabled=is_allowed,
+                )
+
+                items.append(
+                    ft.Container(
+                        content=ft.Row(
+                            [
+                                ft.Row(
+                                    [
+                                        ft.Icon(ft.Icons.DEVICES_OTHER_ROUNDED, size=20, color=PRIMARY),
+                                        ft.Column(
+                                            [
+                                                ft.Text(name, size=13, weight=ft.FontWeight.W_600, color=text_color(page)),
+                                                ft.Text(f"{mac}  ·  {sig or 'signal ?'}", size=11, font_family="monospace", color=muted_color(page)),
+                                            ],
+                                            spacing=1,
+                                        ),
+                                    ],
+                                    spacing=8,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    expand=True,
+                                ),
+                                ft.Row(
+                                    [
+                                        action_btn("Name…", make_name_h(mac), variant="quiet", compact=True),
+                                        btn_allow,
+                                        action_btn("Kick", make_kick_h(mac), variant="danger", compact=True),
+                                    ],
+                                    spacing=4,
+                                ),
+                            ],
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        ),
+                        bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.WHITE) if is_dark(page) else "#F1F5F9",
+                        border_radius=RADIUS_BTN,
+                        padding=ft.Padding(8, 6, 8, 6),
+                    )
+                )
+
+        clients_list_col.controls = items
+        try:
+            clients_list_col.update()
+            clients_count_badge.update()
+            clients_summary_text.update()
+        except Exception:
+            pass
+
+    clients_card = app_card(
         ft.Column(
             [
                 ft.Row(
                     [
-                        register_text(
-                            ft.Text(
-                                "Bandwidth",
-                                size=16,
-                                weight=ft.FontWeight.W_600,
-                            )
+                        ft.Row(
+                            [
+                                ft.Icon(ft.Icons.DEVICES_ROUNDED, size=16, color=PRIMARY),
+                                register_text(ft.Text("Connected Devices", size=14, weight=ft.FontWeight.W_700)),
+                                ft.Container(
+                                    content=clients_count_badge,
+                                    bgcolor=ft.Colors.with_opacity(0.12, PRIMARY),
+                                    border_radius=999,
+                                    padding=ft.Padding(6, 2, 6, 2),
+                                ),
+                            ],
+                            spacing=6,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         ),
-                        bw_chip,
+                        ft.IconButton(
+                            icon=ft.Icons.REFRESH_ROUNDED,
+                            icon_size=16,
+                            tooltip="Refresh client list",
+                            on_click=lambda e: render_clients_tab(),
+                        ),
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
-                bw_readout,
+                clients_summary_text,
+                clients_list_col,
             ],
-            spacing=10,
+            spacing=8,
         )
     )
 
-    # ── Card 3: WARP ─────────────────────────────────────────────────
-    warp_chip = status_chip("OFF", MUTED_GRAY)
-    warp_info = register_muted(
-        ft.Text(
-            "Status: unknown",
-            size=12,
-            font_family="monospace",
-            color=muted_color(page),
-        )
+    # MAC Address Filter Status in Tab 2
+    chk_mac_filter_tab = unified_switch(
+        value=bool(cfg.get("mac_filter_enabled", False)),
+        on_change=lambda e: on_toggle_mac_filter(e.control.value),
     )
+    mac_filter_status_text = register_text(ft.Text("Filter status: …", size=12, font_family="monospace"))
 
-    btn_warp_connect = ios_button(
-        "Connect",
-        lambda e: run_async_action(
-            lambda: hub.warp("connect"), feedback="WARP connected"
-        ),
+    def on_toggle_mac_filter(val: bool) -> None:
+        c = hub.load_app_config()
+        c["mac_filter_enabled"] = val
+        hub.save_app_config(c)
+        refresh_sys()
+        show_snack(f"MAC Filter {'enabled' if val else 'disabled'}", SUCCESS)
+
+    btn_manage_mac = action_btn(
+        "Manage MAC Rules…",
+        lambda e: show_mac_filter_dialog(),
+        icon=ft.Icons.SECURITY_ROUNDED,
         variant="primary",
         compact=True,
     )
-    btn_warp_disconnect = ios_button(
-        "Disconnect",
-        lambda e: run_async_action(
-            lambda: hub.warp("disconnect"), feedback="WARP disconnected"
-        ),
-        variant="quiet",
-        compact=True,
-    )
 
-    warp_card = ios_card(
+    mac_card = app_card(
         ft.Column(
             [
                 ft.Row(
                     [
-                        register_text(
-                            ft.Text(
-                                "WARP", size=16, weight=ft.FontWeight.W_600
-                            )
-                        ),
-                        warp_chip,
-                        ft.Container(expand=True),
                         ft.Row(
-                            [btn_warp_connect, btn_warp_disconnect], spacing=6
+                            [
+                                ft.Icon(ft.Icons.SHIELD_ROUNDED, size=16, color=PRIMARY),
+                                register_text(ft.Text("MAC Address Filtering", size=14, weight=ft.FontWeight.W_700)),
+                            ],
+                            spacing=6,
                         ),
+                        chk_mac_filter_tab,
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
-                warp_info,
+                mac_filter_status_text,
+                ft.Row(
+                    [
+                        register_muted(ft.Text("Enforces allow/deny list on connecting clients", size=11)),
+                        ft.Container(expand=True),
+                        btn_manage_mac,
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                ),
             ],
-            spacing=10,
+            spacing=8,
         )
     )
 
-    # ── Card 4: System ───────────────────────────────────────────────
-    sys_chip = status_chip("SYNC OFF", DANGER)
-    sys_info = register_muted(
-        ft.Text("Loading…", size=12, font_family="monospace")
-    )
-    sys_conn_info = register_text(
-        ft.Text("Connectivity: checking…", size=12, font_family="monospace")
+    clients_view = ft.Column(
+        [
+            clients_card,
+            ft.Container(height=4),
+            mac_card,
+        ],
+        spacing=4,
+        visible=False,
     )
 
-    chk_reconnect = ft.Switch(
+    # ── TAB 3: SYSTEM & SCHEDULE COMPONENTS ──────────────────────────
+
+    def make_setting_row(
+        title: str,
+        desc: str,
+        control: ft.Control,
+        icon: Any = None,
+    ) -> ft.Container:
+        return ft.Container(
+            content=ft.Row(
+                [
+                    ft.Row(
+                        [
+                            ft.Icon(icon, size=16, color=PRIMARY) if icon else ft.Container(),
+                            ft.Column(
+                                [
+                                    register_text(ft.Text(title, size=13, weight=ft.FontWeight.W_600)),
+                                    register_muted(ft.Text(desc, size=11, color=muted_color(page))),
+                                ],
+                                spacing=1,
+                            ),
+                        ],
+                        spacing=8,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        expand=True,
+                    ),
+                    control,
+                ],
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            ),
+            padding=ft.Padding(0, 4, 0, 4),
+        )
+
+    # Settings Rows
+    chk_reconnect = unified_switch(
         value=bool(cfg.get("reconnect_enabled", True)),
         on_change=lambda e: on_toggle_reconnect(e.control.value),
     )
@@ -798,83 +1173,9 @@ def main(page: ft.Page) -> None:
         c["reconnect_enabled"] = val
         hub.save_app_config(c)
         refresh_sys()
+        show_snack(f"Smart reconnect {'enabled' if val else 'disabled'}", SUCCESS)
 
-    btn_sync_restart = ios_button(
-        "Restart sync",
-        lambda e: run_async_action(
-            hub.sync_restart_service, feedback="Channel sync restarted"
-        ),
-        variant="quiet",
-        compact=True,
-    )
-    btn_fix_routing = ios_button(
-        "Fix routing",
-        lambda e: run_async_action(
-            hub.fix_routing_service, feedback="Routing table restored"
-        ),
-        variant="quiet",
-        compact=True,
-    )
-    btn_mac_filter = ios_button(
-        "MAC Filter",
-        lambda e: show_mac_filter_dialog(),
-        variant="quiet",
-        compact=True,
-    )
-    btn_docs = ios_button(
-        "Docs",
-        lambda e: subprocess.Popen(["xdg-open", DOC_PATH]),
-        variant="quiet",
-        compact=True,
-    )
-
-    sys_card = ios_card(
-        ft.Column(
-            [
-                ft.Row(
-                    [
-                        register_text(
-                            ft.Text(
-                                "System", size=16, weight=ft.FontWeight.W_600
-                            )
-                        ),
-                        sys_chip,
-                    ],
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                ),
-                sys_info,
-                sys_conn_info,
-                ft.Row(
-                    [
-                        register_text(
-                            ft.Text("Smart reconnect", size=13, expand=True)
-                        ),
-                        chk_reconnect,
-                    ],
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                ),
-                ft.Row(
-                    [
-                        btn_sync_restart,
-                        btn_fix_routing,
-                        btn_mac_filter,
-                        btn_docs,
-                    ],
-                    spacing=6,
-                    wrap=True,
-                ),
-            ],
-            spacing=10,
-        )
-    )
-
-    # ── Card 6: System Lifecycle ─────────────────────────────────────
-    health_chip = status_chip("HEALTHY", SUCCESS)
-    health_info = register_text(
-        ft.Text("AP: checking… · DHCP: checking…", size=12, font_family="monospace")
-    )
-
-    chk_autostart = ft.Switch(
+    chk_autostart = unified_switch(
         value=hub.is_autostart_enabled(),
         on_change=lambda e: on_toggle_autostart(e.control.value),
     )
@@ -886,11 +1187,9 @@ def main(page: ft.Page) -> None:
             page.update()
             show_snack("Failed to update autostart setting", DANGER)
         else:
-            show_snack(
-                f"Autostart {'enabled' if val else 'disabled'}", SUCCESS
-            )
+            show_snack(f"Autostart {'enabled' if val else 'disabled'}", SUCCESS)
 
-    chk_ipv6 = ft.Switch(
+    chk_ipv6 = unified_switch(
         value=bool(cfg.get("ipv6_enabled", False)),
         disabled=not hub.detect_ipv6_support(),
         on_change=lambda e: on_toggle_ipv6(e.control.value),
@@ -902,39 +1201,52 @@ def main(page: ft.Page) -> None:
         hub.save_app_config(c)
         if hub.detect_state() == "on":
             flag = "0" if val else "1"
-            hub.priv([
-                "sysctl",
-                "-w",
-                f"net.ipv6.conf.{hub.AP_IF}.disable_ipv6={flag}",
-            ])
+            hub.priv(["sysctl", "-w", f"net.ipv6.conf.{hub.AP_IF}.disable_ipv6={flag}"])
         show_snack(f"IPv6 {'enabled' if val else 'disabled'}", SUCCESS)
 
-    chk_schedule = ft.Switch(
-        value=bool(cfg.get("schedule_enabled", False)),
-        on_change=lambda e: on_toggle_schedule(e.control.value),
+    vpn_bypass_badge = ft.Container(
+        content=ft.Text("Active (pref 50)", size=11, weight=ft.FontWeight.W_700, color=SUCCESS),
+        bgcolor=ft.Colors.with_opacity(0.12, SUCCESS),
+        border_radius=999,
+        padding=ft.Padding(8, 3, 8, 3),
     )
 
+    # Schedule with Progressive Disclosure
     txt_sched_on = ft.TextField(
         value=str(cfg.get("schedule_on", "08:00")),
-        label="On",
-        width=85,
+        label="On Time (HH:MM)",
+        width=120,
         dense=True,
         text_size=12,
         on_change=lambda e: on_sched_time_change(),
     )
     txt_sched_off = ft.TextField(
         value=str(cfg.get("schedule_off", "22:00")),
-        label="Off",
-        width=85,
+        label="Off Time (HH:MM)",
+        width=120,
         dense=True,
         text_size=12,
         on_change=lambda e: on_sched_time_change(),
+    )
+
+    sched_inputs_row = ft.Row(
+        [
+            register_muted(ft.Text("Active Hours:", size=11)),
+            txt_sched_on,
+            txt_sched_off,
+        ],
+        spacing=8,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        visible=bool(cfg.get("schedule_enabled", False)),
     )
 
     def on_toggle_schedule(val: bool) -> None:
         c = hub.load_app_config()
         c["schedule_enabled"] = val
         hub.save_app_config(c)
+        sched_inputs_row.visible = val
+        page.update()
+        show_snack(f"Schedule {'enabled' if val else 'disabled'}", SUCCESS)
 
     def on_sched_time_change() -> None:
         c = hub.load_app_config()
@@ -942,11 +1254,12 @@ def main(page: ft.Page) -> None:
         c["schedule_off"] = txt_sched_off.value.strip()
         hub.save_app_config(c)
 
-    chk_battery = ft.Switch(
-        value=bool(cfg.get("battery_saver_enabled", False)),
-        on_change=lambda e: on_toggle_battery(e.control.value),
+    chk_schedule = unified_switch(
+        value=bool(cfg.get("schedule_enabled", False)),
+        on_change=lambda e: on_toggle_schedule(e.control.value),
     )
 
+    # Battery Saver with Progressive Disclosure
     slider_battery = ft.Slider(
         min=5,
         max=50,
@@ -955,14 +1268,26 @@ def main(page: ft.Page) -> None:
         label="{value}%",
         on_change=lambda e: on_battery_threshold_change(int(e.control.value)),
     )
-    lbl_battery_val = register_muted(
-        ft.Text(f"{cfg.get('battery_threshold', 20)}%", size=12)
+    lbl_battery_val = register_muted(ft.Text(f"{cfg.get('battery_threshold', 20)}%", size=12))
+
+    battery_inputs_row = ft.Row(
+        [
+            register_muted(ft.Text("Threshold:", size=11)),
+            ft.Container(content=slider_battery, width=160),
+            lbl_battery_val,
+        ],
+        spacing=8,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        visible=bool(cfg.get("battery_saver_enabled", False)),
     )
 
     def on_toggle_battery(val: bool) -> None:
         c = hub.load_app_config()
         c["battery_saver_enabled"] = val
         hub.save_app_config(c)
+        battery_inputs_row.visible = val
+        page.update()
+        show_snack(f"Battery saver {'enabled' if val else 'disabled'}", SUCCESS)
 
     def on_battery_threshold_change(val: int) -> None:
         lbl_battery_val.value = f"{val}%"
@@ -971,60 +1296,78 @@ def main(page: ft.Page) -> None:
         c["battery_threshold"] = val
         hub.save_app_config(c)
 
-    health_card = ios_card(
+    chk_battery = unified_switch(
+        value=bool(cfg.get("battery_saver_enabled", False)),
+        on_change=lambda e: on_toggle_battery(e.control.value),
+    )
+
+    system_settings_card = app_card(
         ft.Column(
             [
                 ft.Row(
                     [
-                        register_text(
-                            ft.Text(
-                                "System Lifecycle", size=16, weight=ft.FontWeight.W_600
-                            )
-                        ),
-                        health_chip,
+                        ft.Icon(ft.Icons.SETTINGS_ROUNDED, size=16, color=PRIMARY),
+                        register_text(ft.Text("System & Network Settings", size=14, weight=ft.FontWeight.W_700)),
                     ],
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    spacing=6,
                 ),
-                health_info,
+                make_setting_row("Smart Reconnect", "Auto-reconnect AP and sync on uplink dropouts", chk_reconnect, ft.Icons.AUTORENEW_ROUNDED),
+                make_setting_row("Start on Boot", "Launch Hotspot Hub in background on login", chk_autostart, ft.Icons.POWER_SETTINGS_NEW_ROUNDED),
+                make_setting_row("IPv6 Routing", f"Enable IPv6 forwarding on {hub.AP_IF}", chk_ipv6, ft.Icons.ALT_ROUTE_ROUNDED),
+                make_setting_row("VPN Bypass", "Priority 50 policy routing for local traffic", vpn_bypass_badge, ft.Icons.SECURITY_ROUNDED),
+                make_setting_row("Scheduled Hotspot", "Auto on/off by configured time of day", chk_schedule, ft.Icons.SCHEDULE_ROUNDED),
+                sched_inputs_row,
+                make_setting_row("Battery Saver", "Auto-disable hotspot when battery drops low", chk_battery, ft.Icons.BATTERY_CHARGING_FULL_ROUNDED),
+                battery_inputs_row,
+            ],
+            spacing=6,
+        )
+    )
+
+    # Maintenance & Troubleshooting Card
+    sys_diag_text = register_text(ft.Text("Channel sync: active · Gateway: checking…", size=11, font_family="monospace"))
+
+    btn_sync_restart = action_btn(
+        "Restart Channel Sync",
+        lambda e: run_async_action(hub.sync_restart_service, feedback="Channel sync restarted"),
+        icon=ft.Icons.SYNC_ROUNDED,
+        variant="outlined",
+    )
+    btn_fix_routing = action_btn(
+        "Fix Routing Table",
+        lambda e: run_async_action(hub.fix_routing_service, feedback="Routing table restored"),
+        icon=ft.Icons.BUILD_ROUNDED,
+        variant="outlined",
+    )
+
+    maintenance_card = app_card(
+        ft.Column(
+            [
                 ft.Row(
                     [
-                        register_text(
-                            ft.Text("Start on boot", size=13, expand=True)
-                        ),
-                        chk_autostart,
-                        ft.Container(width=16),
-                        register_text(ft.Text("IPv6", size=13, expand=True)),
-                        chk_ipv6,
+                        ft.Icon(ft.Icons.BUILD_CIRCLE_ROUNDED, size=16, color=PRIMARY),
+                        register_text(ft.Text("Troubleshooting & Recovery", size=14, weight=ft.FontWeight.W_700)),
                     ],
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    spacing=6,
                 ),
+                sys_diag_text,
                 ft.Row(
-                    [
-                        register_text(
-                            ft.Text("Scheduled", size=13, expand=True)
-                        ),
-                        chk_schedule,
-                        ft.Container(width=10),
-                        txt_sched_on,
-                        txt_sched_off,
-                    ],
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                ),
-                ft.Row(
-                    [
-                        register_text(
-                            ft.Text("Battery saver", size=13, expand=True)
-                        ),
-                        chk_battery,
-                        ft.Container(width=10),
-                        ft.Container(content=slider_battery, width=150),
-                        lbl_battery_val,
-                    ],
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    [btn_sync_restart, btn_fix_routing],
+                    spacing=8,
                 ),
             ],
-            spacing=10,
+            spacing=8,
         )
+    )
+
+    system_view = ft.Column(
+        [
+            system_settings_card,
+            ft.Container(height=4),
+            maintenance_card,
+        ],
+        spacing=4,
+        visible=False,
     )
 
     # ── Refresh Functions ────────────────────────────────────────────
@@ -1033,9 +1376,7 @@ def main(page: ft.Page) -> None:
             cons = hub.active_cons()
             active = cons.get(hub.HOTSPOT_CON) == hub.AP_IF
             now = time.monotonic()
-            in_fault = (
-                last_error_time > 0 and (now - last_error_time) < FAULT_WINDOW_S
-            )
+            in_fault = last_error_time > 0 and (now - last_error_time) < FAULT_WINDOW_S
 
             if in_fault:
                 state_str = "FAULT"
@@ -1046,46 +1387,36 @@ def main(page: ft.Page) -> None:
                 state_color = SUCCESS
                 tray_state = "on"
             else:
-                state_str = "STANDBY"
+                state_str = "INACTIVE"
                 state_color = MUTED_GRAY
                 tray_state = "off"
 
-            # Header pill
-            header_pill_text.value = state_str
-            header_pill_text.color = state_color
-            header_lamp.bgcolor = state_color
-            header_pill.bgcolor = ft.Colors.with_opacity(0.12, state_color)
+            ap_status_text.value = state_str
+            ap_status_text.color = state_color
+            ap_status_dot.bgcolor = state_color
 
-            # Hero card
-            hero_state_text.value = state_str
-            hero_state_text.color = state_color
-            hero_lamp.bgcolor = state_color
-
-            # Master switch
             target_toggle = pending_toggle if pending_toggle is not None else active
             master_switch.value = target_toggle
-            master_label.value = "On" if active else "Off"
-            master_label.color = state_color if active else text_color(page)
 
-            # Instrument readout
             sec = hub.get_hotspot_security()
             ap = hub.iface_info(hub.AP_IF)
             ssid = ap.get("ssid") or hub.HOTSPOT_CON
             ch = ap.get("channel") or "?"
             _, _, n = hub.hotspot_state()
-            leases = str(hub.lease_count()).split()[0]
-            hero_readout.value = (
-                f"{ssid} · ch{ch} · {n} client{'s' if n != 1 else ''} · "
-                f"{leases} lease{'s' if leases != '1' else ''} · {sec}"
-            )
 
-            # Band selector
+            ap_ssid_text.value = ssid
+            badge_ap_ch.content.value = f"ch{ch}"
+            badge_ap_sec.content.value = sec
+            badge_ap_clients.content.controls[1].value = f"{n} Client{'s' if n != 1 else ''}"
+
             c = hub.load_app_config()
-            band_dropdown.value = c.get("band", "Auto")
+            nonlocal selected_band
+            selected_band = c.get("band", "Auto")
+            update_band_pills()
 
             update_tray_icon(tray_state)
         except Exception as e:
-            hero_readout.value = f"Status error: {e}"
+            ap_ssid_text.value = f"Status error: {e}"
 
     def refresh_bw() -> None:
         nonlocal bw_last_stats, bw_last_time
@@ -1094,62 +1425,51 @@ def main(page: ft.Page) -> None:
             stats = hub.read_net_dev_bytes()
             dt = now - bw_last_time if bw_last_time > 0 else 5.0
 
-            if dt > 15.0:
+            if dt > 15.0 or dt <= 0:
                 bw_last_stats = stats
                 bw_last_time = now
-                bw_readout.value = (
-                    f"{hub.STA_IF} sampling…\n{hub.AP_IF} sampling…"
-                )
                 return
 
-            if dt <= 0:
-                dt = 5.0
-
-            def _rates(iface: str) -> str:
+            def _rates(iface: str) -> tuple[str, str]:
                 if iface not in stats or iface not in bw_last_stats:
-                    return f"↓{hub.format_rate(0)} ↑{hub.format_rate(0)}"
+                    return hub.format_rate(0), hub.format_rate(0)
                 rx, tx = stats[iface]
                 prev_rx, prev_tx = bw_last_stats[iface]
-                rx_rate = (
-                    max(0.0, (rx - prev_rx) / dt) if rx >= prev_rx else 0.0
-                )
-                tx_rate = (
-                    max(0.0, (tx - prev_tx) / dt) if tx >= prev_tx else 0.0
-                )
-                return f"↓{hub.format_rate(rx_rate)} ↑{hub.format_rate(tx_rate)}"
+                rx_rate = max(0.0, (rx - prev_rx) / dt) if rx >= prev_rx else 0.0
+                tx_rate = max(0.0, (tx - prev_tx) / dt) if tx >= prev_tx else 0.0
+                return hub.format_rate(rx_rate), hub.format_rate(tx_rate)
 
-            bw_readout.value = (
-                f"{hub.STA_IF} {_rates(hub.STA_IF)}\n{hub.AP_IF} {_rates(hub.AP_IF)}"
-            )
+            sta_rx, sta_tx = _rates(hub.STA_IF)
+            ap_rx, ap_tx = _rates(hub.AP_IF)
+
+            bw_sta_rx.value = f"{sta_rx:>9}"
+            bw_sta_tx.value = f"{sta_tx:>9}"
+            bw_ap_rx.value = f"{ap_rx:>9}"
+            bw_ap_tx.value = f"{ap_tx:>9}"
+
             bw_last_stats = stats
             bw_last_time = now
-
-            is_live = hub.detect_state() == "on"
-            bw_chip.content.controls[1].value = "LIVE" if is_live else "IDLE"
-            c_val = SUCCESS if is_live else MUTED_GRAY
-            bw_chip.content.controls[0].bgcolor = c_val
-            bw_chip.content.controls[1].color = c_val
-            bw_chip.bgcolor = ft.Colors.with_opacity(0.12, c_val)
-        except Exception as e:
-            bw_readout.value = f"Bandwidth error: {e}"
+        except Exception:
+            pass
 
     def refresh_warp() -> None:
         try:
             st = hub.warp_status()
-            warp_info.value = f"Status: {st}"
             low = st.lower()
             if "connected" in low:
-                chip_txt, chip_col = "LIVE", SUCCESS
-            elif "not installed" in low:
-                chip_txt, chip_col = "MISSING", MUTED_GRAY
+                warp_status_text.value = "● Connected (Protected)"
+                warp_status_text.color = SUCCESS
+                warp_switch.value = True
+            elif "connecting" in low:
+                warp_status_text.value = "● Connecting…"
+                warp_status_text.color = WARNING
+                warp_switch.value = True
             else:
-                chip_txt, chip_col = "OFF", MUTED_GRAY
-            warp_chip.content.controls[1].value = chip_txt
-            warp_chip.content.controls[0].bgcolor = chip_col
-            warp_chip.content.controls[1].color = chip_col
-            warp_chip.bgcolor = ft.Colors.with_opacity(0.12, chip_col)
+                warp_status_text.value = "Disconnected"
+                warp_status_text.color = MUTED_GRAY
+                warp_switch.value = False
         except Exception as e:
-            warp_info.value = f"WARP error: {e}"
+            warp_status_text.value = f"WARP error: {e}"
 
     def refresh_sys() -> None:
         try:
@@ -1159,48 +1479,28 @@ def main(page: ft.Page) -> None:
                 max_retries=1,
             )
             sync_active = (out or "").strip() == "active"
-            chip_txt = "SYNC" if sync_active else "SYNC OFF"
-            chip_col = SUCCESS if sync_active else DANGER
-            sys_chip.content.controls[1].value = chip_txt
-            sys_chip.content.controls[0].bgcolor = chip_col
-            sys_chip.content.controls[1].color = chip_col
-            sys_chip.bgcolor = ft.Colors.with_opacity(0.12, chip_col)
+            sync_str = "active" if sync_active else "inactive"
 
             c = hub.load_app_config()
             allowed = hub.load_mac_file(hub.ALLOWED_MACS_FILE)
             blocked = hub.load_mac_file(hub.BLOCKED_MACS_FILE)
             mf_enabled = c.get("mac_filter_enabled", False)
             mf_mode = c.get("mac_filter_mode", "allow")
-            mf_status = (
-                f"Active {mf_mode}" if mf_enabled else "OFF"
-            ) + f" · {len(allowed)} allowed · {len(blocked)} blocked"
-            bypass = "on" if hub.vpn_bypass_on() else "OFF"
+            chk_mac_filter_tab.value = mf_enabled
 
-            sta = hub.iface_info(hub.STA_IF)
-            ap = hub.iface_info(hub.AP_IF)
+            mac_filter_status_text.value = (
+                f"Mode: {'Allowlist' if mf_mode == 'allow' else 'Denylist'} · {len(allowed)} allowed · {len(blocked)} blocked"
+            )
 
-            lines = [f"VPN bypass: {bypass} · MAC filter: {mf_status}"]
-            if hub.DISABLED_FLAG.exists():
-                lines.append("Hotspot: manually stopped")
-            sta_link = hub.sta_link_info(hub.STA_IF)
-            if sta_link.get("connected") and sta_link.get("ssid"):
-                sta_desc = f"{hub.STA_IF} ({sta_link['ssid']} · {sta_link['bitrate']}) ch{sta.get('channel', '?')}"
-            else:
-                sta_desc = f"{hub.STA_IF} ch{sta.get('channel', '?')}"
-            lines.append(f"{sta_desc} | {hub.AP_IF} ch{ap.get('channel', '?')}")
-            sys_info.value = "\n".join(lines)
+            bypass = hub.vpn_bypass_on()
+            vpn_bypass_badge.content.value = "Active (pref 50)" if bypass else "Inactive"
+            vpn_bypass_badge.content.color = SUCCESS if bypass else MUTED_GRAY
+            vpn_bypass_badge.bgcolor = ft.Colors.with_opacity(0.12, SUCCESS if bypass else MUTED_GRAY)
 
-            ok, reason = hub.check_connectivity()
-            if ok:
-                sys_conn_info.value = "Connectivity: OK"
-                sys_conn_info.color = SUCCESS
-            else:
-                sys_conn_info.value = f"Connectivity: Limited ({reason})"
-                sys_conn_info.color = WARNING
-
+            sys_diag_text.value = f"Channel Sync: {sync_str} · VPN bypass: {'on' if bypass else 'off'}"
             chk_reconnect.value = bool(c.get("reconnect_enabled", True))
-        except Exception as e:
-            sys_info.value = f"System error: {e}"
+        except Exception:
+            pass
 
     def refresh_health() -> None:
         try:
@@ -1209,51 +1509,33 @@ def main(page: ft.Page) -> None:
 
             if sta_connected:
                 wifi_ssid_text.value = sta["ssid"]
-                speed = sta.get("bitrate") or "Unknown"
-                sig = sta.get("signal") or ""
-                badge_speed_text.value = speed
-                badge_sig_text.value = sig or "Sig ok"
+                badge_speed_text.value = sta.get("bitrate") or "Unknown"
+                badge_sig_text.value = sta.get("signal") or "Sig ok"
                 badge_ch_text.value = f"ch{hub.iface_info(hub.STA_IF).get('channel', '?')}"
 
-                wifi_chip.content.controls[1].value = "CONNECTED"
-                wifi_chip.content.controls[0].bgcolor = SUCCESS
-                wifi_chip.content.controls[1].color = SUCCESS
-                wifi_chip.bgcolor = ft.Colors.with_opacity(0.14, SUCCESS)
+                wifi_status_text.value = "CONNECTED"
+                wifi_status_text.color = SUCCESS
+                wifi_status_dot.bgcolor = SUCCESS
             else:
                 wifi_ssid_text.value = "Disconnected (STA down)"
                 badge_speed_text.value = "0 MBit/s"
                 badge_sig_text.value = "No signal"
                 badge_ch_text.value = "ch--"
 
-                wifi_chip.content.controls[1].value = "OFFLINE"
-                wifi_chip.content.controls[0].bgcolor = MUTED_GRAY
-                wifi_chip.content.controls[1].color = MUTED_GRAY
-                wifi_chip.bgcolor = ft.Colors.with_opacity(0.14, MUTED_GRAY)
+                wifi_status_text.value = "OFFLINE"
+                wifi_status_text.color = MUTED_GRAY
+                wifi_status_dot.bgcolor = MUTED_GRAY
 
             hc = hub.health_check()
-            ok = bool(hc.get("healthy", False))
             gw = hc.get("gateway_ip", "?")
             gw_ok = hc.get("gateway_ok", False)
             gw_probe = hc.get("gateway_probe", "")
             probe_str = f" ({gw_probe})" if gw_probe == "icmp-blocked" else ""
-            ap_up = hc.get("ap_up", False)
-            leases_ok = hc.get("leases_ok", False)
-            leases = hc.get("leases_count", "?")
 
             wifi_health_text.value = (
                 f"Gateway {gw} {'reachable' if gw_ok else 'unreachable'}{probe_str} · "
                 f"Internet {'OK' if gw_ok else 'LIMITED'}"
             )
-            health_info.value = (
-                f"AP {'UP' if ap_up else 'DOWN'} · "
-                f"DHCP {'ok (' + str(leases) + ' leases)' if leases_ok else 'error'}"
-            )
-            health_chip.content.controls[1].value = "HEALTHY" if ok else "ISSUES"
-            col = SUCCESS if ok else DANGER
-            health_chip.content.controls[0].bgcolor = col
-            health_chip.content.controls[1].color = col
-            health_chip.bgcolor = ft.Colors.with_opacity(0.12, col)
-
             chk_autostart.value = hub.is_autostart_enabled()
         except Exception as e:
             wifi_health_text.value = f"Health error: {e}"
@@ -1264,6 +1546,8 @@ def main(page: ft.Page) -> None:
         refresh_warp()
         refresh_sys()
         refresh_health()
+        if current_tab == "clients":
+            render_clients_tab()
         try:
             page.update()
         except Exception:
@@ -1271,9 +1555,7 @@ def main(page: ft.Page) -> None:
 
     # ── Theme Toggle ─────────────────────────────────────────────────
     def toggle_theme() -> None:
-        page.theme_mode = (
-            ft.ThemeMode.LIGHT if is_dark(page) else ft.ThemeMode.DARK
-        )
+        page.theme_mode = ft.ThemeMode.LIGHT if is_dark(page) else ft.ThemeMode.DARK
         page.bgcolor = page_bg(page)
 
         c_bg = card_bg(page)
@@ -1290,23 +1572,18 @@ def main(page: ft.Page) -> None:
         for m in themed_muted:
             m.color = m_col
 
-        theme_btn.icon = (
-            ft.Icons.DARK_MODE if is_dark(page) else ft.Icons.LIGHT_MODE
-        )
+        theme_btn.icon = ft.Icons.DARK_MODE if is_dark(page) else ft.Icons.LIGHT_MODE
         theme_btn.icon_color = m_col
+        btn_docs.icon_color = m_col
+        update_nav_bar()
+        update_band_pills()
         refresh_all()
 
     # ── Dialogs ──────────────────────────────────────────────────────
     def show_configure_dialog() -> None:
         """SSID and WPA2 passphrase editor with live validation."""
         current_ssid = hub.run([
-            "nmcli",
-            "-s",
-            "-g",
-            "802-11-wireless.ssid",
-            "connection",
-            "show",
-            hub.HOTSPOT_CON,
+            "nmcli", "-s", "-g", "802-11-wireless.ssid", "connection", "show", hub.HOTSPOT_CON
         ]).strip()
         if not current_ssid:
             current_ssid = hub.iface_info(hub.AP_IF).get("ssid", "")
@@ -1331,9 +1608,7 @@ def main(page: ft.Page) -> None:
         btn_save = ft.TextButton("Save", disabled=False)
 
         def validate_inputs(e: Any = None) -> None:
-            ok, msg = hub.validate_hotspot_credentials(
-                txt_ssid.value, txt_psk.value
-            )
+            ok, msg = hub.validate_hotspot_credentials(txt_ssid.value, txt_psk.value)
             btn_save.disabled = not ok
             if not ok:
                 feedback_lbl.value = msg
@@ -1351,26 +1626,22 @@ def main(page: ft.Page) -> None:
 
         def on_save(e: Any) -> None:
             ssid = txt_ssid.value.strip()
-            psk = txt_psk.value
+            psk = txt_psk.value.strip()
             page.pop_dialog()
 
             def do_save() -> None:
-                ok, msg = hub.modify_hotspot_credentials(ssid, psk)
+                ok, msg = hub.set_hotspot_credentials(ssid, psk if psk else None)
                 if not ok:
                     raise RuntimeError(msg)
                 if hub.detect_state() == "on":
                     hub.hotspot_restart_service()
 
-            run_async_action(
-                do_save, feedback=f"Hotspot name updated to “{ssid}”"
-            )
+            run_async_action(do_save, feedback=f"Hotspot name updated to “{ssid}”")
 
         btn_save.on_click = on_save
 
         dlg = ft.AlertDialog(
-            title=ft.Text(
-                "Hotspot — Name & Passphrase", weight=ft.FontWeight.W_600
-            ),
+            title=ft.Text("Hotspot — Name & Passphrase", weight=ft.FontWeight.W_600),
             content=ft.Column(
                 [
                     ft.Text(
@@ -1395,209 +1666,58 @@ def main(page: ft.Page) -> None:
         page.show_dialog(dlg)
 
     def show_clients_dialog() -> None:
-        """Connected clients dialog with naming, allowing, and kicking."""
-        stations = hub.station_dump()
-        leases = hub.read_leases()
-        oui = hub._load_oui_vendors()
-        allowed_macs = hub.load_mac_file(hub.ALLOWED_MACS_FILE)
+        """Jump to Access & Clients tab."""
+        select_tab("clients")
 
-        named_count = sum(
-            1 for m, _ in stations if hub.client_device_name(m, leases, oui)
+    def prompt_name_client(mac: str) -> None:
+        names = hub.load_device_names()
+        curr = names.get(mac.lower(), "")
+        txt_name = ft.TextField(
+            value=curr,
+            label=f"Friendly name for {mac}",
+            autofocus=True,
+            dense=True,
         )
-        summary_text = f"Stations: {len(stations)} ({named_count} named) | DHCP leases: {hub.lease_count()}"
 
-        client_rows: list[ft.Control] = []
-        if not stations:
-            empty_path = resolve_asset("clients-empty.svg", "assets")
-            empty_controls: list[ft.Control] = []
-            if empty_path:
-                empty_controls.append(
-                    ft.Image(src=empty_path, width=180, height=100)
-                )
-            empty_controls.append(
-                ft.Text(
-                    f"No clients connected (or {hub.AP_IF} is down).",
-                    size=13,
-                    color=muted_color(page),
-                    italic=True,
-                )
-            )
-            client_rows.append(
-                ft.Container(
-                    content=ft.Column(
-                        empty_controls,
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        spacing=8,
-                    ),
-                    alignment=ft.Alignment(0, 0),
-                    padding=ft.Padding(0, 20, 0, 20),
-                )
-            )
-        else:
-            for mac, sig in stations:
-                name = hub.client_device_name(mac, leases, oui)
-                is_allowed = mac.lower() in allowed_macs
-
-                def make_name_handler(m: str) -> Any:
-                    return lambda e: prompt_name_client(m)
-
-                def make_allow_handler(m: str) -> Any:
-                    return lambda e: allow_client(m)
-
-                def make_kick_handler(m: str) -> Any:
-                    return lambda e: kick_client_action(m)
-
-                btn_allow = ios_button(
-                    "Allowed" if is_allowed else "+ Allow",
-                    None if is_allowed else make_allow_handler(mac),
-                    variant="quiet" if is_allowed else "primary",
-                    compact=True,
-                )
-                if is_allowed:
-                    btn_allow.disabled = True
-
-                client_rows.append(
-                    ft.Container(
-                        content=ft.Row(
-                            [
-                                ft.Column(
-                                    [
-                                        ft.Text(
-                                            name or "Unnamed device",
-                                            size=13,
-                                            weight=ft.FontWeight.W_600,
-                                            color=text_color(page),
-                                        ),
-                                        ft.Text(
-                                            f"{mac}  ·  {sig or 'signal ?'}",
-                                            size=11,
-                                            font_family="monospace",
-                                            color=muted_color(page),
-                                        ),
-                                    ],
-                                    spacing=2,
-                                    expand=True,
-                                ),
-                                ios_button(
-                                    "Name…",
-                                    make_name_handler(mac),
-                                    variant="quiet",
-                                    compact=True,
-                                ),
-                                btn_allow,
-                                ios_button(
-                                    "Kick",
-                                    make_kick_handler(mac),
-                                    variant="danger",
-                                    compact=True,
-                                ),
-                            ],
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                        ),
-                        padding=ft.Padding(0, 4, 0, 4),
-                    )
-                )
-
-        def prompt_name_client(mac: str) -> None:
-            names = hub.load_device_names()
-            curr = names.get(mac.lower(), "")
-            txt_name = ft.TextField(
-                value=curr,
-                label=f"Friendly name for {mac}",
-                autofocus=True,
-                dense=True,
-            )
-
-            def save_name(e: Any) -> None:
-                val = txt_name.value.strip()
-                if val:
-                    names[mac.lower()] = val
-                elif mac.lower() in names:
-                    del names[mac.lower()]
-                hub.save_device_names(names)
-                page.pop_dialog()
-                page.pop_dialog()
-                show_clients_dialog()
-
-            name_dlg = ft.AlertDialog(
-                title=ft.Text("Name Device", weight=ft.FontWeight.W_600),
-                content=txt_name,
-                actions=[
-                    ft.TextButton(
-                        "Cancel", on_click=lambda e: page.pop_dialog()
-                    ),
-                    ft.TextButton("Save", on_click=save_name),
-                ],
-            )
-            page.show_dialog(name_dlg)
-
-        def allow_client(mac: str) -> None:
-            cur_allowed = hub.load_mac_file(hub.ALLOWED_MACS_FILE)
-            cur_allowed.add(mac.lower())
-            hub.save_mac_file(hub.ALLOWED_MACS_FILE, cur_allowed)
-            show_snack(f"Added {mac} to allowed list", SUCCESS)
+        def save_name(e: Any) -> None:
+            val = txt_name.value.strip()
+            if val:
+                names[mac.lower()] = val
+            elif mac.lower() in names:
+                del names[mac.lower()]
+            hub.save_device_names(names)
             page.pop_dialog()
-            show_clients_dialog()
+            render_clients_tab()
 
-        def kick_client_action(mac: str) -> None:
-            hub.kick_client(mac)
-            show_snack(f"Disconnected {mac}", PRIMARY)
-            page.pop_dialog()
-            show_clients_dialog()
-
-        dlg = ft.AlertDialog(
-            title=ft.Text(
-                f"Connected Clients ({hub.AP_IF})", weight=ft.FontWeight.W_600
-            ),
-            content=ft.Column(
-                [
-                    ft.Text(
-                        summary_text,
-                        size=12,
-                        font_family="monospace",
-                        color=muted_color(page),
-                    ),
-                    ft.Divider(height=1),
-                    ft.Column(
-                        client_rows,
-                        spacing=6,
-                        scroll=ft.ScrollMode.AUTO,
-                        height=260,
-                    ),
-                ],
-                spacing=8,
-                width=460,
-                tight=True,
-            ),
+        name_dlg = ft.AlertDialog(
+            title=ft.Text("Name Device", weight=ft.FontWeight.W_600),
+            content=txt_name,
             actions=[
-                ft.TextButton(
-                    "Refresh",
-                    on_click=lambda e: (page.pop_dialog(), show_clients_dialog()),
-                ),
-                ft.TextButton("Close", on_click=lambda e: page.pop_dialog()),
+                ft.TextButton("Cancel", on_click=lambda e: page.pop_dialog()),
+                ft.TextButton("Save", on_click=save_name),
             ],
         )
-        page.show_dialog(dlg)
+        page.show_dialog(name_dlg)
+
+    def allow_client(mac: str) -> None:
+        cur_allowed = hub.load_mac_file(hub.ALLOWED_MACS_FILE)
+        cur_allowed.add(mac.lower())
+        hub.save_mac_file(hub.ALLOWED_MACS_FILE, cur_allowed)
+        show_snack(f"Added {mac} to allowed list", SUCCESS)
+        render_clients_tab()
+
+    def kick_client_action(mac: str) -> None:
+        hub.kick_client(mac)
+        show_snack(f"Disconnected {mac}", PRIMARY)
+        render_clients_tab()
 
     def show_qr_dialog() -> None:
         """Display QR code and passphrase with one-click copy."""
         psk = hub.run([
-            "nmcli",
-            "-s",
-            "-g",
-            "802-11-wireless-security.psk",
-            "connection",
-            "show",
-            hub.HOTSPOT_CON,
+            "nmcli", "-s", "-g", "802-11-wireless-security.psk", "connection", "show", hub.HOTSPOT_CON
         ]).strip()
         ssid = hub.run([
-            "nmcli",
-            "-s",
-            "-g",
-            "802-11-wireless.ssid",
-            "connection",
-            "show",
-            hub.HOTSPOT_CON,
+            "nmcli", "-s", "-g", "802-11-wireless.ssid", "connection", "show", hub.HOTSPOT_CON
         ]).strip()
         if not ssid:
             ssid = hub.iface_info(hub.AP_IF).get("ssid", hub.HOTSPOT_CON)
@@ -1611,17 +1731,11 @@ def main(page: ft.Page) -> None:
             png_data = hub.qr_code_png(ssid, psk)
             if png_data:
                 b64 = base64.b64encode(png_data).decode("ascii")
-                qr_img_control = ft.Image(src=b64, width=200, height=200)
+                qr_img_control = ft.Image(src=b64, width=180, height=180)
             else:
-                qr_img_control = ft.Text(
-                    "Install 'qrencode' to view QR image.",
-                    color=WARNING,
-                    italic=True,
-                )
+                qr_img_control = ft.Text("Install 'qrencode' to view QR image.", color=WARNING, italic=True)
         except Exception:
-            qr_img_control = ft.Text(
-                "QR code generation unavailable.", color=WARNING, italic=True
-            )
+            qr_img_control = ft.Text("QR code generation unavailable.", color=WARNING, italic=True)
 
         copy_btn = ft.FilledButton("Copy Passphrase")
 
@@ -1637,27 +1751,16 @@ def main(page: ft.Page) -> None:
             content=ft.Column(
                 [
                     ft.Text(f"SSID: {ssid}", size=15, weight=ft.FontWeight.W_700),
-                    ft.Container(
-                        content=qr_img_control,
-                        alignment=ft.Alignment(0, 0),
-                        padding=ft.Padding(0, 8, 0, 8),
-                    ),
-                    ft.Text(
-                        f"Password: {psk}",
-                        size=13,
-                        font_family="monospace",
-                        selectable=True,
-                    ),
+                    ft.Container(content=qr_img_control, alignment=ft.Alignment(0, 0), padding=ft.Padding(0, 4, 0, 4)),
+                    ft.Text(f"Password: {psk}", size=13, font_family="monospace", selectable=True),
                     copy_btn,
                 ],
-                spacing=10,
+                spacing=8,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                width=340,
+                width=320,
                 tight=True,
             ),
-            actions=[
-                ft.TextButton("Close", on_click=lambda e: page.pop_dialog())
-            ],
+            actions=[ft.TextButton("Close", on_click=lambda e: page.pop_dialog())],
         )
         page.show_dialog(dlg)
 
@@ -1667,35 +1770,20 @@ def main(page: ft.Page) -> None:
         allowed = sorted(hub.load_mac_file(hub.ALLOWED_MACS_FILE))
         blocked = sorted(hub.load_mac_file(hub.BLOCKED_MACS_FILE))
 
-        enable_switch = ft.Switch(
-            value=bool(c.get("mac_filter_enabled", False)),
-            label="Enable MAC filtering",
-        )
+        enable_switch = ft.Switch(value=bool(c.get("mac_filter_enabled", False)), label="Enable MAC filtering")
         mode_radio = ft.RadioGroup(
             content=ft.Row([
-                ft.Radio(value="allow", label="Allowlist (Only allowed MACs)"),
-                ft.Radio(value="deny", label="Denylist (Block listed MACs)"),
+                ft.Radio(value="allow", label="Allowlist (Only allowed)"),
+                ft.Radio(value="deny", label="Denylist (Block listed)"),
             ]),
             value=c.get("mac_filter_mode", "allow"),
         )
 
-        txt_new_allow = ft.TextField(
-            label="MAC Address",
-            hint_text="00:11:22:33:44:55",
-            dense=True,
-            text_size=12,
-            expand=True,
-        )
-        txt_new_block = ft.TextField(
-            label="MAC Address",
-            hint_text="00:11:22:33:44:55",
-            dense=True,
-            text_size=12,
-            expand=True,
-        )
+        txt_new_allow = ft.TextField(label="MAC Address", hint_text="00:11:22:33:44:55", dense=True, text_size=12, expand=True)
+        txt_new_block = ft.TextField(label="MAC Address", hint_text="00:11:22:33:44:55", dense=True, text_size=12, expand=True)
 
-        allowed_col = ft.Column(spacing=4, scroll=ft.ScrollMode.AUTO, height=130)
-        blocked_col = ft.Column(spacing=4, scroll=ft.ScrollMode.AUTO, height=130)
+        allowed_col = ft.Column(spacing=4, scroll=ft.ScrollMode.AUTO, height=110)
+        blocked_col = ft.Column(spacing=4, scroll=ft.ScrollMode.AUTO, height=110)
 
         def normalize_mac(t: str) -> str:
             cleaned = t.strip().lower().replace("-", ":")
@@ -1708,45 +1796,23 @@ def main(page: ft.Page) -> None:
                 ft.Row(
                     [
                         ft.Text(m, font_family="monospace", size=12, expand=True),
-                        ft.IconButton(
-                            icon=ft.Icons.DELETE_OUTLINE,
-                            icon_size=16,
-                            on_click=lambda e, mac=m: del_allow(mac),
-                        ),
+                        ft.IconButton(icon=ft.Icons.DELETE_OUTLINE, icon_size=16, on_click=lambda e, mac=m: del_allow(mac)),
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 )
                 for m in allowed
-            ] or [
-                ft.Text(
-                    "No allowed MACs",
-                    size=12,
-                    color=muted_color(page),
-                    italic=True,
-                )
-            ]
+            ] or [ft.Text("No allowed MACs", size=12, color=muted_color(page), italic=True)]
 
             blocked_col.controls = [
                 ft.Row(
                     [
                         ft.Text(m, font_family="monospace", size=12, expand=True),
-                        ft.IconButton(
-                            icon=ft.Icons.DELETE_OUTLINE,
-                            icon_size=16,
-                            on_click=lambda e, mac=m: del_block(mac),
-                        ),
+                        ft.IconButton(icon=ft.Icons.DELETE_OUTLINE, icon_size=16, on_click=lambda e, mac=m: del_block(mac)),
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 )
                 for m in blocked
-            ] or [
-                ft.Text(
-                    "No blocked MACs",
-                    size=12,
-                    color=muted_color(page),
-                    italic=True,
-                )
-            ]
+            ] or [ft.Text("No blocked MACs", size=12, color=muted_color(page), italic=True)]
             dlg.update()
 
         def del_allow(m: str) -> None:
@@ -1813,41 +1879,21 @@ def main(page: ft.Page) -> None:
                     ft.Divider(height=1),
                     ft.Row(
                         [
-                            ft.Text(
-                                "Allowed MACs",
-                                size=13,
-                                weight=ft.FontWeight.W_600,
-                            ),
-                            ft.TextButton(
-                                "+ Add Connected",
-                                on_click=add_connected_to_allow,
-                            ),
+                            ft.Text("Allowed MACs", size=13, weight=ft.FontWeight.W_600),
+                            ft.TextButton("+ Add Connected", on_click=add_connected_to_allow),
                         ],
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     ),
                     allowed_col,
-                    ft.Row([
-                        txt_new_allow,
-                        ios_button(
-                            "Add", add_allow, variant="primary", compact=True
-                        ),
-                    ]),
+                    ft.Row([txt_new_allow, action_btn("Add", add_allow, variant="primary", compact=True)]),
                     ft.Divider(height=1),
-                    ft.Text(
-                        "Blocked MACs", size=13, weight=ft.FontWeight.W_600
-                    ),
+                    ft.Text("Blocked MACs", size=13, weight=ft.FontWeight.W_600),
                     blocked_col,
-                    ft.Row([
-                        txt_new_block,
-                        ios_button(
-                            "Add", add_block, variant="primary", compact=True
-                        ),
-                    ]),
+                    ft.Row([txt_new_block, action_btn("Block", add_block, variant="danger", compact=True)]),
                 ],
                 spacing=8,
-                width=460,
-                scroll=ft.ScrollMode.AUTO,
-                height=480,
+                width=420,
+                tight=True,
             ),
             actions=[
                 ft.TextButton("Cancel", on_click=lambda e: page.pop_dialog()),
@@ -1862,31 +1908,45 @@ def main(page: ft.Page) -> None:
         def on_window_event(e: ft.ControlEvent) -> None:
             if e.data == "close":
                 page.window.visible = False
-                page.update()
+                try:
+                    page.window.update()
+                except Exception:
+                    pass
 
         page.window.on_event = on_window_event
+
+    def show_app_window() -> None:
+        if page.web:
+            return
+        page.window.visible = True
+        page.window.minimized = False
+        page.window.focused = True
+        try:
+            page.window.update()
+        except Exception:
+            pass
+        try:
+            page.run_task(page.window.to_front)
+        except Exception:
+            pass
+        try:
+            page.update()
+        except Exception:
+            pass
 
     # ── Main Layout ──────────────────────────────────────────────────
     content = ft.Column(
         [
             header,
+            ft.Container(height=2),
+            nav_bar,
             ft.Container(height=4),
-            hotspot_card,
-            ft.Container(height=8),
-            wifi_card,
-            ft.Container(height=8),
-            bw_card,
-            ft.Container(height=8),
-            warp_card,
-            ft.Container(height=8),
-            sys_card,
-            ft.Container(height=8),
-            health_card,
-            ft.Container(height=16),
+            overview_view,
+            clients_view,
+            system_view,
         ],
-        scroll=ft.ScrollMode.AUTO,
-        expand=True,
         spacing=0,
+        expand=True,
     )
 
     page.add(content)
@@ -1895,12 +1955,8 @@ def main(page: ft.Page) -> None:
     start_hidden = any(
         arg in sys.argv for arg in ("--autostart", "--tray-only", "--hidden")
     )
-    if not page.web and not start_hidden:
-        page.window.visible = True
-        try:
-            page.run_task(page.window.to_front)
-        except Exception:
-            pass
+    if not start_hidden:
+        show_app_window()
 
     try:
         page.update()
@@ -1927,16 +1983,12 @@ def main(page: ft.Page) -> None:
                     sched_off = str(c.get("schedule_off", "22:00")).strip()
                     try:
                         on_h, on_m = map(int, sched_on.split(":"))
-                        match_on = (
-                            now_dt.hour == on_h and now_dt.minute == on_m
-                        )
+                        match_on = (now_dt.hour == on_h and now_dt.minute == on_m)
                     except Exception:
                         match_on = False
                     try:
                         off_h, off_m = map(int, sched_off.split(":"))
-                        match_off = (
-                            now_dt.hour == off_h and now_dt.minute == off_m
-                        )
+                        match_off = (now_dt.hour == off_h and now_dt.minute == off_m)
                     except Exception:
                         match_off = False
 
@@ -1957,19 +2009,17 @@ def main(page: ft.Page) -> None:
             try:
                 c = hub.load_app_config()
                 if c.get("battery_saver_enabled", False):
-                    pct = hub.read_battery_percent()
-                    if pct is not None:
-                        threshold = int(c.get("battery_threshold", 20))
-                        if pct > threshold + 5:
-                            battery_action_taken = False
-                        if pct <= threshold and not battery_action_taken:
+                    thresh = int(c.get("battery_threshold", 20))
+                    bat = hub.get_battery_level()
+                    charging = hub.is_battery_charging()
+                    if bat is not None and not charging:
+                        if bat <= thresh and not battery_action_taken:
+                            battery_action_taken = True
                             if hub.detect_state() == "on":
-                                battery_action_taken = True
                                 hub.hotspot_off_service()
-                                show_snack(
-                                    f"Battery saver: hotspot disabled ({pct}% <= {threshold}%)",
-                                    WARNING,
-                                )
+                                show_snack(f"Hotspot disabled: battery low ({bat}%)", WARNING)
+                        elif bat > (thresh + 5):
+                            battery_action_taken = False
             except Exception:
                 pass
 
@@ -1997,49 +2047,34 @@ def main(page: ft.Page) -> None:
             while not _quit_app.is_set():
                 if _show_window.is_set():
                     _show_window.clear()
-                    page.window.visible = True
-                    try:
-                        page.run_task(page.window.to_front)
-                        page.update()
-                    except Exception:
-                        pass
+                    show_app_window()
                 if _show_clients.is_set():
                     _show_clients.clear()
-                    page.window.visible = True
-                    try:
-                        page.run_task(page.window.to_front)
-                        page.update()
-                        show_clients_dialog()
-                    except Exception:
-                        pass
+                    select_tab("clients")
+                    show_app_window()
                 if _show_qr.is_set():
                     _show_qr.clear()
-                    page.window.visible = True
+                    show_app_window()
                     try:
-                        page.run_task(page.window.to_front)
-                        page.update()
                         show_qr_dialog()
                     except Exception:
                         pass
                 if _show_configure.is_set():
                     _show_configure.clear()
-                    page.window.visible = True
+                    show_app_window()
                     try:
-                        page.run_task(page.window.to_front)
-                        page.update()
                         show_configure_dialog()
                     except Exception:
                         pass
                 if _show_mac_filter.is_set():
                     _show_mac_filter.clear()
-                    page.window.visible = True
+                    select_tab("clients")
+                    show_app_window()
                     try:
-                        page.run_task(page.window.to_front)
-                        page.update()
                         show_mac_filter_dialog()
                     except Exception:
                         pass
-                time.sleep(0.1)
+                time.sleep(0.05)
 
             # Quit signal received from tray: cleanly destroy window
             try:
