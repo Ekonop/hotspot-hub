@@ -330,10 +330,19 @@ def main(page: ft.Page) -> None:
             value=value,
             on_change=on_change,
             disabled=disabled,
-            active_color=PRIMARY,
+            active_color=ft.Colors.WHITE,
             active_track_color=PRIMARY,
-            inactive_thumb_color="#94A3B8",
-            inactive_track_color="#272B36",
+            inactive_thumb_color="#CBD5E1",
+            inactive_track_color="#334155",
+            thumb_color={
+                ft.ControlState.SELECTED: ft.Colors.WHITE,
+                ft.ControlState.DEFAULT: "#CBD5E1",
+            },
+            track_color={
+                ft.ControlState.SELECTED: PRIMARY,
+                ft.ControlState.DEFAULT: "#334155",
+            },
+            track_outline_color=ft.Colors.TRANSPARENT,
         )
 
     def action_btn(
@@ -512,7 +521,7 @@ def main(page: ft.Page) -> None:
             border_radius=RADIUS_BTN,
             padding=ft.Padding(left=10, top=6, right=10, bottom=6),
             expand=True,
-            on_click=lambda e: select_tab(name),
+            on_click=lambda e, n=name: select_tab(n),
         )
 
     tab_overview = make_nav_tab("overview", "Overview", ft.Icons.DASHBOARD_ROUNDED)
@@ -649,6 +658,7 @@ def main(page: ft.Page) -> None:
             feedback=f"Band preference set to {band}",
         )
         update_band_pills()
+        page.update()
 
     band_pills: dict[str, ft.Container] = {}
 
@@ -1455,21 +1465,32 @@ def main(page: ft.Page) -> None:
     def refresh_warp() -> None:
         try:
             st = hub.warp_status()
-            low = st.lower()
-            if "connected" in low:
-                warp_status_text.value = "● Connected (Protected)"
-                warp_status_text.color = SUCCESS
-                warp_switch.value = True
+            low = st.strip().lower()
+            if "disconnected" in low:
+                warp_status_text.value = "Disconnected"
+                warp_status_text.color = MUTED_GRAY
+                warp_switch.value = False
             elif "connecting" in low:
                 warp_status_text.value = "● Connecting…"
                 warp_status_text.color = WARNING
                 warp_switch.value = True
+            elif "connected" in low:
+                warp_status_text.value = "● Connected (Protected)"
+                warp_status_text.color = SUCCESS
+                warp_switch.value = True
+            elif "not installed" in low:
+                warp_status_text.value = "WARP not installed"
+                warp_status_text.color = MUTED_GRAY
+                warp_switch.value = False
+                warp_switch.disabled = True
             else:
-                warp_status_text.value = "Disconnected"
+                warp_status_text.value = st if st else "Disconnected"
                 warp_status_text.color = MUTED_GRAY
                 warp_switch.value = False
         except Exception as e:
             warp_status_text.value = f"WARP error: {e}"
+            warp_status_text.color = DANGER
+            warp_switch.value = False
 
     def refresh_sys() -> None:
         try:
@@ -1770,7 +1791,7 @@ def main(page: ft.Page) -> None:
         allowed = sorted(hub.load_mac_file(hub.ALLOWED_MACS_FILE))
         blocked = sorted(hub.load_mac_file(hub.BLOCKED_MACS_FILE))
 
-        enable_switch = ft.Switch(value=bool(c.get("mac_filter_enabled", False)), label="Enable MAC filtering")
+        enable_switch = unified_switch(value=bool(c.get("mac_filter_enabled", False)))
         mode_radio = ft.RadioGroup(
             content=ft.Row([
                 ft.Radio(value="allow", label="Allowlist (Only allowed)"),
@@ -1874,7 +1895,7 @@ def main(page: ft.Page) -> None:
             title=ft.Text("MAC Address Filter", weight=ft.FontWeight.W_600),
             content=ft.Column(
                 [
-                    enable_switch,
+                    ft.Row([enable_switch, ft.Text("Enable MAC filtering", size=13, weight=ft.FontWeight.W_600)], spacing=8),
                     mode_radio,
                     ft.Divider(height=1),
                     ft.Row(
