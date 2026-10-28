@@ -61,7 +61,17 @@ def cmd_status(args: argparse.Namespace) -> int:
     state_str = "ACTIVE" if hotspot_active else ("DISABLED (manually stopped)" if is_disabled else ("IDLE" if ap else "DOWN"))
     print(f"Hotspot:    {state_str} ({hub.HOTSPOT_CON} on {hub.AP_IF})")
     print(f"  Security: {sec} (WPA3-SAE supported: {'yes' if cfg.get('wpa3_supported') else 'no'})")
-    print(f"  AP info:  SSID='{ap.get('ssid', '')}' Channel={ap.get('channel', '?')} (Band: {band_pref})")
+    # Derive the actual band from the live channel number — the configured
+    # band_pref is only a *preference* and often disagrees with the channel
+    # the AP actually landed on (e.g. pref Auto, channel 36 = 5GHz).
+    ap_channel = ap.get("channel", "")
+    try:
+        ch_num = int(ap_channel)
+    except (TypeError, ValueError):
+        ch_num = 0
+    actual_band = "2.4GHz" if 0 < ch_num <= 14 else ("5GHz" if ch_num >= 36 else "?")
+    pref_note = "" if band_pref in ("", "Auto") else f" · pref {band_pref}"
+    print(f"  AP info:  SSID='{ap.get('ssid', '')}' Channel={ap_channel} (Band: {actual_band}{pref_note})")
     print(f"Uplink:     {sta_text}")
     print(f"Clients:    {client_count} connected (DHCP leases: {hub.lease_count()})")
     print(f"MAC Filter: {mf_str}")
