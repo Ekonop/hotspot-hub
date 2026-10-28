@@ -71,17 +71,17 @@ WARNING = "#EAB308"
 DANGER = "#EF4444"
 MUTED_GRAY = "#94A3B8"
 
-BG_DARK = "#1C1C1E"
-BG_LIGHT = "#F2F2F7"
-CARD_DARK = "#2C2C2E"
+BG_DARK = "#0D1117"
+BG_LIGHT = "#F4F6F9"
+CARD_DARK = "#151B23"
 CARD_LIGHT = "#FFFFFF"
 TEXT_DARK = "#F8FAFC"
 TEXT_LIGHT = "#0F172A"
 MUTED_DARK = "#94A3B8"
 MUTED_LIGHT = "#64748B"
 
-RADIUS_CARD = 16
-RADIUS_BTN = 12
+RADIUS_CARD = 14
+RADIUS_BTN = 10
 FAULT_WINDOW_S = 120
 
 
@@ -104,6 +104,39 @@ def is_dark(page: ft.Page) -> bool:
 
 def card_bg(page: ft.Page) -> str:
     return CARD_DARK if is_dark(page) else CARD_LIGHT
+
+
+def card_border(page: ft.Page, accent: bool = False) -> ft.Border:
+    if is_dark(page):
+        if accent:
+            return ft.Border.all(1.4, ft.Colors.with_opacity(0.65, "#38BDF8"))
+        return ft.Border.all(1.2, ft.Colors.with_opacity(0.35, ft.Colors.WHITE))
+    if accent:
+        return ft.Border.all(1.2, PRIMARY)
+    return ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.BLACK))
+
+
+def card_shadow(page: ft.Page, accent: bool = False) -> ft.BoxShadow:
+    if is_dark(page):
+        if accent:
+            return ft.BoxShadow(
+                spread_radius=0,
+                blur_radius=14,
+                color=ft.Colors.with_opacity(0.24, "#38BDF8"),
+                offset=ft.Offset(0, 0),
+            )
+        return ft.BoxShadow(
+            spread_radius=0,
+            blur_radius=12,
+            color=ft.Colors.with_opacity(0.18, ft.Colors.WHITE),
+            offset=ft.Offset(0, 0),
+        )
+    return ft.BoxShadow(
+        spread_radius=0,
+        blur_radius=6,
+        color=ft.Colors.with_opacity(0.05, ft.Colors.BLACK),
+        offset=ft.Offset(0, 1),
+    )
 
 
 def text_color(page: ft.Page) -> str:
@@ -272,7 +305,9 @@ def main(page: ft.Page) -> None:
         themed_muted.append(t)
         return t
 
-    def ios_card(content: ft.Control, padding: int = 16) -> ft.Container:
+    def flat_neon_card(
+        content: ft.Control, padding: int = 16, accent: bool = False
+    ) -> ft.Container:
         c = ft.Container(
             content=content,
             bgcolor=card_bg(page),
@@ -280,14 +315,13 @@ def main(page: ft.Page) -> None:
             padding=ft.Padding(
                 left=padding, top=padding, right=padding, bottom=padding
             ),
-            shadow=ft.BoxShadow(
-                spread_radius=0,
-                blur_radius=16,
-                color=ft.Colors.with_opacity(0.12, ft.Colors.BLACK),
-                offset=ft.Offset(0, 2),
-            ),
+            border=card_border(page, accent),
+            shadow=card_shadow(page, accent),
+            data={"accent": accent},
         )
         return register_card(c)
+
+    ios_card = flat_neon_card
 
     def ios_button(
         label: str,
@@ -633,7 +667,7 @@ def main(page: ft.Page) -> None:
         ft.Text("Health: checking gateway…", size=12, font_family="monospace")
     )
 
-    wifi_card = ios_card(
+    wifi_card = flat_neon_card(
         ft.Column(
             [
                 ft.Row(
@@ -1248,6 +1282,9 @@ def main(page: ft.Page) -> None:
 
         for card in themed_cards:
             card.bgcolor = c_bg
+            accent = bool(card.data and card.data.get("accent"))
+            card.border = card_border(page, accent)
+            card.shadow = card_shadow(page, accent)
         for t in themed_texts:
             t.color = t_col
         for m in themed_muted:
