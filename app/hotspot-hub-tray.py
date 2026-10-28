@@ -13,14 +13,14 @@ import threading
 import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(REPO, "app"))
-sys.path.insert(0, os.path.join(REPO, "cli"))
+sys.path.insert(0, REPO)
 
-import importlib.util
+from core import config as _cfg
+from core import services as hub
 
-_spec = importlib.util.spec_from_file_location("hotspot_hub", os.path.join(REPO, "app", "hotspot-hub.py"))
-hub = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(hub)
+# Merge config exports into hub for backwards compatibility with hub.* calls
+for _name in ("ALLOWED_MACS_FILE", "BLOCKED_MACS_FILE", "load_app_config", "save_app_config"):
+    setattr(hub, _name, getattr(_cfg, _name))
 
 import flet as ft
 from PIL import Image, ImageDraw
@@ -142,7 +142,7 @@ _tray_icon_ref = {"icon": None, "state": "off"}
 
 def update_tray_icon(state):
     """Update the tray icon color based on hotspot state."""
-    if _tray_icon_ref["icon"] is not None:
+    if _tray_icon_ref["icon"] is not None and _tray_icon_ref["state"] != state:
         _tray_icon_ref["icon"].icon = create_tray_icon(state)
         _tray_icon_ref["state"] = state
 
@@ -464,7 +464,7 @@ def main(page: ft.Page):
                         ft.Text(f"{mac}  ·  {sig}", size=11,
                                 color=muted_color(page), font_family="monospace"),
                     ], spacing=2, expand=True),
-                    ios_button("Kick", lambda e, m=mac: (hub.kick_client(m), show_clients_dialog(page)),
+                    ios_button("Kick", lambda e, m=mac: (hub.kick_client(m), close_dialog(dlg), show_clients_dialog(page)),
                                page, "danger", compact=True),
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN))
 
@@ -578,6 +578,8 @@ def main(page: ft.Page):
 
     def close_dialog(dlg):
         dlg.open = False
+        if dlg in page.overlay:
+            page.overlay.remove(dlg)
         page.update()
 
     # ── Theme toggle ──

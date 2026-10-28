@@ -28,6 +28,19 @@ logger = logging.getLogger("hotspot-hub")
 # Cache structures
 _RUN_CACHE: dict = {}
 _RUN_RC_CACHE: dict = {}
+_MAX_CACHE_ENTRIES: int = 128
+
+
+def _store_cache(cache: dict[Any, tuple[Any, float]], key: Any, val: Any, now: float, ttl: float) -> None:
+    """Store an entry in a TTL cache, pruning expired entries when capacity is exceeded."""
+    if len(cache) >= _MAX_CACHE_ENTRIES:
+        expired = [k for k, (_, ts) in cache.items() if now - ts >= ttl]
+        for k in expired:
+            cache.pop(k, None)
+        if len(cache) >= _MAX_CACHE_ENTRIES:
+            oldest = min(cache, key=lambda k: cache[k][1])
+            cache.pop(oldest, None)
+    cache[key] = (val, now)
 
 # Constants
 BACKOFF_DELAYS: tuple[float, ...] = (1.0, 2.0, 4.0)
@@ -97,7 +110,7 @@ def run(
             out = p.stdout.strip()
             if p.returncode == 0:
                 if use_cache and _is_cacheable(cmd):
-                    _RUN_CACHE[cache_key] = (out, time.monotonic())
+                    _store_cache(_RUN_CACHE, cache_key, out, time.monotonic(), CACHE_TTL)
                 return out
             err_msg = (p.stderr or p.stdout).strip()
             last_err = f"code {p.returncode}: {err_msg}"
@@ -149,7 +162,7 @@ def run_rc(
             if p.returncode == 0:
                 res = (0, out)
                 if use_cache and _is_cacheable(cmd):
-                    _RUN_RC_CACHE[cache_key] = (res, time.monotonic())
+                    _store_cache(_RUN_RC_CACHE, cache_key, res, time.monotonic(), CACHE_TTL)
                 return res
             last_rc = p.returncode
             last_out = out
@@ -689,6 +702,13 @@ def resolve_mdns_name(ip: str, timeout: float = 3.0) -> str:
     name = name.strip(" .")
     if len(name) > 63:
         name = name[:63]
+    if len(_mdns_cache) >= 64:
+        expired_ips = [k for k, (ts, _) in _mdns_cache.items() if now - ts >= 30]
+        for k in expired_ips:
+            _mdns_cache.pop(k, None)
+        if len(_mdns_cache) >= 128:
+            oldest_ip = min(_mdns_cache, key=lambda k: _mdns_cache[k][0])
+            _mdns_cache.pop(oldest_ip, None)
     _mdns_cache[ip] = (now, name)
     return name
 

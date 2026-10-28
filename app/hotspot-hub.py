@@ -73,6 +73,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QLabel,
+    QLayout,
     QLineEdit,
     QListWidget,
     QMenu,
@@ -1542,12 +1543,25 @@ class HealthSection(PanelSection):
 
 
 
+def _clear_layout(layout: QLayout) -> None:
+    """Recursively delete all widgets and sub-layouts in a QLayout."""
+    while layout.count():
+        item = layout.takeAt(0)
+        if item.widget():
+            item.widget().setParent(None)
+            item.widget().deleteLater()
+        elif item.layout():
+            _clear_layout(item.layout())
+            item.layout().deleteLater()
+
+
 class ClientsDialog(QDialog):
     """Dialog displaying connected Wi-Fi clients with kick capability."""
 
     def __init__(self, controller: HotspotPanel, parent: QWidget | None = None) -> None:
         """Initialize the client list dialog."""
         super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         self.controller = controller
         self.setWindowTitle(f"Connected Clients ({AP_IF})")
         self.setMinimumWidth(440)
@@ -1588,10 +1602,7 @@ class ClientsDialog(QDialog):
     def refresh_clients(self) -> None:
         """Refresh station list and rebuild client rows."""
         self.controller.invalidate_cache()
-        while self.clients_layout.count():
-            item = self.clients_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        _clear_layout(self.clients_layout)
 
         try:
             stations = station_dump()
@@ -1605,7 +1616,8 @@ class ClientsDialog(QDialog):
         self.summary_label.setText(summary)
 
         if not stations:
-            empty_box = QVBoxLayout()
+            empty_widget = QWidget()
+            empty_box = QVBoxLayout(empty_widget)
             empty_box.setSpacing(8)
             empty_box.setContentsMargins(0, 26, 0, 8)
             art = asset_path("clients-empty.svg")
@@ -1620,7 +1632,7 @@ class ClientsDialog(QDialog):
             empty.setProperty("mutedLabel", True)
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
             empty_box.addWidget(empty)
-            self.clients_layout.addLayout(empty_box)
+            self.clients_layout.addWidget(empty_widget)
         else:
             leases = read_leases()
             oui = _load_oui_vendors()
@@ -1711,6 +1723,7 @@ class ConfigureDialog(QDialog):
     def __init__(self, controller: HotspotPanel, parent: QWidget | None = None) -> None:
         """Initialize the configuration dialog with current values."""
         super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         self.controller = controller
         self.setWindowTitle("Hotspot — Name & Passphrase")
         self.setMinimumWidth(400)
@@ -1815,6 +1828,7 @@ class MacFilterDialog(QDialog):
     def __init__(self, controller: HotspotPanel, parent: QWidget | None = None) -> None:
         """Initialize MAC filter dialog."""
         super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         self.controller = controller
         self.setWindowTitle("MAC Address Filter")
         self.setMinimumWidth(460)
@@ -2485,7 +2499,8 @@ class HotspotPanel:
         # garbage-collected while still running aborts Qt with
         # "QThread: Destroyed while thread is still running".
         self._workers.append(worker)
-        worker.finished.connect(lambda _=None: self._workers.remove(worker) if worker in self._workers else None)
+        worker.finished.connect(worker.deleteLater)
+        worker.finished.connect(lambda _=None, w=worker: self._workers.remove(w) if w in self._workers else None)
         worker.done.connect(_done)
         worker.start()
 
@@ -3058,6 +3073,7 @@ class HotspotPanel:
             return
 
         dialog = QDialog(self.panel if self.panel.isVisible() else None)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         dialog.setWindowTitle("Hotspot QR Code")
         dialog.setStyleSheet(get_theme_stylesheet(dialog.palette()))
         dlg_layout = QVBoxLayout(dialog)
