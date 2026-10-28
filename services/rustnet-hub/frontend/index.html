@@ -346,6 +346,32 @@
       "General Web": 0
     };
 
+    // ── Standard Adaptive Unit Formatters ──────────────────────────────
+    function formatRate(bytesPerSec) {
+      if (!bytesPerSec || bytesPerSec <= 0) return "0 B/s";
+      if (bytesPerSec < 1024) return `${bytesPerSec.toFixed(0)} B/s`;
+      const kb = bytesPerSec / 1024;
+      if (kb < 1024) return `${kb.toFixed(1)} kB/s`;
+      const mb = kb / 1024;
+      if (mb < 1024) return `${mb.toFixed(1)} MB/s`;
+      return `${(mb / 1024).toFixed(2)} GB/s`;
+    }
+
+    function formatBps(bps) {
+      if (!bps || bps <= 0) return "0 B/s";
+      return formatRate(bps / 8);
+    }
+
+    function formatBytes(bytes) {
+      if (!bytes || bytes <= 0) return "0 B";
+      if (bytes < 1024) return `${bytes.toFixed(0)} B`;
+      const kb = bytes / 1024;
+      if (kb < 1024) return `${kb.toFixed(1)} KB`;
+      const mb = kb / 1024;
+      if (mb < 1024) return `${mb.toFixed(1)} MB`;
+      return `${(mb / 1024).toFixed(2)} GB`;
+    }
+
     function initCharts() {
       // 1. Bandwidth line sparkline
       const ctxBw = document.getElementById('chart-bandwidth').getContext('2d');
@@ -354,7 +380,7 @@
         data: {
           labels: Array(30).fill(''),
           datasets: [{
-            label: 'Throughput (kbps)',
+            label: 'Throughput (kB/s)',
             data: bwHistory,
             borderColor: '#10B981',
             backgroundColor: 'rgba(16, 185, 129, 0.1)',
@@ -367,12 +393,23 @@
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => `${ctx.parsed.y.toFixed(1)} kB/s`
+              }
+            }
+          },
           scales: {
             x: { display: false },
             y: {
               grid: { color: 'rgba(255, 255, 255, 0.05)' },
-              ticks: { color: '#94A3B8', font: { size: 10 } }
+              ticks: {
+                color: '#94A3B8',
+                font: { size: 10 },
+                callback: (val) => val + ' kB/s'
+              }
             }
           }
         }
@@ -529,7 +566,8 @@
                 name: record.client_name,
                 ip: record.client_ip,
                 bytes: 0,
-                flows: 0
+                flows: 0,
+                connMap: new Map()
               });
             }
             let c = knownClients.get(macKey);
@@ -537,7 +575,14 @@
               c.name = record.client_name;
             }
             c.ip = record.client_ip;
-            c.bytes += (record.bandwidth_bps || 0) / 8;
+            if (!c.connMap) c.connMap = new Map();
+            const connKey = record.domain + "_" + record.process;
+            const prevB = c.connMap.get(connKey) || 0;
+            const currB = record.total_bytes || (record.bandwidth_bps / 8) || 0;
+            if (currB > prevB) {
+              c.bytes += (currB - prevB);
+              c.connMap.set(connKey, currB);
+            }
             c.flows += 1;
             updateClientDropdown(macKey, c.name, c.ip);
           }
@@ -559,9 +604,11 @@
 
     // Interval to refresh charts smoothly
     setInterval(() => {
-      let currentBps = trafficData.slice(0, 15).reduce((acc, r) => acc + (r.bandwidth_bps || 0), 0);
-      let kbps = currentBps / 1024;
-      bwHistory.push(kbps);
+      const now = Date.now();
+      const recentFlows = trafficData.filter(r => (now - new Date(r.timestamp).getTime()) <= 2000);
+      let currentBps = recentFlows.reduce((acc, r) => acc + (r.bandwidth_bps || 0), 0);
+      let kbSec = (currentBps / 8) / 1024;
+      bwHistory.push(kbSec);
       bwHistory.shift();
 
       if (chartBandwidth) {
@@ -602,8 +649,10 @@
     function updateStats() {
       document.getElementById("stat-flows").textContent = trafficData.length;
       document.getElementById("count-total").textContent = trafficData.length;
-      let totalBps = trafficData.reduce((acc, row) => acc + (row.bandwidth_bps || 0), 0);
-      document.getElementById("stat-speed").textContent = `${(totalBps / 1024).toFixed(1)} kbps`;
+      const now = Date.now();
+      const recentFlows = trafficData.filter(r => (now - new Date(r.timestamp).getTime()) <= 2000);
+      let liveBps = recentFlows.reduce((acc, row) => acc + (row.bandwidth_bps || 0), 0);
+      document.getElementById("stat-speed").textContent = formatBps(liveBps);
 
       let threats = trafficData.filter(r => r.risk_level === 'danger' || r.risk_level === 'warning');
       document.getElementById("stat-threats").textContent = threats.length;
@@ -618,7 +667,6 @@
         clientBoard.innerHTML = `<div class="text-slate-500 py-3 text-center">No active talkers recorded yet</div>`;
       } else {
         clientBoard.innerHTML = sortedClients.map(([mac, info], idx) => {
-          const mb = (info.bytes / (1024 * 1024)).toFixed(2);
           return `
             <div class="flex items-center justify-between p-2.5 bg-white/[0.02] rounded-xl border border-white/5">
               <div class="flex items-center gap-3">
@@ -629,7 +677,7 @@
                 </div>
               </div>
               <div class="text-right">
-                <div class="font-bold text-emerald-400 font-mono">${mb} MB</div>
+                <div class="font-bold text-emerald-400 font-mono">${formatBytes(info.bytes)}</div>
                 <div class="text-[10px] text-slate-500">${info.flows} flows</div>
               </div>
             </div>
@@ -639,23 +687,22 @@
 
       // Top Domains
       const domainBoard = document.getElementById("leaderboard-domains");
-      const domainCounts = {};
+      const domainVolumes = {};
       trafficData.forEach(r => {
-        domainCounts[r.domain] = (domainCounts[r.domain] || 0) + (r.bandwidth_bps || 0);
+        domainVolumes[r.domain] = (domainVolumes[r.domain] || 0) + (r.total_bytes || (r.bandwidth_bps / 8) || 0);
       });
-      const sortedDomains = Object.entries(domainCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+      const sortedDomains = Object.entries(domainVolumes).sort((a, b) => b[1] - a[1]).slice(0, 5);
       if (sortedDomains.length === 0) {
         domainBoard.innerHTML = `<div class="text-slate-500 py-3 text-center font-sans">No domain stats yet</div>`;
       } else {
-        domainBoard.innerHTML = sortedDomains.map(([dom, bps], idx) => {
-          const kbps = (bps / 1024).toFixed(1);
+        domainBoard.innerHTML = sortedDomains.map(([dom, bytes], idx) => {
           return `
             <div class="flex items-center justify-between p-2.5 bg-white/[0.02] rounded-xl border border-white/5">
               <div class="flex items-center gap-2 truncate max-w-[70%]">
                 <span class="text-slate-500 text-[10px]">#${idx + 1}</span>
                 <span class="text-cyan-300 truncate">${escapeHtml(dom)}</span>
               </div>
-              <span class="font-bold text-slate-200 tabular-nums">${kbps} kbps</span>
+              <span class="font-bold text-slate-200 tabular-nums">${formatBytes(bytes)}</span>
             </div>
           `;
         }).join("");
@@ -703,7 +750,6 @@
         return;
       }
       grid.innerHTML = Array.from(knownClients.entries()).map(([mac, info]) => {
-        const mb = (info.bytes / (1024 * 1024)).toFixed(2);
         return `
           <div class="bg-[#161B22] border border-white/10 rounded-xl p-5 space-y-4 shadow-lg">
             <div class="flex items-start justify-between">
@@ -723,8 +769,8 @@
 
             <div class="grid grid-cols-2 gap-2 text-xs p-2.5 bg-white/[0.02] rounded-xl border border-white/5 font-mono">
               <div>
-                <div class="text-[10px] text-slate-500 uppercase font-sans">Bandwidth</div>
-                <div class="font-bold text-emerald-400">${mb} MB</div>
+                <div class="text-[10px] text-slate-500 uppercase font-sans">Data Volume</div>
+                <div class="font-bold text-emerald-400">${formatBytes(info.bytes)}</div>
               </div>
               <div>
                 <div class="text-[10px] text-slate-500 uppercase font-sans">Active Flows</div>
@@ -788,7 +834,8 @@
       }
 
       tbody.innerHTML = filtered.map((row, idx) => {
-        const kbps = (row.bandwidth_bps / 1024).toFixed(1);
+        const speedStr = formatBps(row.bandwidth_bps);
+        const volStr = row.total_bytes ? formatBytes(row.total_bytes) : "";
 
         // Category badge styling
         let catColor = "bg-slate-800 text-slate-300 border-white/10";
@@ -839,8 +886,9 @@
             <td class="px-4 py-2.5">
               ${riskPill}
             </td>
-            <td class="px-4 py-2.5 text-right font-bold text-emerald-400 tabular-nums">
-              ${kbps} kbps
+            <td class="px-4 py-2.5 text-right font-mono tabular-nums">
+              <div class="font-bold text-emerald-400">${speedStr}</div>
+              ${volStr ? `<div class="text-[10px] text-slate-500 font-sans">vol ${volStr}</div>` : ""}
             </td>
             <td class="px-4 py-2.5 text-right">
               <button onclick="inspectFlow(${idx})" class="p-1 hover:bg-white/10 text-slate-400 hover:text-white rounded-lg transition" title="Inspect Ensemble Classification">
@@ -872,7 +920,7 @@
       document.getElementById("modal-client").textContent = flow.client_name;
       document.getElementById("modal-ipmac").textContent = `${flow.client_ip} (${flow.client_mac})`;
       document.getElementById("modal-proto").textContent = `${flow.protocol} / ${flow.process}`;
-      document.getElementById("modal-bw").textContent = `${(flow.bandwidth_bps / 1024).toFixed(1)} kbps`;
+      document.getElementById("modal-bw").textContent = `${formatBps(flow.bandwidth_bps)} (Session Total: ${formatBytes(flow.total_bytes || 0)})`;
 
       const verdictsDiv = document.getElementById("modal-verdicts");
       if (flow.team_verdicts && flow.team_verdicts.length) {

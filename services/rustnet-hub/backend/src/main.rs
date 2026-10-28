@@ -27,7 +27,8 @@ pub struct TrafficRecord {
     pub process: String,
     pub domain: String,
     pub protocol: String,
-    pub bandwidth_bps: u64,
+    pub bandwidth_bps: u64, // Instantaneous throughput speed (bits per second)
+    pub total_bytes: u64,   // Total volume transferred on connection (bytes)
     pub category: String,
     pub risk_level: String, // "safe", "low", "warning", "danger"
     pub risk_score: u8,
@@ -137,6 +138,8 @@ async fn run_rustnet_supervisor(
         match child {
             Ok(mut proc) => {
                 use tokio::io::{AsyncBufReadExt, BufReader};
+                let mut conn_rate_map: std::collections::HashMap<String, (u64, std::time::Instant)> = std::collections::HashMap::new();
+
                 if let Some(stdout) = proc.stdout.take() {
                     let mut reader = BufReader::new(stdout).lines();
                     while let Ok(Some(line)) = reader.next_line().await {
@@ -147,6 +150,7 @@ async fn run_rustnet_supervisor(
                                 eng.refresh_leases();
 
                                 for conn in conns {
+                                    let conn_id = conn.get("id").and_then(|i| i.as_str()).unwrap_or("").to_string();
                                     let protocol = conn.get("protocol").and_then(|p| p.as_str()).unwrap_or("TCP");
                                     let local_ip_str = conn.get("local").and_then(|l| l.get("ip")).and_then(|i| i.as_str()).unwrap_or("");
                                     let remote_ip_str = conn.get("remote").and_then(|r| r.get("ip")).and_then(|i| i.as_str()).unwrap_or("");
@@ -173,6 +177,27 @@ async fn run_rustnet_supervisor(
                                     let bytes_sent = conn.get("traffic").and_then(|t| t.get("bytes_sent")).and_then(|b| b.as_u64()).unwrap_or(0);
                                     let bytes_recv = conn.get("traffic").and_then(|t| t.get("bytes_received")).and_then(|b| b.as_u64()).unwrap_or(0);
                                     let total_bytes = bytes_sent + bytes_recv;
+
+                                    let out_rate = conn.get("traffic").and_then(|t| t.get("outgoing_bytes_per_second")).and_then(|r| r.as_f64()).unwrap_or(0.0);
+                                    let in_rate = conn.get("traffic").and_then(|t| t.get("incoming_bytes_per_second")).and_then(|r| r.as_f64()).unwrap_or(0.0);
+
+                                    let now_inst = std::time::Instant::now();
+                                    let rate_bytes_sec = if (out_rate + in_rate) > 0.0 {
+                                        out_rate + in_rate
+                                    } else if let Some((prev_b, prev_t)) = conn_rate_map.get(&conn_id) {
+                                        let dt = now_inst.duration_since(*prev_t).as_secs_f64();
+                                        if dt > 0.0 && total_bytes >= *prev_b {
+                                            (total_bytes - *prev_b) as f64 / dt
+                                        } else {
+                                            0.0
+                                        }
+                                    } else {
+                                        total_bytes as f64 / 0.5
+                                    };
+
+                                    if !conn_id.is_empty() {
+                                        conn_rate_map.insert(conn_id, (total_bytes, now_inst));
+                                    }
 
                                     let process_name = if let Some(proc) = conn.get("process").and_then(|p| p.get("name")).and_then(|n| n.as_str()) {
                                         proc.to_string()
@@ -202,7 +227,8 @@ async fn run_rustnet_supervisor(
                                         process: process_name,
                                         domain,
                                         protocol: protocol.to_string(),
-                                        bandwidth_bps: total_bytes * 8,
+                                        bandwidth_bps: (rate_bytes_sec * 8.0) as u64,
+                                        total_bytes,
                                         category: ensemble.category,
                                         risk_level: ensemble.risk_level,
                                         risk_score: ensemble.risk_score,
