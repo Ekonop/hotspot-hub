@@ -272,12 +272,21 @@ def main(page: ft.Page) -> None:
     page.padding = 12
 
     if not page.web:
+        def on_window_event(e: ft.ControlEvent) -> None:
+            if e.data == "close":
+                page.window.visible = False
+                try:
+                    page.window.update()
+                except Exception:
+                    pass
+
         page.window.width = 440
         page.window.height = 660
         page.window.resizable = True
         page.window.min_width = 420
         page.window.min_height = 580
         page.window.prevent_close = True
+        page.window.on_event = on_window_event
         hide_on_start = os.environ.get("FLET_HIDE_WINDOW_ON_START", "true").lower() not in ("false", "0", "no")
         if "--show" in sys.argv:
             hide_on_start = False
@@ -287,6 +296,11 @@ def main(page: ft.Page) -> None:
             icon_p = resolve_asset("hotspot-hub.svg", "icons")
             if icon_p:
                 page.window.icon = icon_p
+        except Exception:
+            pass
+
+        try:
+            page.window.update()
         except Exception:
             pass
 
@@ -1939,18 +1953,6 @@ def main(page: ft.Page) -> None:
         )
         page.show_dialog(dlg)
         render_mac_lists()
-
-    # ── Window close handler ─────────────────────────────────────────
-    if not page.web:
-        def on_window_event(e: ft.ControlEvent) -> None:
-            if e.data == "close":
-                page.window.visible = False
-                try:
-                    page.window.update()
-                except Exception:
-                    pass
-
-        page.window.on_event = on_window_event
 
     def show_app_window() -> None:
         if page.web:
