@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hotspot Hub — Real-Time Traffic Inspector (RustNet)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .tabular-nums { font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body class="bg-[#0D1117] text-slate-100 min-h-screen flex flex-col">
+  <!-- Top Navigation Bar -->
+  <nav class="border-b border-white/10 bg-[#161B22]/80 backdrop-blur sticky top-0 z-50 px-6 py-3.5 flex justify-between items-center">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+        <i data-lucide="radio" class="w-5 h-5 text-emerald-400"></i>
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="text-base font-bold text-white tracking-tight">Hotspot Hub Traffic Inspector</h1>
+          <span id="conn-pill" class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+            CONNECTING...
+          </span>
+        </div>
+        <p class="text-xs text-slate-400">Powered by RustNet eBPF & Conntrack attribution</p>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-3">
+      <button id="btn-export" onclick="exportPcapng()" class="flex items-center gap-2 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white rounded-lg text-xs font-semibold shadow-lg transition">
+        <i data-lucide="download" class="w-3.5 h-3.5"></i>
+        Export PCAPNG (Wireshark)
+      </button>
+      <button onclick="clearBuffer()" class="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-slate-300 rounded-lg text-xs font-medium transition">
+        Clear
+      </button>
+    </div>
+  </nav>
+
+  <!-- Metric Summary Cards -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div class="bg-[#161B22] border border-white/10 rounded-xl p-4 flex items-center gap-4">
+        <div class="p-3 bg-blue-500/10 text-blue-400 rounded-lg"><i data-lucide="users" class="w-5 h-5"></i></div>
+        <div>
+          <div class="text-xs text-slate-400 font-medium">Active Clients</div>
+          <div id="stat-clients" class="text-xl font-bold text-white">0</div>
+        </div>
+      </div>
+      <div class="bg-[#161B22] border border-white/10 rounded-xl p-4 flex items-center gap-4">
+        <div class="p-3 bg-emerald-500/10 text-emerald-400 rounded-lg"><i data-lucide="activity" class="w-5 h-5"></i></div>
+        <div>
+          <div class="text-xs text-slate-400 font-medium">Total Live Flows</div>
+          <div id="stat-flows" class="text-xl font-bold text-white">0</div>
+        </div>
+      </div>
+      <div class="bg-[#161B22] border border-white/10 rounded-xl p-4 flex items-center gap-4">
+        <div class="p-3 bg-purple-500/10 text-purple-400 rounded-lg"><i data-lucide="arrow-down-up" class="w-5 h-5"></i></div>
+        <div>
+          <div class="text-xs text-slate-400 font-medium">Live Throughput</div>
+          <div id="stat-speed" class="text-xl font-bold text-emerald-400 tabular-nums">0.0 kbps</div>
+        </div>
+      </div>
+      <div class="bg-[#161B22] border border-white/10 rounded-xl p-4 flex items-center gap-4">
+        <div class="p-3 bg-amber-500/10 text-amber-400 rounded-lg"><i data-lucide="hard-drive" class="w-5 h-5"></i></div>
+        <div>
+          <div class="text-xs text-slate-400 font-medium">Capture Engine</div>
+          <div class="text-sm font-semibold text-slate-200">RustNet 1.7.0 (ap0)</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Controls & Filters -->
+    <div class="bg-[#161B22] border border-white/10 rounded-xl p-3 flex flex-wrap gap-3 items-center justify-between">
+      <div class="flex items-center gap-3 flex-1 min-w-[280px]">
+        <i data-lucide="filter" class="w-4 h-4 text-slate-400 ml-1"></i>
+        <select id="client-filter" onchange="renderTable()" class="bg-[#0D1117] border border-white/10 text-xs text-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500">
+          <option value="all">All Connected Devices</option>
+        </select>
+        <div class="relative flex-1">
+          <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5"></i>
+          <input type="text" id="search-input" oninput="renderTable()" placeholder="Search domain, IP, or process..." class="w-full bg-[#0D1117] border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-blue-500 placeholder-slate-500">
+        </div>
+      </div>
+      <div class="text-xs text-slate-400 tabular-nums">
+        Showing <span id="count-visible" class="text-white font-semibold">0</span> flows
+      </div>
+    </div>
+
+    <!-- Real-Time Packet Stream Table -->
+    <div class="bg-[#161B22] border border-white/10 rounded-xl overflow-hidden shadow-2xl">
+      <div class="overflow-x-auto max-h-[620px] overflow-y-auto">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-white/[0.03] text-slate-400 uppercase tracking-wider text-[11px] border-b border-white/10 sticky top-0 backdrop-blur z-10">
+            <tr>
+              <th class="px-4 py-3">Client Device</th>
+              <th class="px-4 py-3">Client IP & MAC</th>
+              <th class="px-4 py-3">Process / Service</th>
+              <th class="px-4 py-3">Destination Domain / IP</th>
+              <th class="px-4 py-3">Proto</th>
+              <th class="px-4 py-3 text-right">Bandwidth</th>
+              <th class="px-4 py-3 text-right">Time</th>
+            </tr>
+          </thead>
+          <tbody id="traffic-rows" class="divide-y divide-white/5 font-mono">
+            <tr>
+              <td colspan="7" class="px-4 py-12 text-center text-slate-500 font-sans">
+                Waiting for incoming traffic on hotspot interface ap0...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    let trafficData = [];
+    const MAX_ROWS = 200;
+    let knownClients = new Map();
+    let ws = null;
+
+    function connectWs() {
+      const host = window.location.hostname || "localhost";
+      const wsUrl = `ws://${host}:9090/ws`;
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        const pill = document.getElementById("conn-pill");
+        pill.textContent = "● LIVE CAPTURE";
+        pill.className = "text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+      };
+
+      ws.onclose = () => {
+        const pill = document.getElementById("conn-pill");
+        pill.textContent = "DISCONNECTED (RETRYING...)";
+        pill.className = "text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 border border-red-500/30";
+        setTimeout(connectWs, 2000);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const record = JSON.parse(event.data);
+          trafficData.unshift(record);
+          if (trafficData.length > MAX_ROWS) trafficData.pop();
+
+          // Track unique client
+          if (record.client_mac && record.client_mac !== "Unknown MAC") {
+            if (!knownClients.has(record.client_mac)) {
+              knownClients.set(record.client_mac, `${record.client_name} (${record.client_ip})`);
+              updateClientDropdown();
+            }
+          }
+
+          updateStats();
+          renderTable();
+        } catch (e) {
+          console.error(e);
+        }
+      };
+    }
+
+    function updateClientDropdown() {
+      const select = document.getElementById("client-filter");
+      const current = select.value;
+      select.innerHTML = '<option value="all">All Connected Devices</option>';
+      knownClients.forEach((label, mac) => {
+        const opt = document.createElement("option");
+        opt.value = mac;
+        opt.textContent = `${label} - ${mac}`;
+        select.appendChild(opt);
+      });
+      select.value = current;
+      document.getElementById("stat-clients").textContent = knownClients.size;
+    }
+
+    function updateStats() {
+      document.getElementById("stat-flows").textContent = trafficData.length;
+      let totalBps = trafficData.reduce((acc, row) => acc + (row.bandwidth_bps || 0), 0);
+      document.getElementById("stat-speed").textContent = `${(totalBps / 1024).toFixed(1)} kbps`;
+    }
+
+    function clearBuffer() {
+      trafficData = [];
+      renderTable();
+      updateStats();
+    }
+
+    function renderTable() {
+      const selectedMac = document.getElementById("client-filter").value;
+      const query = document.getElementById("search-input").value.toLowerCase().trim();
+      const tbody = document.getElementById("traffic-rows");
+
+      const filtered = trafficData.filter(row => {
+        const matchMac = (selectedMac === "all" || row.client_mac === selectedMac);
+        const matchQuery = !query || 
+          row.domain.toLowerCase().includes(query) || 
+          row.process.toLowerCase().includes(query) ||
+          row.client_ip.includes(query) ||
+          row.client_name.toLowerCase().includes(query);
+        return matchMac && matchQuery;
+      });
+
+      document.getElementById("count-visible").textContent = filtered.length;
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="px-4 py-8 text-center text-slate-500 font-sans">No matching flows found</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = filtered.map(row => {
+        const kbps = (row.bandwidth_bps / 1024).toFixed(1);
+        const timeStr = new Date(row.timestamp).toLocaleTimeString();
+        return `
+          <tr class="hover:bg-white/[0.03] transition">
+            <td class="px-4 py-2.5 font-sans font-semibold text-slate-200">
+              <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20">
+                ${escapeHtml(row.client_name)}
+              </span>
+            </td>
+            <td class="px-4 py-2.5 text-slate-300">
+              <div>${escapeHtml(row.client_ip)}</div>
+              <div class="text-[10px] text-slate-500 font-mono">${escapeHtml(row.client_mac)}</div>
+            </td>
+            <td class="px-4 py-2.5 font-semibold text-purple-300">
+              ${escapeHtml(row.process)}
+            </td>
+            <td class="px-4 py-2.5 font-medium text-cyan-300 break-all">
+              ${escapeHtml(row.domain)}
+            </td>
+            <td class="px-4 py-2.5">
+              <span class="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300 border border-white/10 font-bold">
+                ${escapeHtml(row.protocol)}
+              </span>
+            </td>
+            <td class="px-4 py-2.5 text-right font-bold text-emerald-400 tabular-nums">
+              ${kbps} kbps
+            </td>
+            <td class="px-4 py-2.5 text-right text-slate-500 text-[11px] tabular-nums">
+              ${timeStr}
+            </td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    async function exportPcapng() {
+      const btn = document.getElementById("btn-export");
+      btn.innerHTML = `<span class="animate-pulse">Capturing packets...</span>`;
+      btn.disabled = true;
+
+      try {
+        const host = window.location.hostname || "localhost";
+        const res = await fetch(`http://${host}:9090/api/export/pcapng`, { method: "POST" });
+        const data = await res.json();
+        alert(`Wireshark capture saved: ${data.file}\nOpen with: wireshark ${data.file}`);
+      } catch (e) {
+        alert("Failed to trigger PCAPNG export: " + e);
+      } finally {
+        btn.innerHTML = `<i data-lucide="download" class="w-3.5 h-3.5"></i> Export PCAPNG (Wireshark)`;
+        btn.disabled = false;
+        lucide.createIcons();
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return "";
+      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      lucide.createIcons();
+      connectWs();
+    });
+  </script>
+</body>
+</html>

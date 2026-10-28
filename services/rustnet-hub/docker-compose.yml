@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  rustnet-hub:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: rustnet-hub
+    network_mode: "host"       # Direct access to ap0 hotspot and conntrack
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_ADMIN              # eBPF tracepoints & fentry
+    volumes:
+      - /proc:/proc:ro
+      - /sys/kernel/debug:/sys/kernel/debug:ro
+      - /var/lib/NetworkManager:/var/lib/NetworkManager:ro
+      - /tmp:/tmp
+    restart: unless-stopped

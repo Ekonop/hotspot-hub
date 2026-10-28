@@ -64,6 +64,12 @@ sudo install -Dm644 "$ROOT/src/hotspot-channelsync.service" /etc/systemd/system/
 sudo install -Dm644 "$ROOT/src/99-hotspot.conf" /etc/sysctl.d/99-hotspot.conf
 sudo install -Dm644 "$ROOT/src/99-hotspot-powersave.conf" /etc/NetworkManager/conf.d/99-hotspot-powersave.conf
 
+# RustNet Traffic Inspector bridge (if built)
+if [ -f "$ROOT/services/rustnet-hub/backend/target/release/rustnet-hub-backend" ]; then
+  sudo install -Dm755 "$ROOT/services/rustnet-hub/backend/target/release/rustnet-hub-backend" /usr/bin/rustnet-hub
+  sudo install -Dm644 "$ROOT/src/rustnet-hub.service" /etc/systemd/system/rustnet-hub.service
+fi
+
 # Icons installation (scalable SVG + multi-resolution PNGs)
 sudo install -Dm644 "$ROOT/icons/hotspot-hub.svg" /usr/share/icons/hicolor/scalable/apps/hotspot-hub.svg
 sudo install -Dm644 "$ROOT/icons/hotspot-hub.svg" /usr/share/pixmaps/hotspot-hub.svg

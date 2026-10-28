@@ -247,6 +247,7 @@ def tray_thread() -> None:
         pystray.MenuItem("Fix Routing Table", lambda i, it: run_bg(hub.fix_routing_service)),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Connected Clients…", on_clients),
+        pystray.MenuItem("Traffic Inspector (RustNet)…", lambda i, it: subprocess.Popen(["xdg-open", "http://localhost:9090"])),
         pystray.MenuItem("QR Code…", on_qr),
         pystray.MenuItem("Configure SSID & Passphrase…", on_configure),
         pystray.MenuItem("MAC Address Filter…", on_mac_filter),
@@ -1061,11 +1062,23 @@ def main(page: ft.Page) -> None:
                             spacing=6,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         ),
-                        ft.IconButton(
-                            icon=ft.Icons.REFRESH_ROUNDED,
-                            icon_size=16,
-                            tooltip="Refresh client list",
-                            on_click=lambda e: render_clients_tab(),
+                        ft.Row(
+                            [
+                                ft.IconButton(
+                                    icon=ft.Icons.ANALYTICS_ROUNDED,
+                                    icon_size=16,
+                                    tooltip="Open RustNet Traffic Inspector",
+                                    icon_color=PRIMARY,
+                                    on_click=lambda e: subprocess.Popen(["xdg-open", "http://localhost:9090"]),
+                                ),
+                                ft.IconButton(
+                                    icon=ft.Icons.REFRESH_ROUNDED,
+                                    icon_size=16,
+                                    tooltip="Refresh client list",
+                                    on_click=lambda e: render_clients_tab(),
+                                ),
+                            ],
+                            spacing=0,
                         ),
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
