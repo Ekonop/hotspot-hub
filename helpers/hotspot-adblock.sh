@@ -163,6 +163,22 @@ seed_baseline_blocklist() {
 0.0.0.0 ironSource.com
 0.0.0.0 inmobi.com
 0.0.0.0 taboola.com
+# Top Adult / Explicit Destinations Baseline
+0.0.0.0 pornhub.com
+0.0.0.0 xvideos.com
+0.0.0.0 xnxx.com
+0.0.0.0 redtube.com
+0.0.0.0 xhamster.com
+0.0.0.0 chaturbate.com
+0.0.0.0 stripchat.com
+0.0.0.0 livejasmin.com
+0.0.0.0 onlyfans.com
+0.0.0.0 fansly.com
+0.0.0.0 brazzers.com
+0.0.0.0 youporn.com
+0.0.0.0 spankbang.com
+0.0.0.0 rule34.xxx
+0.0.0.0 nhentai.net
 EOF
   if [ -f "$CUSTOM_FILE" ]; then
     cat "$CUSTOM_FILE" >> "$HOSTS_FILE"
@@ -278,9 +294,9 @@ cmd_update() {
   local tmp_hosts="$tmp_dir/hosts_raw.txt"
   local tmp_merged="$tmp_dir/merged.txt"
 
-  # 1. StevenBlack Unified Hosts (76k+ ad & malware domains)
+  # 1. StevenBlack Unified + Adult/Porn Hosts (152k+ ad, malware & explicit adult domains)
   curl -sSL --connect-timeout 10 --max-time 45 \
-    "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts" \
+    "https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/porn/hosts" \
     -o "$tmp_dir/stevenblack.txt" || true
 
   if [ -s "$tmp_dir/stevenblack.txt" ]; then

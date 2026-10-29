@@ -138,6 +138,7 @@
             <option value="Cloud & CDN">Cloud & CDN</option>
             <option value="Web & Updates">Web & Updates</option>
             <option value="Telemetry & Ads">Telemetry & Ads</option>
+            <option value="Adult & NSFW">🔞 Adult & NSFW</option>
             <option value="General Web">General Web</option>
           </select>
           <select id="risk-filter" onchange="applyFiltersAndRender()" class="bg-[#0D1117] border border-white/10 text-xs text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-500">
@@ -434,6 +435,17 @@
               </div>
               <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Active (0.90 conf)</span>
             </div>
+
+            <div class="flex items-center justify-between p-2.5 bg-black/20 rounded-lg border border-white/5">
+              <div class="flex items-center gap-2.5">
+                <div class="w-6 h-6 rounded bg-pink-500/10 text-pink-400 flex items-center justify-center font-bold text-[11px]">6</div>
+                <div>
+                  <div class="font-semibold text-slate-200">Adult, Nudity & NSFW Content Filter</div>
+                  <div class="text-[10px] text-slate-400">Explicit content networks, cam endpoints, age-restricted media, and keyword heuristics</div>
+                </div>
+              </div>
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Active (0.98 conf)</span>
+            </div>
           </div>
         </div>
       </div>
@@ -541,6 +553,7 @@
     let categoryCounts = {
       "Streaming & Media": 0,
       "Social & Chat": 0,
+      "Adult & NSFW": 0,
       "Telemetry & Ads": 0,
       "Cloud & CDN": 0,
       "Web & Updates": 0,
@@ -628,6 +641,7 @@
             backgroundColor: [
               '#A855F7', // Streaming (purple)
               '#EC4899', // Social (pink)
+              '#E11D48', // Adult & NSFW (rose-600)
               '#F59E0B', // Telemetry (amber)
               '#06B6D4', // Cloud (cyan)
               '#3B82F6', // Web (blue)
@@ -1048,6 +1062,27 @@
           threat_tags: ["Mobile Ad Campaign Tracker", "Telemetry Ingestion"],
           team_verdicts: [
             { model_name: "PrivacyTracker", verdict: "Mobile Ad Campaign Tracker", confidence: 0.95, is_risk: true },
+            { model_name: "ThreatIntel", verdict: "Clean Reputation", confidence: 0.90, is_risk: false },
+            { model_name: "ProtocolAnomaly", verdict: "Standard Port Compliance", confidence: 0.92, is_risk: false },
+            { model_name: "EntropyDGA", verdict: "Natural Domain Distribution", confidence: 0.90, is_risk: false },
+            { model_name: "BehaviorHeuristic", verdict: "Normal Traffic Velocity", confidence: 0.90, is_risk: false }
+          ]
+        },
+        {
+          conn_id: "sim_" + Date.now() + "_4",
+          domain: "public.onlyfans.com",
+          client_name: "Hotspot Device",
+          client_ip: "10.42.0.34",
+          client_mac: "b8:27:eb:84:aa:11",
+          process: "Mobile Safari",
+          protocol: "HTTPS",
+          risk_level: "warning",
+          risk_score: 60,
+          category: "Adult & NSFW",
+          threat_tags: ["Explicit Adult / NSFW Destination", "Age-Restricted Explicit Media"],
+          team_verdicts: [
+            { model_name: "AdultContentFilter", verdict: "Explicit Adult / NSFW Destination", confidence: 0.99, is_risk: true },
+            { model_name: "PrivacyTracker", verdict: "No Tracking Signatures", confidence: 0.90, is_risk: false },
             { model_name: "ThreatIntel", verdict: "Clean Reputation", confidence: 0.90, is_risk: false },
             { model_name: "ProtocolAnomaly", verdict: "Standard Port Compliance", confidence: 0.92, is_risk: false },
             { model_name: "EntropyDGA", verdict: "Natural Domain Distribution", confidence: 0.90, is_risk: false },

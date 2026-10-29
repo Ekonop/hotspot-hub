@@ -220,6 +220,20 @@ impl CategoryModel {
     fn evaluate(domain: &str) -> (String, f32) {
         let d = domain.to_lowercase();
 
+        // Adult & NSFW Category
+        let adult_indicators = [
+            "porn", "xvideos", "xnxx", "redtube", "xhamster", "onlyfans", "chaturbate",
+            "stripchat", "livejasmin", "cam4", "brazzers", "youporn", "spankbang",
+            "eporner", "tube8", "beeg", "fapello", "hqporner", "rule34", "nhentai",
+            "gelbooru", "e-hentai", "fetlife", "fansly", "coomer", "kemono", "erome",
+            "bonga", "camsoda", "myfreecams", "hanime", "hentai", "nudevista"
+        ];
+        for ind in &adult_indicators {
+            if d.contains(ind) {
+                return ("Adult & NSFW".into(), 0.98);
+            }
+        }
+
         if d.contains("spotify")
             || d.contains("netflix")
             || d.contains("youtube")
@@ -362,6 +376,60 @@ impl HeuristicBehaviorModel {
     }
 }
 
+// ── Model 7: Adult, Nudity & NSFW Content Classifier ──────────────────
+struct AdultNsfwModel;
+impl AdultNsfwModel {
+    fn evaluate(domain: &str) -> ModelVote {
+        let d = domain.to_lowercase();
+        let adult_domains = [
+            "pornhub", "xvideos", "xnxx", "redtube", "xhamster", "onlyfans",
+            "chaturbate", "stripchat", "livejasmin", "cam4", "brazzers",
+            "youporn", "spankbang", "eporner", "tube8", "beeg", "fapello",
+            "hqporner", "rule34", "nhentai", "gelbooru", "danbooru", "e-hentai",
+            "fetlife", "manyvids", "fansly", "coomer.su", "kemono.su", "erome",
+            "bonga", "camsoda", "myfreecams", "adultwork", "twistys", "bangbros",
+            "tnaflix", "drtuber", "porn555", "motherless", "heavy-r", "literotica",
+            "luscious.net", "tsumino", "hitomi.la", "fakku", "hanime", "hentaihaven",
+            "playboy", "penthouse", "adultdvd", "xmovies", "porntrex", "nudevista"
+        ];
+
+        for site in &adult_domains {
+            if d.contains(site) {
+                return ModelVote {
+                    model_name: "AdultContentFilter".into(),
+                    verdict: "Explicit Adult / NSFW Destination".into(),
+                    confidence: 0.99,
+                    is_risk: true,
+                };
+            }
+        }
+
+        let adult_keywords = [
+            "porn", "xxx", "nsfw", "erotic", "hentai", "camgirl", "sex",
+            "boobs", "nude", "naked", "stripper", "escort", "adultfilm"
+        ];
+
+        let parts: Vec<&str> = d.split(|c: char| !c.is_alphanumeric()).collect();
+        for kw in &adult_keywords {
+            if parts.contains(kw) {
+                return ModelVote {
+                    model_name: "AdultContentFilter".into(),
+                    verdict: format!("Adult Keyword Match ({})", kw),
+                    confidence: 0.88,
+                    is_risk: true,
+                };
+            }
+        }
+
+        ModelVote {
+            model_name: "AdultContentFilter".into(),
+            verdict: "Clean / SFW Content".into(),
+            confidence: 0.95,
+            is_risk: false,
+        }
+    }
+}
+
 // ── Ensemble Coordinator: Team of Classifiers ───────────────────────
 pub struct EnsembleCoordinator;
 
@@ -369,6 +437,7 @@ impl EnsembleCoordinator {
     pub fn classify(domain: &str, port: u16, _proto: &str, rate_bytes_sec: f64) -> EnsembleReport {
         let vote_threat = ThreatIntelModel::evaluate(domain, port);
         let vote_anomaly = ProtocolAnomalyModel::evaluate(domain, port);
+        let vote_adult = AdultNsfwModel::evaluate(domain);
         let vote_privacy = PrivacyTrackerModel::evaluate(domain);
         let vote_entropy = EntropyDgaModel::evaluate(domain);
         let vote_behavior = HeuristicBehaviorModel::evaluate(domain, port, rate_bytes_sec);
@@ -384,6 +453,11 @@ impl EnsembleCoordinator {
         if vote_anomaly.is_risk {
             tags.push(vote_anomaly.verdict.clone());
             risk_score = risk_score.saturating_add(35);
+        }
+        if vote_adult.is_risk {
+            tags.push(vote_adult.verdict.clone());
+            risk_score = risk_score.saturating_add(45);
+            category = "Adult & NSFW".into();
         }
         if vote_entropy.is_risk {
             tags.push(vote_entropy.verdict.clone());
@@ -411,7 +485,7 @@ impl EnsembleCoordinator {
             "safe"
         };
 
-        let verdicts = vec![vote_threat, vote_anomaly, vote_privacy, vote_entropy, vote_behavior];
+        let verdicts = vec![vote_threat, vote_anomaly, vote_adult, vote_privacy, vote_entropy, vote_behavior];
 
         EnsembleReport {
             category,
