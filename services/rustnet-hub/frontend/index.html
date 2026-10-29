@@ -1677,13 +1677,9 @@
         `;
       }).join("");
 
-      // Maintain scroll position if user is reading or paused
+      // Maintain scroll position smoothly without fighting user gestures
       if (scrollContainer) {
-        if (isAutoScroll) {
-          scrollContainer.scrollTop = 0;
-        } else {
-          scrollContainer.scrollTop = prevScrollTop;
-        }
+        scrollContainer.scrollTop = prevScrollTop;
       }
     }
 
@@ -1987,8 +1983,22 @@
 
       const container = document.getElementById("table-scroll-container");
       if (container) {
+        // Immediately pause on any downward wheel motion so the user doesn't fight the render loop
+        container.addEventListener("wheel", (e) => {
+          if (e.deltaY > 0 && isAutoScroll) {
+            setAutoScroll(false);
+          }
+        }, { passive: true });
+
+        // Immediately pause on touch drag
+        container.addEventListener("touchmove", () => {
+          if (isAutoScroll) {
+            setAutoScroll(false);
+          }
+        }, { passive: true });
+
         container.addEventListener("scroll", () => {
-          if (container.scrollTop > 30) {
+          if (container.scrollTop > 5) {
             if (isAutoScroll) {
               setAutoScroll(false);
             }

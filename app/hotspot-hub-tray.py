@@ -276,15 +276,35 @@ def main(page: ft.Page) -> None:
             if e.data == "close":
                 page.window.visible = False
                 try:
+                    if page.window.width and page.window.height:
+                        c = hub.load_app_config()
+                        c["window_width"] = int(page.window.width)
+                        c["window_height"] = int(page.window.height)
+                        hub.save_app_config(c)
+                except Exception:
+                    pass
+                try:
                     page.window.update()
                 except Exception:
                     pass
+            elif e.data in ("resize", "resized"):
+                try:
+                    if page.window.width and page.window.height:
+                        c = hub.load_app_config()
+                        c["window_width"] = int(page.window.width)
+                        c["window_height"] = int(page.window.height)
+                        hub.save_app_config(c)
+                except Exception:
+                    pass
 
-        page.window.width = 440
-        page.window.height = 660
+        cfg = hub.load_app_config()
+        saved_w = cfg.get("window_width")
+        saved_h = cfg.get("window_height")
+        page.window.width = int(saved_w) if saved_w and int(saved_w) >= 440 else 500
+        page.window.height = int(saved_h) if saved_h and int(saved_h) >= 500 else 780
         page.window.resizable = True
-        page.window.min_width = 420
-        page.window.min_height = 580
+        page.window.min_width = 440
+        page.window.min_height = 500
         page.window.prevent_close = True
         page.window.on_event = on_window_event
         hide_on_start = os.environ.get("FLET_HIDE_WINDOW_ON_START", "true").lower() not in ("false", "0", "no")
@@ -957,12 +977,14 @@ def main(page: ft.Page) -> None:
         ],
         spacing=4,
         visible=True,
+        expand=True,
+        scroll=ft.ScrollMode.AUTO,
     )
 
     # ── TAB 2: ACCESS & CLIENTS COMPONENTS ───────────────────────────
     clients_count_badge = ft.Text("0 Active", size=11, weight=ft.FontWeight.W_700, color=PRIMARY)
     clients_summary_text = ft.Text("DHCP leases: …", size=11, font_family="monospace", color=muted_color(page))
-    clients_list_col = ft.Column(spacing=6, scroll=ft.ScrollMode.AUTO, height=240)
+    clients_list_col = ft.Column(spacing=6)
 
     def render_clients_tab() -> None:
         stations = hub.station_dump()
@@ -1248,6 +1270,8 @@ def main(page: ft.Page) -> None:
         ],
         spacing=4,
         visible=False,
+        expand=True,
+        scroll=ft.ScrollMode.AUTO,
     )
 
     # ── TAB 3: SYSTEM & SCHEDULE COMPONENTS ──────────────────────────
@@ -1489,6 +1513,8 @@ def main(page: ft.Page) -> None:
         ],
         spacing=4,
         visible=False,
+        expand=True,
+        scroll=ft.ScrollMode.AUTO,
     )
 
     # ── Refresh Functions ────────────────────────────────────────────
@@ -2088,6 +2114,7 @@ def main(page: ft.Page) -> None:
                 spacing=8,
                 width=420,
                 tight=True,
+                scroll=ft.ScrollMode.AUTO,
             ),
             actions=[
                 ft.TextButton("Cancel", on_click=lambda e: page.pop_dialog()),
