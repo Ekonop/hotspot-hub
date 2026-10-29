@@ -114,6 +114,7 @@ async fn main() {
         .route("/ws", get(ws_handler))
         .route("/api/export/pcapng", post(export_pcapng))
         .route("/api/clients/block", post(block_client))
+        .route("/api/threats/sinkhole", post(sinkhole_domain))
         .route("/api/adblock/status", get(adblock_status))
         .route("/api/adblock/toggle", post(adblock_toggle))
         .route("/api/adblock/update", post(adblock_update))
@@ -259,7 +260,7 @@ async fn run_rustnet_supervisor(
                                     };
 
                                     // Run the Team of Classifiers on this flow!
-                                    let ensemble = EnsembleCoordinator::classify(&domain, dst_port as u16, protocol);
+                                    let ensemble = EnsembleCoordinator::classify(&domain, dst_port as u16, protocol, rate_bytes_sec);
 
                                     let now_str = chrono::Utc::now().to_rfc3339();
                                     let record = TrafficRecord {
@@ -399,6 +400,35 @@ async fn block_client(Json(req): Json<BlockRequest>) -> Response {
         Json(serde_json::json!({"status": "ok", "message": format!("Blocked and kicked {}", mac)})).into_response()
     } else {
         Json(serde_json::json!({"status": "error", "message": "Invalid MAC address"})).into_response()
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct SinkholeRequest {
+    pub domain: String,
+}
+
+async fn sinkhole_domain(Json(payload): Json<SinkholeRequest>) -> Response {
+    let domain = payload.domain.trim();
+    if domain.is_empty() || domain.contains('/') || domain.contains(' ') {
+        return Json(serde_json::json!({"status": "error", "message": "Invalid domain name"})).into_response();
+    }
+    let output = tokio::process::Command::new("/usr/local/bin/hotspot-adblock.sh")
+        .arg("add")
+        .arg(domain)
+        .output()
+        .await;
+    match output {
+        Ok(out) if out.status.success() => {
+            Json(serde_json::json!({
+                "status": "success",
+                "message": format!("Domain '{}' sinkholed and blocked across hotspot clients", domain)
+            })).into_response()
+        }
+        _ => Json(serde_json::json!({
+            "status": "error",
+            "message": format!("Failed to sinkhole domain '{}'", domain)
+        })).into_response(),
     }
 }
 

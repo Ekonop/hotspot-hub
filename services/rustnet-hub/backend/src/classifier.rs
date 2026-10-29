@@ -40,6 +40,44 @@ impl ThreatIntelModel {
             };
         }
 
+        // Phishing & Credential Harvesters
+        if d.contains("login-")
+            || d.contains("verify-account")
+            || d.contains("wallet-connect")
+            || d.contains("update-apple")
+            || d.contains("secure-login")
+            || d.contains("metamask-")
+            || d.contains("phantom-app")
+            || d.contains("binance-claim")
+            || d.contains("paypal-security")
+            || d.contains("banking-alert")
+        {
+            return ModelVote {
+                model_name: "ThreatIntel".into(),
+                verdict: "Suspected Phishing / Credential Harvester".into(),
+                confidence: 0.90,
+                is_risk: true,
+            };
+        }
+
+        // C2 & Botnet Keywords
+        if d.contains("cobaltstrike")
+            || d.contains("meterpreter")
+            || d.contains("c2-beacon")
+            || d.contains("asyncrat")
+            || d.contains("remcos")
+            || d.contains("redline")
+            || d.contains("rat-server")
+            || d.contains("exploit-kit")
+        {
+            return ModelVote {
+                model_name: "ThreatIntel".into(),
+                verdict: "C2 Malware Infrastructure Signature".into(),
+                confidence: 0.96,
+                is_risk: true,
+            };
+        }
+
         // Dynamic DNS / Evasion Tunnels
         if d.contains("duckdns.org")
             || d.contains("ngrok.io")
@@ -82,12 +120,17 @@ struct ProtocolAnomalyModel;
 impl ProtocolAnomalyModel {
     fn evaluate(domain_or_ip: &str, port: u16) -> ModelVote {
         // Critical / Vulnerable Ports
-        if matches!(port, 23 | 445 | 135 | 139 | 4444 | 6667 | 8333 | 9001 | 9050 | 9051 | 3389) {
+        if matches!(port, 21 | 23 | 135 | 137 | 138 | 139 | 445 | 1433 | 1521 | 3306 | 3389 | 4444 | 5432 | 5900 | 6667 | 8333 | 9001 | 9050 | 9051) {
             let desc = match port {
+                21 => "Unencrypted FTP Port 21",
                 23 => "Insecure Telnet Port 23",
                 445 => "Exposed SMB Port 445 (WannaCry/EternalBlue risk)",
-                4444 => "Metasploit / Reverse Shell Default Port 4444",
-                9050 | 9051 => "Tor SOCKS Proxy Port",
+                135 | 137 | 138 | 139 => "NetBIOS / RPC Vulnerable Windows Port",
+                1433 | 1521 | 3306 | 5432 => "Exposed Database Service Port",
+                3389 => "Exposed RDP Port 3389",
+                4444 => "Metasploit / Reverse Shell Port 4444",
+                5900 => "Unencrypted VNC Screen Sharing Port",
+                9050 | 9051 => "Tor SOCKS Anonymous Proxy Port",
                 _ => "High-Risk Non-Standard Service Port",
             };
             return ModelVote {
@@ -283,15 +326,52 @@ impl EntropyDgaModel {
     }
 }
 
+// ── Model 6: Behavioral Exfiltration & Beaconing Model ─────────────────
+struct HeuristicBehaviorModel;
+impl HeuristicBehaviorModel {
+    fn evaluate(domain_or_ip: &str, port: u16, rate_bytes_sec: f64) -> ModelVote {
+        // High data exfiltration rate
+        if rate_bytes_sec > 2_500_000.0 && (port != 443 && port != 80) {
+            return ModelVote {
+                model_name: "BehaviorHeuristic".into(),
+                verdict: "High Outbound Exfiltration Anomaly".into(),
+                confidence: 0.85,
+                is_risk: true,
+            };
+        }
+
+        // Suspicious direct IP beaconing on non-standard ports
+        let bare_ip = domain_or_ip.split(':').next().unwrap_or(domain_or_ip);
+        if bare_ip.chars().all(|c| c.is_ascii_digit() || c == '.') && bare_ip.contains('.') {
+            if matches!(port, 1337 | 31337 | 7000 | 8888 | 9999 | 1080) {
+                return ModelVote {
+                    model_name: "BehaviorHeuristic".into(),
+                    verdict: format!("Known C2/RAT Direct Port {}", port),
+                    confidence: 0.92,
+                    is_risk: true,
+                };
+            }
+        }
+
+        ModelVote {
+            model_name: "BehaviorHeuristic".into(),
+            verdict: "Normal Traffic Velocity".into(),
+            confidence: 0.90,
+            is_risk: false,
+        }
+    }
+}
+
 // ── Ensemble Coordinator: Team of Classifiers ───────────────────────
 pub struct EnsembleCoordinator;
 
 impl EnsembleCoordinator {
-    pub fn classify(domain: &str, port: u16, _proto: &str) -> EnsembleReport {
+    pub fn classify(domain: &str, port: u16, _proto: &str, rate_bytes_sec: f64) -> EnsembleReport {
         let vote_threat = ThreatIntelModel::evaluate(domain, port);
         let vote_anomaly = ProtocolAnomalyModel::evaluate(domain, port);
         let vote_privacy = PrivacyTrackerModel::evaluate(domain);
         let vote_entropy = EntropyDgaModel::evaluate(domain);
+        let vote_behavior = HeuristicBehaviorModel::evaluate(domain, port, rate_bytes_sec);
         let (mut category, _) = CategoryModel::evaluate(domain);
 
         let mut tags = Vec::new();
@@ -308,6 +388,10 @@ impl EnsembleCoordinator {
         if vote_entropy.is_risk {
             tags.push(vote_entropy.verdict.clone());
             risk_score = risk_score.saturating_add(30);
+        }
+        if vote_behavior.is_risk {
+            tags.push(vote_behavior.verdict.clone());
+            risk_score = risk_score.saturating_add(40);
         }
         if vote_privacy.is_risk {
             tags.push(vote_privacy.verdict.clone());
@@ -327,7 +411,7 @@ impl EnsembleCoordinator {
             "safe"
         };
 
-        let verdicts = vec![vote_threat, vote_anomaly, vote_privacy, vote_entropy];
+        let verdicts = vec![vote_threat, vote_anomaly, vote_privacy, vote_entropy, vote_behavior];
 
         EnsembleReport {
             category,

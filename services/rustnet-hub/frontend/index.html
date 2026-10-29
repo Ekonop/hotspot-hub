@@ -307,23 +307,158 @@
 
     <!-- ── TAB 3: THREAT RADAR & ANOMALIES ────────────────────────── -->
     <div id="view-threats" class="hidden space-y-6">
-      <div class="bg-[#161B22] border border-white/10 rounded-xl p-5">
-        <div class="flex flex-wrap items-center justify-between gap-4 mb-4 pb-4 border-b border-white/10">
-          <div>
-            <h2 class="text-sm font-bold text-white flex items-center gap-2">
-              <i data-lucide="shield-alert" class="w-4 h-4 text-red-400"></i>
-              Threat Intelligence & Telemetry Radar
-            </h2>
-            <p class="text-xs text-slate-400">Classified by ThreatIntel, ProtocolAnomaly, PrivacyTracker, and EntropyDGA models</p>
+
+      <!-- Radar Scope & Classifier Team Overview (2-column grid) -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+        <!-- Tactical Threat Radar Scope Canvas (5 columns) -->
+        <div class="lg:col-span-5 bg-[#161B22] border border-white/10 rounded-xl p-5 flex flex-col items-center justify-between text-center relative overflow-hidden">
+          <div class="w-full flex items-center justify-between mb-3 text-left">
+            <div>
+              <h2 class="text-sm font-bold text-white flex items-center gap-2">
+                <i data-lucide="crosshair" class="w-4 h-4 text-emerald-400"></i>
+                Tactical Threat Radar Scope
+              </h2>
+              <p class="text-[11px] text-slate-400">360° Real-Time Network Anomaly Sweep</p>
+            </div>
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> SCANNING
+            </span>
           </div>
-          <div class="flex items-center gap-4 text-xs">
-            <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-red-500"></span> Danger</div>
-            <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span> Suspicious / Tracker</div>
-            <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Clean</div>
+
+          <div class="relative my-2">
+            <canvas id="threat-radar-canvas" width="320" height="320" class="rounded-full shadow-2xl border border-emerald-500/20"></canvas>
+            <div id="radar-tooltip" class="hidden absolute pointer-events-none bg-slate-900/95 text-white border border-emerald-500/40 px-2.5 py-1.5 rounded-lg text-[10px] font-mono shadow-2xl z-20"></div>
+          </div>
+
+          <div class="w-full pt-3 border-t border-white/5 flex items-center justify-between text-[11px] text-slate-400">
+            <div class="flex items-center gap-3">
+              <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-red-500"></span> Inner: Danger</span>
+              <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-amber-500"></span> Mid: Warning</span>
+              <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-emerald-500"></span> Outer: Trackers</span>
+            </div>
+            <button onclick="simulateThreatSample()" class="px-2.5 py-1 bg-white/5 hover:bg-white/10 text-slate-300 rounded text-[10px] font-semibold transition" title="Inject a test anomaly to verify radar detection">
+              Test Anomaly
+            </button>
           </div>
         </div>
 
-        <div id="threat-feed" class="space-y-2.5">
+        <!-- Ensemble Team of 5 Classifiers & Threat Metrics (7 columns) -->
+        <div class="lg:col-span-7 bg-[#161B22] border border-white/10 rounded-xl p-5 space-y-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <h2 class="text-sm font-bold text-white flex items-center gap-2">
+                <i data-lucide="cpu" class="w-4 h-4 text-purple-400"></i>
+                Ensemble Classifier Matrix & Metrics
+              </h2>
+              <p class="text-xs text-slate-400">5-Model consensus engine evaluating threat signatures, DGA entropy, and egress behavior</p>
+            </div>
+            <span class="text-xs font-mono text-purple-300 px-2.5 py-1 bg-purple-500/10 border border-purple-500/20 rounded-lg">
+              Voting Consensus Active
+            </span>
+          </div>
+
+          <!-- 4 Mini Threat Metric Counters -->
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+            <div class="bg-black/30 border border-white/5 rounded-xl p-3">
+              <div class="text-[11px] text-slate-400 mb-0.5">Active Threats</div>
+              <div id="radar-stat-total" class="text-xl font-bold text-white tabular-nums">0</div>
+            </div>
+            <div class="bg-black/30 border border-white/5 rounded-xl p-3">
+              <div class="text-[11px] text-slate-400 mb-0.5">Critical Danger</div>
+              <div id="radar-stat-danger" class="text-xl font-bold text-red-400 tabular-nums">0</div>
+            </div>
+            <div class="bg-black/30 border border-white/5 rounded-xl p-3">
+              <div class="text-[11px] text-slate-400 mb-0.5">Trackers Flagged</div>
+              <div id="radar-stat-trackers" class="text-xl font-bold text-amber-400 tabular-nums">0</div>
+            </div>
+            <div class="bg-black/30 border border-white/5 rounded-xl p-3">
+              <div class="text-[11px] text-slate-400 mb-0.5">Peak Risk Score</div>
+              <div id="radar-stat-maxscore" class="text-xl font-bold text-emerald-400 tabular-nums">0/100</div>
+            </div>
+          </div>
+
+          <!-- 5 Models Breakdown List -->
+          <div class="space-y-2 pt-1 text-xs">
+            <div class="flex items-center justify-between p-2.5 bg-black/20 rounded-lg border border-white/5">
+              <div class="flex items-center gap-2.5">
+                <div class="w-6 h-6 rounded bg-rose-500/10 text-rose-400 flex items-center justify-center font-bold text-[11px]">1</div>
+                <div>
+                  <div class="font-semibold text-slate-200">ThreatIntel & C2 Signature Model</div>
+                  <div class="text-[10px] text-slate-400">Crypto miners, dynamic DNS evasion, phishing patterns, malicious TLDs</div>
+                </div>
+              </div>
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Active (0.95 conf)</span>
+            </div>
+
+            <div class="flex items-center justify-between p-2.5 bg-black/20 rounded-lg border border-white/5">
+              <div class="flex items-center gap-2.5">
+                <div class="w-6 h-6 rounded bg-amber-500/10 text-amber-400 flex items-center justify-center font-bold text-[11px]">2</div>
+                <div>
+                  <div class="font-semibold text-slate-200">Protocol & Port Anomaly Model</div>
+                  <div class="text-[10px] text-slate-400">Exposed SMB (445), Telnet, Metasploit (4444), Tor SOCKS, unencrypted services</div>
+                </div>
+              </div>
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Active (0.95 conf)</span>
+            </div>
+
+            <div class="flex items-center justify-between p-2.5 bg-black/20 rounded-lg border border-white/5">
+              <div class="flex items-center gap-2.5">
+                <div class="w-6 h-6 rounded bg-sky-500/10 text-sky-400 flex items-center justify-center font-bold text-[11px]">3</div>
+                <div>
+                  <div class="font-semibold text-slate-200">Privacy & Telemetry Harvester Model</div>
+                  <div class="text-[10px] text-slate-400">Mobile ad campaign attribution (AppsFlyer, Adjust, Branch, Crashlytics, Criteo)</div>
+                </div>
+              </div>
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Active (0.94 conf)</span>
+            </div>
+
+            <div class="flex items-center justify-between p-2.5 bg-black/20 rounded-lg border border-white/5">
+              <div class="flex items-center gap-2.5">
+                <div class="w-6 h-6 rounded bg-purple-500/10 text-purple-400 flex items-center justify-center font-bold text-[11px]">4</div>
+                <div>
+                  <div class="font-semibold text-slate-200">Shannon Entropy & DGA Model</div>
+                  <div class="text-[10px] text-slate-400">Domain Generation Algorithm detection (Shannon randomness > 3.75 bits/byte)</div>
+                </div>
+              </div>
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Active (0.90 conf)</span>
+            </div>
+
+            <div class="flex items-center justify-between p-2.5 bg-black/20 rounded-lg border border-white/5">
+              <div class="flex items-center gap-2.5">
+                <div class="w-6 h-6 rounded bg-teal-500/10 text-teal-400 flex items-center justify-center font-bold text-[11px]">5</div>
+                <div>
+                  <div class="font-semibold text-slate-200">Heuristic Behavior & Exfiltration Model</div>
+                  <div class="text-[10px] text-slate-400">High-velocity outbound egress anomaly (>2.5 MB/s) and direct IP C2 beaconing</div>
+                </div>
+              </div>
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Active (0.90 conf)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Live Threat Intelligence Feed Section -->
+      <div class="bg-[#161B22] border border-white/10 rounded-xl p-5 space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-white/10">
+          <div class="flex items-center gap-3">
+            <h2 class="text-sm font-bold text-white flex items-center gap-2">
+              <i data-lucide="shield-alert" class="w-4 h-4 text-red-400"></i>
+              Live Threat Interception Feed
+            </h2>
+            <span id="threat-feed-count" class="px-2 py-0.5 bg-red-500/20 text-red-400 rounded-full text-xs font-bold font-mono">0 events</span>
+          </div>
+
+          <!-- Threat Type Filters -->
+          <div class="flex items-center gap-2 text-xs">
+            <button onclick="setThreatFilter('all')" id="filter-threat-all" class="px-2.5 py-1 rounded-lg font-semibold bg-blue-600 text-white transition">All Threats</button>
+            <button onclick="setThreatFilter('danger')" id="filter-threat-danger" class="px-2.5 py-1 rounded-lg font-medium text-slate-400 hover:text-white bg-white/5 transition">🔴 Danger Only</button>
+            <button onclick="setThreatFilter('warning')" id="filter-threat-warning" class="px-2.5 py-1 rounded-lg font-medium text-slate-400 hover:text-white bg-white/5 transition">🟡 Suspicious</button>
+            <button onclick="clearSimulatedThreats()" class="px-2.5 py-1 rounded-lg font-medium text-slate-400 hover:text-slate-200 bg-white/5 transition" title="Clear test events">Clear Tests</button>
+          </div>
+        </div>
+
+        <div id="threat-feed" class="space-y-3">
           <div class="text-slate-500 text-xs py-8 text-center font-sans">No security anomalies or aggressive trackers flagged yet.</div>
         </div>
       </div>
@@ -826,34 +961,353 @@
       }
     }
 
+    // ── TACTICAL THREAT RADAR & ENSEMBLE ENGINE ───────────────────────
+    let currentThreatFilter = 'all';
+    let simulatedThreats = [];
+    let radarSweepAngle = 0;
+
+    function setThreatFilter(filter) {
+      currentThreatFilter = filter;
+      ['all', 'danger', 'warning'].forEach(f => {
+        const btn = document.getElementById(`filter-threat-${f}`);
+        if (btn) {
+          if (f === filter) {
+            btn.className = "px-2.5 py-1 rounded-lg font-semibold bg-blue-600 text-white transition";
+          } else {
+            btn.className = "px-2.5 py-1 rounded-lg font-medium text-slate-400 hover:text-white bg-white/5 transition";
+          }
+        }
+      });
+      updateThreatFeed();
+    }
+
+    function getActiveThreatList() {
+      const realThreats = trafficData.filter(r => r.risk_level === 'danger' || r.risk_level === 'warning');
+      return [...simulatedThreats, ...realThreats];
+    }
+
+    function hashString(str) {
+      let h = 0;
+      for (let i = 0; i < str.length; i++) {
+        h = ((h << 5) - h) + str.charCodeAt(i);
+        h |= 0;
+      }
+      return Math.abs(h);
+    }
+
+    function simulateThreatSample() {
+      const samples = [
+        {
+          conn_id: "sim_" + Date.now() + "_1",
+          domain: "x9q-mining-pool.nanopool.org:3333",
+          client_name: "Hotspot Client (iPhone)",
+          client_ip: "10.42.0.15",
+          client_mac: "32:ae:84:12:ef:90",
+          process: "xmrig-daemon",
+          protocol: "TCP",
+          risk_level: "danger",
+          risk_score: 95,
+          threat_tags: ["Crypto Mining Activity", "Non-Standard Port 3333"],
+          team_verdicts: [
+            { model_name: "ThreatIntel", verdict: "Crypto Mining Activity", confidence: 0.98, is_risk: true },
+            { model_name: "ProtocolAnomaly", verdict: "Direct IP / Port Anomaly", confidence: 0.85, is_risk: true },
+            { model_name: "PrivacyTracker", verdict: "No Tracking Signatures", confidence: 0.90, is_risk: false },
+            { model_name: "EntropyDGA", verdict: "Natural Domain Distribution", confidence: 0.92, is_risk: false },
+            { model_name: "BehaviorHeuristic", verdict: "High Persistent Packet Rate", confidence: 0.88, is_risk: true }
+          ]
+        },
+        {
+          conn_id: "sim_" + Date.now() + "_2",
+          domain: "q8z4kk91mf7v12.duckdns.org:4444",
+          client_name: "Connected Device",
+          client_ip: "10.42.0.88",
+          client_mac: "50:ed:3c:44:91:02",
+          process: "reverse_shell",
+          protocol: "TCP",
+          risk_level: "danger",
+          risk_score: 88,
+          threat_tags: ["Dynamic DNS / Tunneling Evasion", "Metasploit Port 4444", "High Shannon Entropy (3.92)"],
+          team_verdicts: [
+            { model_name: "ThreatIntel", verdict: "Dynamic DNS / Tunneling Evasion", confidence: 0.85, is_risk: true },
+            { model_name: "ProtocolAnomaly", verdict: "Metasploit / Reverse Shell Port 4444", confidence: 0.96, is_risk: true },
+            { model_name: "EntropyDGA", verdict: "High Entropy (3.92) DGA Suspected", confidence: 0.82, is_risk: true },
+            { model_name: "PrivacyTracker", verdict: "No Tracking Signatures", confidence: 0.90, is_risk: false },
+            { model_name: "BehaviorHeuristic", verdict: "Direct RAT Payload Beacon", confidence: 0.91, is_risk: true }
+          ]
+        },
+        {
+          conn_id: "sim_" + Date.now() + "_3",
+          domain: "events.appsflyer.com",
+          client_name: "Mobile iPhone",
+          client_ip: "10.42.0.15",
+          client_mac: "32:ae:84:12:ef:90",
+          process: "iOS App SDK",
+          protocol: "HTTPS",
+          risk_level: "warning",
+          risk_score: 45,
+          threat_tags: ["Mobile Ad Campaign Tracker", "Telemetry Ingestion"],
+          team_verdicts: [
+            { model_name: "PrivacyTracker", verdict: "Mobile Ad Campaign Tracker", confidence: 0.95, is_risk: true },
+            { model_name: "ThreatIntel", verdict: "Clean Reputation", confidence: 0.90, is_risk: false },
+            { model_name: "ProtocolAnomaly", verdict: "Standard Port Compliance", confidence: 0.92, is_risk: false },
+            { model_name: "EntropyDGA", verdict: "Natural Domain Distribution", confidence: 0.90, is_risk: false },
+            { model_name: "BehaviorHeuristic", verdict: "Normal Traffic Velocity", confidence: 0.90, is_risk: false }
+          ]
+        }
+      ];
+
+      const sample = samples[Math.floor(Math.random() * samples.length)];
+      simulatedThreats.unshift(sample);
+      if (simulatedThreats.length > 8) simulatedThreats.pop();
+      updateThreatFeed();
+    }
+
+    function clearSimulatedThreats() {
+      simulatedThreats = [];
+      updateThreatFeed();
+    }
+
+    async function sinkholeThreatDomain(domain) {
+      const cleanDom = domain.split(':')[0];
+      if (!confirm(`Permanently block and sinkhole domain '${cleanDom}' across all hotspot clients?`)) return;
+      try {
+        const host = window.location.hostname || "localhost";
+        const res = await fetch(`http://${host}:9090/api/threats/sinkhole`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ domain: cleanDom })
+        });
+        const data = await res.json();
+        alert(data.message || `Domain ${cleanDom} sinkholed.`);
+        fetchAdblockStatus();
+      } catch (e) {
+        alert("Failed to sinkhole domain: " + e);
+      }
+    }
+
+    function initThreatRadar() {
+      const canvas = document.getElementById("threat-radar-canvas");
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+
+      function drawRadar() {
+        const width = canvas.width;
+        const height = canvas.height;
+        const cx = width / 2;
+        const cy = height / 2;
+        const radius = cx - 12;
+
+        // Clear dark tactical background
+        ctx.fillStyle = "#0A0E14";
+        ctx.fillRect(0, 0, width, height);
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.clip();
+
+        // Concentric Tactical Range Rings
+        const ringLevels = [0.28, 0.55, 0.82, 1.0];
+        ringLevels.forEach((pct, idx) => {
+          ctx.beginPath();
+          ctx.arc(cx, cy, radius * pct, 0, Math.PI * 2);
+          ctx.strokeStyle = idx === 3 ? "rgba(16, 185, 129, 0.4)" : "rgba(16, 185, 129, 0.16)";
+          ctx.lineWidth = idx === 3 ? 1.5 : 1;
+          ctx.stroke();
+
+          // Range ring text
+          ctx.fillStyle = "rgba(16, 185, 129, 0.35)";
+          ctx.font = "8px monospace";
+          const label = idx === 0 ? "DANGER" : idx === 1 ? "WARNING" : idx === 2 ? "TRACKER" : "PERIMETER";
+          ctx.fillText(label, cx + 4, cy - (radius * pct) + 9);
+        });
+
+        // Crosshairs
+        ctx.strokeStyle = "rgba(16, 185, 129, 0.18)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(cx - radius, cy);
+        ctx.lineTo(cx + radius, cy);
+        ctx.moveTo(cx, cy - radius);
+        ctx.lineTo(cx, cy + radius);
+        ctx.stroke();
+
+        // Degrees ticks (every 30 deg)
+        for (let deg = 0; deg < 360; deg += 30) {
+          const rad = (deg * Math.PI) / 180;
+          const x1 = cx + Math.cos(rad) * (radius - 5);
+          const y1 = cy + Math.sin(rad) * (radius - 5);
+          const x2 = cx + Math.cos(rad) * radius;
+          const y2 = cy + Math.sin(rad) * radius;
+          ctx.beginPath();
+          ctx.moveTo(x1, y1);
+          ctx.lineTo(x2, y2);
+          ctx.strokeStyle = "rgba(16, 185, 129, 0.3)";
+          ctx.stroke();
+        }
+
+        // Rotating Sweep Beam with phosphor fade
+        radarSweepAngle = (radarSweepAngle + 0.025) % (Math.PI * 2);
+        const trailSegments = 24;
+        for (let i = 0; i < trailSegments; i++) {
+          const a = radarSweepAngle - (i * 0.025);
+          const alpha = (1 - (i / trailSegments)) * 0.22;
+          ctx.beginPath();
+          ctx.moveTo(cx, cy);
+          ctx.arc(cx, cy, radius, a - 0.025, a, false);
+          ctx.closePath();
+          ctx.fillStyle = `rgba(16, 185, 129, ${alpha})`;
+          ctx.fill();
+        }
+
+        // Leading sweep line
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + Math.cos(radarSweepAngle) * radius, cy + Math.sin(radarSweepAngle) * radius);
+        ctx.strokeStyle = "rgba(52, 211, 153, 0.85)";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        // Plot Active Threat Blips
+        const allThreats = getActiveThreatList();
+        allThreats.forEach(t => {
+          const hash = hashString((t.domain || "") + (t.client_ip || ""));
+          const blipAngle = ((hash % 360) * Math.PI) / 180;
+
+          const score = Math.max(0, Math.min(100, t.risk_score || (t.risk_level === 'danger' ? 75 : 35)));
+          const distPct = 0.90 - (score / 100) * 0.68;
+          const blipDist = radius * distPct;
+          const bx = cx + Math.cos(blipAngle) * blipDist;
+          const by = cy + Math.sin(blipAngle) * blipDist;
+
+          let diff = Math.abs(radarSweepAngle - blipAngle);
+          if (diff > Math.PI) diff = (Math.PI * 2) - diff;
+          const isPinging = diff < 0.25;
+
+          const isDanger = t.risk_level === 'danger';
+          const color = isDanger ? "#EF4444" : "#F59E0B";
+
+          // Pulsing halo
+          ctx.beginPath();
+          ctx.arc(bx, by, isPinging ? 9 : 5.5, 0, Math.PI * 2);
+          ctx.fillStyle = isDanger
+            ? (isPinging ? "rgba(239, 68, 68, 0.55)" : "rgba(239, 68, 68, 0.25)")
+            : (isPinging ? "rgba(245, 158, 11, 0.55)" : "rgba(245, 158, 11, 0.25)");
+          ctx.fill();
+
+          // Blip Center Dot
+          ctx.beginPath();
+          ctx.arc(bx, by, 3, 0, Math.PI * 2);
+          ctx.fillStyle = isPinging ? "#FFFFFF" : color;
+          ctx.fill();
+
+          // Label
+          if (isPinging || isDanger) {
+            ctx.fillStyle = isPinging ? "#FFFFFF" : color;
+            ctx.font = "8px monospace";
+            const shortDom = (t.domain || "").split('.')[0].slice(0, 9);
+            ctx.fillText(shortDom, bx + 5, by - 4);
+          }
+        });
+
+        ctx.restore();
+
+        // Outer Tactical Perimeter Ring
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(16, 185, 129, 0.5)";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        requestAnimationFrame(drawRadar);
+      }
+
+      drawRadar();
+    }
+
     function updateThreatFeed() {
       const feed = document.getElementById("threat-feed");
-      const threats = trafficData.filter(r => r.risk_level === 'danger' || r.risk_level === 'warning').slice(0, 10);
-      if (threats.length === 0) {
-        feed.innerHTML = `<div class="text-slate-500 text-xs py-8 text-center font-sans">No security anomalies or aggressive trackers flagged yet.</div>`;
+      const countBadge = document.getElementById("threat-feed-count");
+      if (!feed) return;
+
+      const allThreats = getActiveThreatList();
+
+      // Update radar stat counters
+      const totalCount = allThreats.length;
+      const dangerCount = allThreats.filter(t => t.risk_level === 'danger').length;
+      const warningCount = allThreats.filter(t => t.risk_level === 'warning').length;
+      const maxScore = allThreats.reduce((max, t) => Math.max(max, t.risk_score || (t.risk_level === 'danger' ? 75 : 35)), 0);
+
+      const elTotal = document.getElementById("radar-stat-total");
+      if (elTotal) elTotal.textContent = totalCount;
+      const elDanger = document.getElementById("radar-stat-danger");
+      if (elDanger) elDanger.textContent = dangerCount;
+      const elTrackers = document.getElementById("radar-stat-trackers");
+      if (elTrackers) elTrackers.textContent = warningCount;
+      const elMaxScore = document.getElementById("radar-stat-maxscore");
+      if (elMaxScore) elMaxScore.textContent = `${maxScore}/100`;
+
+      let filtered = allThreats;
+      if (currentThreatFilter === 'danger') {
+        filtered = allThreats.filter(t => t.risk_level === 'danger');
+      } else if (currentThreatFilter === 'warning') {
+        filtered = allThreats.filter(t => t.risk_level === 'warning');
+      }
+
+      if (countBadge) countBadge.textContent = `${filtered.length} events`;
+
+      if (filtered.length === 0) {
+        feed.innerHTML = `
+          <div class="text-slate-500 text-xs py-8 text-center font-sans">
+            <div class="mb-1 text-slate-400 font-semibold">No anomalies matching current filter criteria.</div>
+            <div class="text-[11px] text-slate-500">The 360° tactical sweep is actively monitoring all client egress flows.</div>
+          </div>
+        `;
         return;
       }
-      feed.innerHTML = threats.map(t => {
+
+      feed.innerHTML = filtered.slice(0, 15).map(t => {
         const isDanger = t.risk_level === 'danger';
-        const colorClass = isDanger ? 'border-red-500/30 bg-red-500/10 text-red-300' : 'border-amber-500/30 bg-amber-500/10 text-amber-300';
-        const tag = t.threat_tags && t.threat_tags.length ? t.threat_tags[0] : (isDanger ? 'Critical Anomaly' : 'Telemetry Tracker');
+        const score = t.risk_score || (isDanger ? 80 : 40);
+        const borderClass = isDanger ? 'border-red-500/30 bg-red-950/15' : 'border-amber-500/30 bg-amber-950/15';
+        const badgeClass = isDanger ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-amber-500/20 text-amber-400 border border-amber-500/30';
+
+        const verdicts = Array.isArray(t.team_verdicts) ? t.team_verdicts : [];
+        const verdictsHtml = verdicts.map(v => {
+          const vClass = v.is_risk
+            ? 'bg-red-500/10 text-red-300 border border-red-500/20'
+            : 'bg-white/5 text-slate-400 border border-white/5';
+          return `<span class="px-2 py-0.5 rounded text-[10px] font-mono ${vClass}"><strong>${escapeHtml(v.model_name)}:</strong> ${escapeHtml(v.verdict)}</span>`;
+        }).join(" ");
+
+        const cleanDomain = t.domain.split(':')[0];
+
         return `
-          <div class="flex items-center justify-between p-3 rounded-xl border ${colorClass} text-xs font-sans">
-            <div class="flex items-center gap-3">
-              <span class="px-2 py-0.5 rounded font-bold uppercase text-[10px] ${isDanger ? 'bg-red-500/20 text-red-400' : 'bg-amber-500/20 text-amber-400'}">
-                ${isDanger ? 'DANGER' : 'SUSPICIOUS'}
-              </span>
-              <div>
-                <span class="font-semibold text-slate-200">${escapeHtml(t.client_name)}</span>
-                <span class="text-slate-400 mx-1">→</span>
-                <span class="font-mono font-semibold text-white">${escapeHtml(t.domain)}</span>
-                <div class="text-[10px] text-slate-400 mt-0.5">${escapeHtml(tag)}</div>
+          <div class="p-3.5 rounded-xl border ${borderClass} space-y-2.5 transition hover:border-white/20">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="flex items-center gap-2.5 flex-wrap">
+                <span class="px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase ${badgeClass}">
+                  ${isDanger ? 'CRITICAL DANGER' : 'SUSPICIOUS'}
+                </span>
+                <span class="text-xs font-semibold text-slate-200">${escapeHtml(t.client_name)}</span>
+                <span class="text-xs font-mono text-slate-400">(${escapeHtml(t.client_ip)})</span>
+                <span class="text-slate-500 text-xs">→</span>
+                <span class="text-xs font-mono font-bold text-white bg-black/40 px-2 py-0.5 rounded border border-white/10">${escapeHtml(t.domain)}</span>
+              </div>
+              <div class="flex items-center gap-2 text-xs">
+                <span class="font-mono text-[11px] font-bold ${isDanger ? 'text-red-400' : 'text-amber-400'}">Risk: ${score}/100</span>
+                <button onclick="sinkholeThreatDomain('${cleanDomain}')" class="px-2.5 py-1 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 rounded-lg text-[11px] font-semibold transition" title="Sinkhole domain for all hotspot clients">
+                  Sinkhole Domain
+                </button>
+                <button onclick="blockClientMac('${t.client_mac}')" class="px-2.5 py-1 bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/30 rounded-lg text-[11px] font-semibold transition" title="Block client device">
+                  Block Client
+                </button>
               </div>
             </div>
-            <div class="flex items-center gap-2">
-              <button onclick="blockClientMac('${t.client_mac}')" class="px-2.5 py-1 bg-red-600/30 hover:bg-red-600/40 text-red-200 border border-red-500/40 rounded-lg text-[11px] font-semibold transition">
-                Block Client
-              </button>
+
+            <!-- Ensemble Model Verdict Chips -->
+            <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
+              ${verdictsHtml || (t.threat_tags || []).map(tag => `<span class="px-2 py-0.5 rounded text-[10px] font-mono bg-red-500/10 text-red-300 border border-red-500/20">${escapeHtml(tag)}</span>`).join(" ")}
             </div>
           </div>
         `;
@@ -1195,6 +1649,7 @@
     document.addEventListener("DOMContentLoaded", () => {
       lucide.createIcons();
       initCharts();
+      initThreatRadar();
       connectWs();
       fetchAdblockStatus();
       setInterval(fetchAdblockStatus, 15000);
