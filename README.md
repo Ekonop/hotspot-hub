@@ -1,200 +1,296 @@
-# Hotspot Hub
+<div align="center">
 
-[![Release](https://img.shields.io/github/v/release/Ekonop/hotspot-hub?label=release&color=%23f97316)](https://github.com/Ekonop/hotspot-hub/releases/latest)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Downloads](https://img.shields.io/github/downloads/Ekonop/hotspot-hub/total?color=%2322c55e)](https://github.com/Ekonop/hotspot-hub/releases)
+# 🔥 Hotspot Hub
 
-KDE system-tray app for concurrent Wi-Fi hotspot (STA/AP, single radio),
-WARP toggle, and channel-sync control on Arch/CachyOS (Plasma Wayland,
-MediaTek MT7922).
+### High-Performance Concurrent Wi-Fi Hotspot, Deep Packet Inspection (DPI) & Threat Intelligence Engine
 
-![Hotspot Hub](assets/banner.svg)
+[![Release](https://img.shields.io/github/v/release/Ekonop/hotspot-hub?label=release&color=%23f97316&style=for-the-badge)](https://github.com/Ekonop/hotspot-hub/releases/latest)
+[![Kernel](https://img.shields.io/badge/Linux-Arch%20%7C%20CachyOS-0ea5e9?style=for-the-badge&logo=arch-linux)](https://cachyos.org)
+[![UI](https://img.shields.io/badge/UI-Flet%20%7C%20PyQt6-8b5cf6?style=for-the-badge&logo=flutter)](https://flet.dev)
+[![Engine](https://img.shields.io/badge/Backend-Rust%20%7C%20eBPF-f97316?style=for-the-badge&logo=rust)](https://www.rust-lang.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-emerald?style=for-the-badge)](LICENSE)
 
-![Hotspot Hub Modern Flet UI](docs/screenshots/flet-ui.png)
+<br/>
+
+**Hotspot Hub** transforms single-radio Linux machines (MediaTek MT7922 / mt7921e on Arch & CachyOS Wayland) into enterprise-grade, concurrent STA+AP Wi-Fi routers equipped with real-time Deep Packet Inspection, an AI-powered Threat Radar, in-flight packet modification, and automated network-wide ad & malware sinkholing.
+
+<br/>
+
+![Hotspot Hub Banner](assets/banner.svg)
+
+</div>
+
+---
+
+## ⚡ Highlights
+
+| Feature | Description |
+| :--- | :--- |
+| **Concurrent STA + AP** | Shares a single physical Wi-Fi radio (`wlan0`) with an isolated virtual access point (`ap0`) on subnet `10.42.0.0/24`. |
+| **Channel Synchronization** | Background daemon automatically locks `ap0` to `wlan0`'s active operating frequency & channel with 0-packet-drop handoff. |
+| **Deep Packet Inspection (DPI)** | Wireshark-grade live dissector across Ethernet L2 $\to$ IP L3 $\to$ TCP/UDP L4 $\to$ TLS/HTTP/DNS L7 with live 16-byte Hex & ASCII dump. |
+| **In-Flight Packet Mod** | Kernel netfilter mangling: Carrier TTL Cloaking (`TTL = 64`), TCP MSS Clamping to PMTU, and Low-Latency DSCP Expedited Forwarding. |
+| **AI Threat Radar** | 360° threat sweep backed by a **6-Model Ensemble Matrix** (C2 signatures, DGA entropy, exfiltration, telemetry, adult/NSFW). |
+| **Zero-Config Adblock Sinkhole** | 168,000+ local DNS sinkhole rules with YouTube ad mitigation, bandwidth saved metrics, and daily auto-updates via systemd timer. |
+| **Cloudflare WARP Bypass** | Instant priority-50 policy routing bypass toggle to seamlessly route hotspot traffic with or without VPN encapsulation. |
+| **Adaptive Desktop Frontends** | Modern Obsidian-styled Flutter/Flet tray app with persistent window memory + fallback classic PyQt6 dropdown canvas. |
+
+---
+
+## 📸 Interface Preview
+
+<div align="center">
+  <img src="docs/screenshots/flet-ui.png" alt="Hotspot Hub Flet Interface" width="480" />
+  <p><em>Modern Obsidian Flet UI — Real-time telemetry, 3-tab segmented navigation, and client station controls</em></p>
+</div>
 
 <details>
-<summary>Classic Qt Dropdown Canvas</summary>
-
-![Classic Qt Dropdown Canvas](docs/screenshots/dropdown.png)
+<summary><b>View Classic PyQt6 Canvas (Legacy Frontend)</b></summary>
+<div align="center">
+  <br/>
+  <img src="docs/screenshots/dropdown.png" alt="Classic Qt Dropdown Canvas" width="460" />
+  <p><em>PyQt6 Dropdown Deck with stacked status cards (available via <code>hotspot-hub --legacy-qt</code>)</em></p>
+</div>
 </details>
 
-## Features
+---
 
-### Hotspot Control
-- **Concurrent STA + AP** on a single radio (virtual `ap0` on `wlan0` PHY).
-- **Wi-Fi power-save off** on the STA uplink — avoids MT7922 "limited
-  connectivity" dropouts (installed via `src/99-hotspot-powersave.conf`).
-- **Wi-Fi Uplink Health & Link Speed** — prominent live uplink display showing
-  the upstream Wi-Fi network (SSID), link speed (e.g. `286.7 MBit/s`), signal
-  strength (dBm), channel, and gateway health across both the GUI and CLI.
-- **Modern Flet Control Deck** — primary modern desktop interface (`hotspot-hub`)
-  powered by Flutter/Flet, featuring dynamic theme switching, asynchronous non-blocking
-  actions, client management dialogs with station kicking and friendly naming, QR code
-  popups, and live interface throughput metrics.
-- **Classic Qt Dropdown Deck** — legacy PyQt6 interface accessible via `hotspot-hub --legacy-qt`
-  or `hotspot-hub-qt` with five stacked cards (Hotspot, WARP, Bandwidth, System, Health).
-- **Comprehensive Tray Context Menu** — right-click controls in both frontends for
-  instant Hotspot toggle, Band switching (2.4GHz / 5GHz / Auto), Cloudflare WARP,
-  Channel Sync daemon restart, routing self-repair, Clients list, QR Code, and MAC filtering.
-- **Channel sync** keeps AP on STA's channel (10s fallback + NM dispatcher events).
-- **VPN/WARP bypass** at policy-routing priority 50 (self-repairing).
-- **Manual stop respected**: stopping the hotspot no longer auto-restarts via the
-  channel-sync daemon (`/run/hotspot-hub-disabled` flag).
+## 🛠️ Architecture & Core Components
 
-### Network & Clients
-- **Client list with kick** — show connected stations with **device names**
-  (DHCP hostname from the lease — e.g. \"Vansh's iPhone\" — else **mDNS**
-  reverse lookup, which resolves devices with private MACs, else the MAC vendor
-  from `hwdata`), plus a per-client **Name…** button for a persistent friendly
-  name, MAC, IP tooltip, and signal, with disconnect.
-- **Configure hotspot name & passphrase** — the hero card's **Configure** pill
-  (and `hotspot-hub-cli set-credentials`) renames the SSID and/or changes the
-  WPA2 passphrase on the live profile; validation (1–32 SSID, 8–63 psk / 64
-  hex) and an automatic restart when the hotspot is active.
-- **MAC filtering** — allow/deny lists with enforcement (`iw station del`).
-- **Bandwidth monitor** — real-time RX/TX throughput for `wlan0` and `ap0`.
-- **Bandwidth throttling** — `tc`-based total cap via `hotspot-hub-cli throttle`.
-- **QR code** generation for SSID/PSK (via `qrencode`).
+```mermaid
+flowchart TD
+    subgraph WAN ["Upstream Internet & Carrier"]
+        Internet["Public Internet / ISP"]
+        Carrier["Cellular Carrier (Jio / Airtel / T-Mobile)"]
+        WARP["Cloudflare WARP (1.1.1.1 VPN)"]
+    end
 
-### Configuration
-- **Health card** — gateway reachability, AP state, DHCP lease summary with OK/
-  ISSUES chip, plus lifecycle controls: Start on boot, IPv6, scheduled on/off
-  (08:00/22:00), and battery-saver threshold.
-- **Multi-profile** support (list/add/switch/remove via CLI).
-- **Scheduled hotspot** — auto on/off at configured times.
-- **Battery-aware** auto-disable when battery ≤ threshold.
-- **5GHz band selection** (2.4 / 5 / Auto) with channel validation.
-- **WPA3-SAE detection** — probes `iw phy` for SAE capability.
-- **IPv6 toggle** per profile.
-- **Dark / light mode** adaptation via `QPalette` + `KColorScheme`.
-- **Global keyboard shortcut** (default `Ctrl+Alt+H`, configurable).
+    subgraph Host ["Host Linux System (Arch / CachyOS)"]
+        PHY["MediaTek MT7922 Wi-Fi PHY (phy0)"]
+        WLAN0["Station Uplink (wlan0)"]
+        AP0["Virtual AP (ap0) - 10.42.0.1/24"]
+        Sync["hotspot-channelsync.sh (Daemon)"]
+        
+        subgraph Netfilter ["Kernel Netfilter & Mangle"]
+            TTL["TTL Cloak (TTL=64)"]
+            MSS["TCPMSS PMTU Clamp"]
+            DSCP["DSCP QoS (Class EF)"]
+            TCPRST["TCP RST Flow Killer"]
+        end
 
-### Integration
-- **CLI tool** (`hotspot-hub-cli`) with subcommands: `status`, `on`, `off`,
-  `restart`, `clients`, `kick`, `qr`, `band`, `mac-filter`, `throttle`,
-  `metrics`, `profile`.
-- **D-Bus service** (`org.hotspothub.HotspotHub`) for external control.
-- **Prometheus metrics** export (textfile-collector format).
-- **Plasma QML applet** scaffold.
-- **Autostart** toggle (checkbox + installer flag).
-- **Desktop notifications** on client connect/disconnect.
+        subgraph DNS ["DNS & Sinkhole Engine"]
+            Dnsmasq["Dnsmasq Resolver"]
+            Sinkhole["168k+ Domain Blacklist + YouTube Rules"]
+            Timer["systemd Daily Update Timer"]
+        end
 
-### Quality
-- **Unit tests** (33 tests, `unittest`, zero deps).
-- **ruff** linting + GitHub Actions CI.
-- **Security audit** (`docs/SECURITY-AUDIT.md`): scoped sudoers, no shell
-  injection, no secrets logged.
-- **Man page** for the CLI.
+        subgraph RustNet ["RustNet Hub Engine (:9090)"]
+            Backend["Rust Axum + eBPF / PCAP Engine"]
+            DPI["L2-L7 Protocol Dissector & Hex Dump"]
+            Radar["360° AI Threat Radar (6-Model Ensemble)"]
+            WebUI["Live Tailwind + WebSockets Web Dashboard"]
+        end
 
-## Layout
+        subgraph GUI ["Desktop User Interfaces"]
+            FletUI["Modern Flet/Flutter App (hotspot-hub)"]
+            QtUI["Classic PyQt6 Dropdown (hotspot-hub-qt)"]
+            CLI["hotspot-hub-cli"]
+        end
+    end
 
-- `app/hotspot-hub-tray.py` / `app/hotspot-hub-flet.py` — primary modern Flet UI with integrated
-  `pystray` system tray, dynamic dark/light theme, non-blocking asynchronous actions,
-  interactive client manager, QR code generator, and highlighted Wi-Fi uplink health/speed card.
-- `app/hotspot-hub.py` — legacy PyQt6 tray app with dropdown canvas (`DropdownPanel`).
-  Accessible via `hotspot-hub --legacy-qt` or `hotspot-hub-qt`.
-- `cli/hotspot-hub-cli.py` — CLI tool with subcommands for scriptable management.
-- `helpers/` — `hotspot-on.sh` / `hotspot-off.sh` (idempotent, `sudo -n`).
-- `icons/` — multi-resolution PNGs (`16x16` to `256x256`) and scalable SVG flame brand mark.
-- `assets/` — UI assets: `banner.svg` (README hero), `flame.svg` (brand glyph), and `clients-empty.svg`.
-- `src/` — system files: channel-sync, NM dispatcher, sysctl, NM power-save config, sudoers, systemd service.
-- `scripts/setup-profile.sh` — create/retune `Hotspot-Shared` NM profile.
-- `packaging/arch/` — Arch PKGBUILD.
-- `flatpak/` — Flatpak manifest.
-- `plasma-applet/` — QML plasmoid scaffold.
-- `tests/` — unit tests (`python3 -m unittest discover -s tests`).
-- `docs/` — documentation, architecture, roadmap, security audit.
+    subgraph Clients ["Connected Devices"]
+        Phone["iOS / Android Mobile Devices"]
+        Laptop["Client Laptops & Workstations"]
+    end
 
-No plaintext passwords anywhere.
+    Clients <-->|802.11ax Wi-Fi| AP0
+    AP0 --> Netfilter
+    Netfilter --> WLAN0
+    WLAN0 <--> Internet
+    WLAN0 <--> Carrier
+    WLAN0 <--> WARP
+    PHY --- WLAN0
+    PHY --- AP0
+    Sync -.->|Syncs Channel & Width| PHY
+    AP0 --> DNS
+    Timer --> Sinkhole
+    AP0 -.->|Raw Socket Capture| RustNet
+    GUI <-->|IPC & Control API| Host
+    RustNet <-->|HTTP / WS| WebUI
+```
 
-## Quick install
+---
+
+## 🚀 Quick Start & Installation
+
+### Option 1: Native Arch Linux Package (Recommended)
 
 ```bash
-./install.sh            # files + icons + sysctl + ufw + service + profile prompt + autostart
+# Clone the repository
+git clone https://github.com/Ekonop/hotspot-hub.git
+cd hotspot-hub
+
+# Build and install the Arch package
+make package
+sudo pacman -U packaging/arch/hotspot-hub-*.pkg.tar.zst
+
+# Run initial profile setup & launch
 hotspot-hub &
 ```
 
-Options: `./install.sh --no-profile --no-ufw --no-enable --no-autostart`
-
-### Frontend Launchers
-
-- **Primary Modern Interface**:
-  ```bash
-  hotspot-hub
-  # or explicitly:
-  hotspot-hub-flet
-  ```
-- **Classic Qt Interface**:
-  ```bash
-  hotspot-hub --legacy-qt
-  # or:
-  hotspot-hub-qt
-  ```
-
-## Arch package
-
+### Option 2: Direct System Installer
 
 ```bash
-make package
-sudo pacman -U packaging/arch/hotspot-hub-0.1.0-1-any.pkg.tar.zst
-/usr/share/hotspot-hub/setup-profile.sh
+git clone https://github.com/Ekonop/hotspot-hub.git
+cd hotspot-hub
+
+# Run the idempotent installer (installs services, sudoers, NM rules, and desktop icons)
+./install.sh
+
+# Launch the desktop UI
+hotspot-hub &
 ```
 
-## Uninstall
+*Installer options:* `./install.sh [--no-profile] [--no-ufw] [--no-enable] [--no-autostart]`
+
+---
+
+## 🖥️ Launching the Application
+
+Hotspot Hub provides multiple specialized interfaces for desktop and terminal workflows:
 
 ```bash
-./uninstall.sh          # keeps NM profile + UFW rules
-./uninstall.sh --purge  # also deletes profile + UFW rules
+# 1. Primary Modern Interface (Flutter/Flet + System Tray)
+hotspot-hub
+
+# 2. Classic Qt Dropdown Canvas (Fallback)
+hotspot-hub --legacy-qt
+# or:
+hotspot-hub-qt
+
+# 3. Web Traffic Inspector & DPI Dashboard
+# Open in your browser (local or connected client device):
+xdg-open http://127.0.0.1:9090   # (or http://10.42.0.1:9090 on client)
 ```
 
-## CLI usage
+---
+
+## 🌐 RustNet Traffic Inspector & DPI Dashboard
+
+Access the real-time deep packet inspection console at **`http://127.0.0.1:9090`**:
+
+- **Wireshark-Grade Protocol Dissector**: Inspects Layer 2 Ethernet, Layer 3 IPv4/IPv6, Layer 4 TCP/UDP flags and velocities, and Layer 7 Application protocols (TLS SNI, HTTP requests, DNS queries).
+- **Interactive Flow Killer**: Instant kernel `tcp-reset` injection (`iptables -I FORWARD 1 -s <ip> -d <ip> -p tcp -j REJECT --reject-with tcp-reset`) to immediately sever persistent TCP sessions.
+- **In-Flight Packet Modification (`Tab 5: Packet Mod`)**:
+  - **Carrier Tethering Cloak (`TTL = 64`)**: Overwrites egress TTL so cellular carriers (Jio, Airtel, T-Mobile, Verizon) cannot identify or throttle mobile hotspot sharing.
+  - **TCP MSS Clamping**: Dynamically clamps MSS to Path MTU, avoiding packet fragmentation over VPN / WARP tunnels.
+  - **Low-Latency DSCP Tagging**: Marks real-time VoIP, gaming, and video traffic with Expedited Forwarding (`EF`) DSCP QoS.
+  - **HTTP Header Sanitizer**: Strips identifying user-agents and referrers in-flight via transparent proxy filtering.
+- **AI Threat Radar**: Real-time 360° polar radar visualizer backed by a **6-Model Ensemble Matrix**:
+  1. *C2 & Signature Model*: Identifies botnets, crypto-miners, and malicious TLDs.
+  2. *Protocol & Port Anomaly Model*: Detects suspicious ports (SMB 445, Telnet, Tor, Metasploit).
+  3. *Privacy & Telemetry Harvester*: Flags aggressive mobile trackers (AppsFlyer, Branch, Adjust).
+  4. *Shannon Entropy & DGA Model*: Flags algorithmically generated domains with randomness $> 3.75$ bits/byte.
+  5. *Heuristic Exfiltration Model*: Detects high-velocity outbound data leaks ($> 2.5\text{ MB/s}$).
+  6. *Adult, Nudity & NSFW Content Filter*: Flags explicit networks, adult web services, and adult trackers.
+
+---
+
+## 🛡️ Zero-Config Ad & Malware Sinkhole
+
+Hotspot Hub includes a local DNS sinkhole engine protecting all connected hotspot clients without requiring any client-side configuration or certificates:
+
+- **168,000+ Active Blocking Rules**: Curated from StevenBlack hosts, AdGuard DNS, and adult/NSFW threat lists.
+- **YouTube Ad Mitigation**: Integrated ruleset targeting known mobile and in-app YouTube ad telemetry endpoints.
+- **Automated Daily Sync**: Managed via systemd timer (`hotspot-adblock-update.timer`) and service.
+- **Custom Domain Sinkholing**: Add arbitrary domains to the network-wide sinkhole on the fly from the UI or web inspector.
+
+---
+
+## ⌨️ CLI Command Reference
+
+The scriptable command-line interface (`hotspot-hub-cli`) gives you complete terminal control:
 
 ```bash
-hotspot-hub-cli status
-hotspot-hub-cli on | off | restart
-hotspot-hub-cli clients
-hotspot-hub-cli kick <mac>
-hotspot-hub-cli qr
-hotspot-hub-cli band [2.4GHz|5GHz|Auto]
-hotspot-hub-cli mac-filter <list|allow|deny|block|remove|enable|disable> [mac]
-hotspot-hub-cli throttle <iface> <rate_mbps>   # 0 to clear
+# Hotspot lifecycle
+hotspot-hub-cli status                       # View live state, active clients, uplink health, and speeds
+hotspot-hub-cli on                           # Start the hotspot AP
+hotspot-hub-cli off                          # Stop the hotspot AP
+hotspot-hub-cli restart                      # Restart AP and force channel re-sync
+
+# Client station management
+hotspot-hub-cli clients                      # List connected clients with hostnames, IPs, and signals
+hotspot-hub-cli kick <mac>                   # Forcefully disconnect a station (iw station del)
+
+# Wi-Fi credentials & sharing
+hotspot-hub-cli qr                           # Render terminal ASCII QR code for instant phone pairing
 hotspot-hub-cli set-credentials --ssid NAME [--password PSK]
-hotspot-hub-cli metrics [-o FILE]
-hotspot-hub-cli profile <list|add|switch|remove> [name]
+
+# Network tuning & policies
+hotspot-hub-cli band [2.4GHz|5GHz|Auto]      # Set frequency band
+hotspot-hub-cli mac-filter <allow|deny|list> # Manage hardware MAC access lists
+hotspot-hub-cli throttle <iface> <rate_mbps> # Set traffic control (tc) rate limit
+hotspot-hub-cli metrics [-o FILE]            # Export Prometheus metrics
 ```
 
-## Configuration
+---
 
-Persistent config: `~/.config/hotspot-hub/config.json`.
-Env-style overrides: `~/.config/hotspot-hub/config` (KEY=VALUE lines).
-Environment variables: `HOTSPOT_HUB_STA_IF`, `HOTSPOT_HUB_AP_IF`,
-`HOTSPOT_HUB_CON`, `HOTSPOT_HUB_DOCS`, `HOTSPOT_HUB_SHORTCUT`.
+## 📂 Repository Structure
 
-## Development
-
-```bash
-# Lint
-ruff check app/ cli/ tests/
-
-# Unit tests
-python3 -m unittest discover -s tests -v
-
-# Syntax check
-python3 -c "import ast; ast.parse(open('app/hotspot-hub.py').read())"
-
-# Shell validation
-bash -n install.sh && bash -n uninstall.sh
+```
+hotspot-hub/
+├── app/
+│   ├── hotspot-hub-tray.py        # Modern Flutter/Flet tray app (primary UI)
+│   ├── hotspot-hub-flet.py        # Flet desktop launcher entrypoint
+│   └── hotspot-hub.py             # Classic PyQt6 dropdown canvas (legacy UI)
+├── cli/
+│   └── hotspot-hub-cli.py         # Full-featured command-line interface
+├── core/
+│   ├── hub.py                     # NetworkManager, iw, and system helper library
+│   ├── config.py                  # App configuration & profile storage
+│   └── oui.py                     # IEEE OUI hardware vendor database
+├── services/
+│   └── rustnet-hub/               # RustNet DPI backend & Web Dashboard
+│       ├── backend/               # Rust Axum server, packet capture, netfilter engine
+│       └── frontend/              # Single-page DPI inspector & Threat Radar (Tailwind + Lucide)
+├── helpers/
+│   ├── hotspot-on.sh              # Idempotent hotspot activation script
+│   ├── hotspot-off.sh             # Idempotent hotspot deactivation script
+│   └── hotspot-adblock.sh         # Adblock rule generator & updater
+├── src/                           # System integration files
+│   ├── hotspot-channelsync.sh     # Single-PHY channel synchronization daemon
+│   ├── 90-hotspot-channelsync     # NetworkManager dispatcher script
+│   ├── 99-hotspot-powersave.conf  # MT7922 uplink power-save disable configuration
+│   └── hotspot-adblock-update.*   # Systemd unit & timer files
+├── packaging/arch/                # PKGBUILD & packaging metadata for Arch Linux
+└── docs/                          # In-depth architectural & operational guides
 ```
 
-## Docs
+---
 
-Full setup/ops/troubleshooting: `~/doc/hotspot-system/`
-(`README`, `SETUP`, `OPERATIONS`, `TROUBLESHOOTING`, `FILES`).
+## ⚙️ Configuration & Paths
 
-- [Configuration](docs/CONFIGURATION.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [Troubleshooting](docs/TROUBLESHOOTING.md)
-- [Roadmap](docs/ROADMAP.md)
-- [Security Audit](docs/SECURITY-AUDIT.md)
-- [Contributing](CONTRIBUTING.md)
-- [Changelog](CHANGELOG.md)
+| File / Variable | Purpose |
+| :--- | :--- |
+| `~/.config/hotspot-hub/config.json` | Persistent user configuration (window dimensions, schedule, battery thresholds). |
+| `/etc/NetworkManager/system-connections/Hotspot-Shared.nmconnection` | NetworkManager AP profile credentials and security settings. |
+| `/etc/dnsmasq.d/hotspot-adblock.conf` | Generated DNS sinkhole blocking database (168k+ rules). |
+| `HOTSPOT_HUB_STA_IF` | Override upstream station interface (defaults to `wlan0`). |
+| `HOTSPOT_HUB_AP_IF` | Override hotspot AP interface (defaults to `ap0`). |
+
+---
+
+## 📖 Documentation
+
+- [Architecture & Concurrent Wi-Fi](docs/ARCHITECTURE.md) — Single-radio PHY concurrency and channel tracking mechanics.
+- [Configuration Guide](docs/CONFIGURATION.md) — Advanced parameters, powersave rules, and VPN bypass policies.
+- [Troubleshooting & Diagnostics](docs/TROUBLESHOOTING.md) — Hardware workarounds, MT7922 tips, and connection debugging.
+- [Security Audit](docs/SECURITY-AUDIT.md) — Sudoers least-privilege scoping, sanitization, and safety audits.
+- [Roadmap](docs/ROADMAP.md) — Planned features, eBPF extensions, and milestones.
+
+---
+
+## 📄 License
+
+This project is licensed under the [MIT License](LICENSE).
+Developed with focus on performance, reliability, and security on Arch & CachyOS.
