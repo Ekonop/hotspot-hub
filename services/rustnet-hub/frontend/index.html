@@ -3,194 +3,265 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hotspot Hub — Network Analytics & Threat Radar (RustNet)</title>
+  <title>Hotspot Hub — Network Observability & Threat Intelligence Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-    .tabular-nums { font-variant-numeric: tabular-nums; }
+    :root {
+      --bg-base: #07090E;
+      --bg-surface: #0E131B;
+      --bg-elevated: #131A26;
+      --border-subtle: rgba(255, 255, 255, 0.07);
+      --border-strong: rgba(255, 255, 255, 0.14);
+    }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg-base);
+      color: #E2E8F0;
+    }
+    .font-mono, pre, code, .tabular-nums {
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-variant-numeric: tabular-nums;
+    }
     ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: #0D1117; }
-    ::-webkit-scrollbar-thumb { background: #30363D; border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: #484F58; }
+    ::-webkit-scrollbar-track { background: #07090E; }
+    ::-webkit-scrollbar-thumb { background: #1E293B; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #334155; }
+    .panel {
+      background-color: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+    }
+    .panel-elevated {
+      background-color: var(--bg-elevated);
+      border: 1px solid var(--border-subtle);
+    }
+    .tab-active {
+      background-color: rgba(56, 189, 248, 0.12);
+      color: #38BDF8;
+      border-color: rgba(56, 189, 248, 0.28);
+    }
   </style>
 </head>
-<body class="bg-[#0D1117] text-slate-100 min-h-screen flex flex-col antialiased">
+<body class="min-h-screen flex flex-col antialiased selection:bg-sky-500/20 selection:text-sky-300">
 
-  <!-- Top App Bar -->
-  <header class="border-b border-white/10 bg-[#161B22]/90 backdrop-blur sticky top-0 z-40 px-6 py-3.5 flex justify-between items-center">
+  <!-- Top Navigation & System Status Header -->
+  <header class="border-b border-white/[0.08] bg-[#0A0E15]/95 backdrop-blur-md sticky top-0 z-40 px-5 py-2.5 flex justify-between items-center">
+    <!-- Brand & System Telemetry -->
     <div class="flex items-center gap-3.5">
-      <div class="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-        <i data-lucide="shield-alert" class="w-5 h-5 text-emerald-400"></i>
+      <div class="w-8 h-8 rounded-lg bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400 shadow-sm">
+        <i data-lucide="shield-check" class="w-4 h-4"></i>
       </div>
       <div>
         <div class="flex items-center gap-2">
-          <h1 class="text-base font-bold text-white tracking-tight">Hotspot Hub Radar</h1>
-          <span id="conn-pill" class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
-            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> LIVE
+          <span class="text-sm font-semibold tracking-tight text-white">Hotspot Hub</span>
+          <span class="text-slate-600 font-mono text-xs">/</span>
+          <span class="text-xs font-mono font-medium text-slate-300">Traffic & Security Console</span>
+          <span id="conn-pill" class="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5 ml-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> ONLINE · ap0
           </span>
         </div>
-        <p class="text-xs text-slate-400">RustNet 1.7.0 eBPF · Conntrack attribution · Multi-Model Threat Engine</p>
+        <div class="flex items-center gap-2 text-[11px] text-slate-400 font-mono mt-0.5">
+          <span>10.42.0.1/24</span>
+          <span>·</span>
+          <span>RustNet eBPF Engine</span>
+          <span>·</span>
+          <span class="text-slate-500">6-Layer Inspection Matrix</span>
+        </div>
       </div>
     </div>
 
-    <!-- Navigation Tabs -->
-    <div class="hidden md:flex items-center gap-1 bg-white/[0.04] p-1 rounded-xl border border-white/10 text-xs">
-      <button onclick="switchTab('flows')" id="tab-btn-flows" class="px-3.5 py-1.5 rounded-lg font-semibold bg-blue-600 text-white flex items-center gap-1.5 transition">
+    <!-- Segmented Navigation Tabs -->
+    <nav class="hidden md:flex items-center gap-1 bg-black/40 p-1 rounded-lg border border-white/[0.08] text-xs font-medium">
+      <button onclick="switchTab('flows')" id="tab-btn-flows" class="px-3 py-1.5 rounded-md font-semibold bg-sky-500/15 text-sky-300 border border-sky-500/30 flex items-center gap-1.5 transition">
         <i data-lucide="activity" class="w-3.5 h-3.5"></i> Live Flows
       </button>
-      <button onclick="switchTab('analytics')" id="tab-btn-analytics" class="px-3.5 py-1.5 rounded-lg font-medium text-slate-400 hover:text-white flex items-center gap-1.5 transition">
-        <i data-lucide="bar-chart-3" class="w-3.5 h-3.5"></i> Analytics & Categories
+      <button onclick="switchTab('analytics')" id="tab-btn-analytics" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-slate-200 border border-transparent flex items-center gap-1.5 transition">
+        <i data-lucide="bar-chart-2" class="w-3.5 h-3.5"></i> Analytics
       </button>
-      <button onclick="switchTab('threats')" id="tab-btn-threats" class="px-3.5 py-1.5 rounded-lg font-medium text-slate-400 hover:text-white flex items-center gap-1.5 transition">
-        <i data-lucide="shield" class="w-3.5 h-3.5"></i> Threat Radar (<span id="tab-threat-count" class="text-amber-400 font-bold">0</span>)
+      <button onclick="switchTab('threats')" id="tab-btn-threats" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-slate-200 border border-transparent flex items-center gap-1.5 transition">
+        <i data-lucide="crosshair" class="w-3.5 h-3.5"></i> Threat Radar
+        <span id="tab-threat-count" class="px-1.5 py-0.2 rounded font-mono text-[10px] bg-amber-500/20 text-amber-300 font-semibold ml-0.5">0</span>
       </button>
-      <button onclick="switchTab('clients')" id="tab-btn-clients" class="px-3.5 py-1.5 rounded-lg font-medium text-slate-400 hover:text-white flex items-center gap-1.5 transition">
-        <i data-lucide="smartphone" class="w-3.5 h-3.5"></i> Client Devices
+      <button onclick="switchTab('clients')" id="tab-btn-clients" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-slate-200 border border-transparent flex items-center gap-1.5 transition">
+        <i data-lucide="devices" class="w-3.5 h-3.5"></i> Stations
       </button>
-      <button onclick="switchTab('modify')" id="tab-btn-modify" class="px-3.5 py-1.5 rounded-lg font-medium text-slate-400 hover:text-white flex items-center gap-1.5 transition">
-        <i data-lucide="sliders-horizontal" class="w-3.5 h-3.5"></i> Packet Mod
+      <button onclick="switchTab('modify')" id="tab-btn-modify" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-slate-200 border border-transparent flex items-center gap-1.5 transition">
+        <i data-lucide="sliders" class="w-3.5 h-3.5"></i> Packet Mod
       </button>
-    </div>
+    </nav>
 
-    <!-- Action Buttons -->
-    <div class="flex items-center gap-3">
-      <button onclick="toggleAdblockShield()" id="btn-adblock" class="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-semibold transition" title="Toggle Hybrid DNS Sinkhole & Privoxy Proxy Shield">
-        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-        <span id="adblock-btn-text">Shield: ON</span>
+    <!-- Quick Utilities -->
+    <div class="flex items-center gap-2.5">
+      <button onclick="toggleAdblockShield()" id="btn-adblock" class="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 rounded-lg text-xs font-medium font-mono transition" title="Toggle Network-Wide DNS Sinkhole Shield">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+        <span id="adblock-btn-text">Sinkhole: Active</span>
       </button>
-      <button onclick="exportPcapng()" id="btn-export" class="flex items-center gap-2 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white rounded-lg text-xs font-semibold shadow-lg transition">
-        <i data-lucide="download" class="w-3.5 h-3.5"></i>
-        Export PCAPNG
+      <button onclick="exportPcapng()" id="btn-export" class="flex items-center gap-1.5 px-3 py-1.5 bg-white/[0.06] hover:bg-white/[0.1] text-slate-200 border border-white/10 rounded-lg text-xs font-medium font-mono transition">
+        <i data-lucide="download" class="w-3.5 h-3.5 text-slate-400"></i>
+        PCAPNG
       </button>
-      <button onclick="clearBuffer()" class="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-slate-300 rounded-lg text-xs font-medium transition">
-        Clear
+      <button onclick="clearBuffer()" class="px-2.5 py-1.5 text-slate-400 hover:text-slate-200 hover:bg-white/[0.05] rounded-lg text-xs font-mono transition" title="Clear Buffer">
+        Reset
       </button>
     </div>
   </header>
 
   <!-- Metric Strip -->
-  <section class="max-w-7xl w-full mx-auto px-6 pt-6">
-    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5">
-      <div class="bg-[#161B22] border border-white/10 rounded-xl p-3.5">
-        <div class="flex items-center justify-between text-slate-400 text-xs mb-1">
-          <span>Active Clients</span>
-          <i data-lucide="users" class="w-4 h-4 text-blue-400"></i>
+  <section class="max-w-7xl w-full mx-auto px-5 pt-5">
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+      <!-- 1. Connected Stations -->
+      <div class="panel rounded-xl p-3.5">
+        <div class="text-[11px] font-mono text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-between">
+          <span>Active Stations</span>
+          <i data-lucide="wifi" class="w-3.5 h-3.5 text-slate-500"></i>
         </div>
-        <div id="stat-clients" class="text-xl font-bold text-white tabular-nums">0</div>
+        <div id="stat-clients" class="text-xl font-bold font-mono text-white tabular-nums">0</div>
+        <div class="text-[11px] text-slate-500 font-mono mt-0.5">Isolated subnet 10.42.0.x</div>
       </div>
-      <div class="bg-[#161B22] border border-white/10 rounded-xl p-3.5">
-        <div class="flex items-center justify-between text-slate-400 text-xs mb-1">
-          <span>Total Live Flows</span>
-          <i data-lucide="radio" class="w-4 h-4 text-emerald-400"></i>
+
+      <!-- 2. Live Flows -->
+      <div class="panel rounded-xl p-3.5">
+        <div class="text-[11px] font-mono text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-between">
+          <span>Tracked Flows</span>
+          <i data-lucide="activity" class="w-3.5 h-3.5 text-slate-500"></i>
         </div>
-        <div id="stat-flows" class="text-xl font-bold text-white tabular-nums">0</div>
+        <div id="stat-flows" class="text-xl font-bold font-mono text-white tabular-nums">0</div>
+        <div class="text-[11px] text-slate-500 font-mono mt-0.5">Ring buffer (max 300)</div>
       </div>
-      <div class="bg-[#161B22] border border-white/10 rounded-xl p-3.5">
-        <div class="flex items-center justify-between text-slate-400 text-xs mb-1">
+
+      <!-- 3. Throughput Velocity -->
+      <div class="panel rounded-xl p-3.5">
+        <div class="text-[11px] font-mono text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-between">
           <span>Throughput</span>
-          <i data-lucide="arrow-down-up" class="w-4 h-4 text-cyan-400"></i>
+          <i data-lucide="gauge" class="w-3.5 h-3.5 text-slate-500"></i>
         </div>
-        <div id="stat-speed" class="text-xl font-bold text-emerald-400 tabular-nums">0.0 kbps</div>
+        <div id="stat-speed" class="text-xl font-bold font-mono text-sky-400 tabular-nums">0.0 kbps</div>
+        <div class="text-[11px] text-slate-500 font-mono mt-0.5">ap0 interface velocity</div>
       </div>
-      <div class="bg-[#161B22] border border-white/10 rounded-xl p-3.5">
-        <div class="flex items-center justify-between text-slate-400 text-xs mb-1">
-          <span>Threats / Trackers</span>
-          <i data-lucide="alert-triangle" class="w-4 h-4 text-amber-400"></i>
+
+      <!-- 4. Security Alerts -->
+      <div class="panel rounded-xl p-3.5">
+        <div class="text-[11px] font-mono text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-between">
+          <span>Threat Flags</span>
+          <i data-lucide="alert-circle" class="w-3.5 h-3.5 text-amber-500/70"></i>
         </div>
-        <div id="stat-threats" class="text-xl font-bold text-amber-400 tabular-nums">0</div>
+        <div id="stat-threats" class="text-xl font-bold font-mono text-amber-400 tabular-nums">0</div>
+        <div class="text-[11px] text-slate-500 font-mono mt-0.5">Anomalies & tracking</div>
       </div>
-      <div class="bg-[#161B22] border border-white/10 rounded-xl p-3.5">
-        <div class="flex items-center justify-between text-slate-400 text-xs mb-1">
-          <span>Ads Restricted</span>
-          <i data-lucide="shield-check" class="w-4 h-4 text-rose-400"></i>
+
+      <!-- 5. Ads & Telemetry Blocked -->
+      <div class="panel rounded-xl p-3.5">
+        <div class="text-[11px] font-mono text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-between">
+          <span>Sinkholed</span>
+          <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-slate-500"></i>
         </div>
-        <div id="stat-ads-restricted" class="text-xl font-bold text-rose-400 tabular-nums">0</div>
+        <div id="stat-ads-restricted" class="text-xl font-bold font-mono text-slate-200 tabular-nums">0</div>
+        <div class="text-[11px] text-slate-500 font-mono mt-0.5">DNS blocks applied</div>
       </div>
-      <div class="bg-[#161B22] border border-white/10 rounded-xl p-3.5">
-        <div class="flex items-center justify-between text-slate-400 text-xs mb-1">
+
+      <!-- 6. Conserved Data -->
+      <div class="panel rounded-xl p-3.5">
+        <div class="text-[11px] font-mono text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-between">
           <span>Data Saved</span>
-          <i data-lucide="hard-drive-download" class="w-4 h-4 text-sky-400"></i>
+          <i data-lucide="save" class="w-3.5 h-3.5 text-slate-500"></i>
         </div>
-        <div id="stat-data-saved" class="text-xl font-bold text-sky-400 tabular-nums">0 B</div>
+        <div id="stat-data-saved" class="text-xl font-bold font-mono text-emerald-400 tabular-nums">0 B</div>
+        <div class="text-[11px] text-slate-500 font-mono mt-0.5">Uplink bandwidth conserved</div>
       </div>
     </div>
   </section>
 
-  <!-- Main View Containers -->
-  <main class="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
+  <!-- Main Observability Views -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-5 space-y-5">
 
     <!-- ── TAB 1: LIVE FLOWS ───────────────────────────────────────── -->
-    <div id="view-flows" class="space-y-4">
-      <!-- Search & Filters -->
-      <div class="bg-[#161B22] border border-white/10 rounded-xl p-3 flex flex-wrap gap-3 items-center justify-between">
-        <div class="flex items-center gap-2.5 flex-1 min-w-[320px] flex-wrap">
-          <div class="flex items-center gap-2">
-            <i data-lucide="filter" class="w-4 h-4 text-slate-400 ml-1"></i>
-            <select id="client-filter" onchange="applyFiltersAndRender()" class="bg-[#0D1117] border border-white/10 text-xs text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-500">
-              <option value="all">All Connected Devices</option>
+    <div id="view-flows" class="space-y-3.5">
+      <!-- Search, Filtering & Stream Control Bar -->
+      <div class="panel rounded-xl p-3 flex flex-wrap gap-2.5 items-center justify-between">
+        <div class="flex items-center gap-2 flex-1 min-w-[320px] flex-wrap">
+          <!-- Device Filter -->
+          <div class="relative">
+            <select id="client-filter" onchange="applyFiltersAndRender()" class="bg-[#0B0F17] border border-white/10 text-xs font-mono text-slate-300 rounded-lg pl-3 pr-8 py-1.5 focus:outline-none focus:border-sky-500/50 appearance-none cursor-pointer">
+              <option value="all">All Stations (Subnet)</option>
             </select>
+            <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-500 absolute right-2.5 top-2 pointer-events-none"></i>
           </div>
-          <select id="category-filter" onchange="applyFiltersAndRender()" class="bg-[#0D1117] border border-white/10 text-xs text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-500">
-            <option value="all">All Categories</option>
-            <option value="threats_only">⚠️ Flagged Threats Only</option>
-            <option value="Streaming & Media">Streaming & Media</option>
-            <option value="Social & Chat">Social & Chat</option>
-            <option value="Gaming & Entertainment">Gaming & Entertainment</option>
-            <option value="Cloud & CDN">Cloud & CDN</option>
-            <option value="Web & Updates">Web & Updates</option>
-            <option value="Telemetry & Ads">Telemetry & Ads</option>
-            <option value="Adult & NSFW">🔞 Adult & NSFW</option>
-            <option value="General Web">General Web</option>
-          </select>
-          <select id="risk-filter" onchange="applyFiltersAndRender()" class="bg-[#0D1117] border border-white/10 text-xs text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-500">
-            <option value="all">All Risk Levels</option>
-            <option value="danger">🔴 Danger / High Risk</option>
-            <option value="warning">🟡 Suspicious / Tracker</option>
-            <option value="low">🔵 Low Risk</option>
-            <option value="safe">🟢 Clean / Safe</option>
-          </select>
-          <div class="relative flex-1 min-w-[200px]">
-            <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5"></i>
-            <input type="text" id="search-input" oninput="applyFiltersAndRender()" placeholder="Search domain, IP, MAC, process, custom name..." class="w-full bg-[#0D1117] border border-white/10 rounded-lg pl-8 pr-7 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-blue-500 placeholder-slate-500">
-            <button id="clear-search-btn" onclick="clearSearch()" class="hidden absolute right-2.5 top-2 text-slate-500 hover:text-white text-xs font-bold" title="Clear Search">✕</button>
+
+          <!-- Category Filter -->
+          <div class="relative">
+            <select id="category-filter" onchange="applyFiltersAndRender()" class="bg-[#0B0F17] border border-white/10 text-xs font-mono text-slate-300 rounded-lg pl-3 pr-8 py-1.5 focus:outline-none focus:border-sky-500/50 appearance-none cursor-pointer">
+              <option value="all">All Traffic Categories</option>
+              <option value="threats_only">Flagged Anomalies Only</option>
+              <option value="Streaming & Media">Streaming & Media</option>
+              <option value="Social & Chat">Social & Messaging</option>
+              <option value="Gaming & Entertainment">Gaming / Real-time</option>
+              <option value="Cloud & CDN">Cloud Infrastructure</option>
+              <option value="Web & Updates">OS Updates & Software</option>
+              <option value="Telemetry & Ads">Telemetry & Ad Networks</option>
+              <option value="Adult & NSFW">Adult & Restricted Content</option>
+              <option value="General Web">General HTTP/HTTPS</option>
+            </select>
+            <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-500 absolute right-2.5 top-2 pointer-events-none"></i>
+          </div>
+
+          <!-- Risk Level Filter -->
+          <div class="relative">
+            <select id="risk-filter" onchange="applyFiltersAndRender()" class="bg-[#0B0F17] border border-white/10 text-xs font-mono text-slate-300 rounded-lg pl-3 pr-8 py-1.5 focus:outline-none focus:border-sky-500/50 appearance-none cursor-pointer">
+              <option value="all">All Severity Levels</option>
+              <option value="danger">Critical Risk (Danger)</option>
+              <option value="warning">Elevated Risk (Suspicious)</option>
+              <option value="low">Low Risk</option>
+              <option value="safe">Clean / Verified</option>
+            </select>
+            <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-500 absolute right-2.5 top-2 pointer-events-none"></i>
+          </div>
+
+          <!-- Search Query Field -->
+          <div class="relative flex-1 min-w-[220px]">
+            <i data-lucide="search" class="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5"></i>
+            <input type="text" id="search-input" oninput="applyFiltersAndRender()" placeholder="Filter domain, IP, MAC, process..." class="w-full bg-[#0B0F17] border border-white/10 rounded-lg pl-8 pr-8 py-1.5 text-xs font-mono text-slate-200 focus:outline-none focus:border-sky-500/50 placeholder-slate-600">
+            <button id="clear-search-btn" onclick="clearSearch()" class="hidden absolute right-2.5 top-2 text-slate-500 hover:text-slate-300 text-xs font-bold" title="Clear">✕</button>
           </div>
         </div>
 
+        <!-- Auto-Scroll & Counter -->
         <div class="flex items-center gap-3">
-          <button id="btn-autoscroll" onclick="toggleAutoScroll()" class="px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 border transition bg-emerald-500/10 text-emerald-400 border-emerald-500/20" title="Click to pause or resume real-time auto-scroll">
-            <span id="autoscroll-dot" class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span id="autoscroll-text">Auto-Scroll: ON</span>
+          <button id="btn-autoscroll" onclick="toggleAutoScroll()" class="px-2.5 py-1 rounded-md text-xs font-mono font-medium flex items-center gap-1.5 border transition bg-emerald-500/10 text-emerald-400 border-emerald-500/20" title="Toggle Auto-Scroll">
+            <span id="autoscroll-dot" class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+            <span id="autoscroll-text">STREAMING</span>
           </button>
-          <div class="text-xs text-slate-400 tabular-nums">
-            Showing <span id="count-visible" class="text-white font-semibold">0</span> of <span id="count-total" class="text-white font-semibold">0</span>
+          <div class="text-xs font-mono text-slate-400 tabular-nums">
+            <span id="count-visible" class="text-slate-200 font-semibold">0</span><span class="text-slate-600">/</span><span id="count-total" class="text-slate-400">0</span>
           </div>
         </div>
       </div>
 
       <!-- Live Flows Table -->
-      <div class="bg-[#161B22] border border-white/10 rounded-xl overflow-hidden shadow-2xl relative">
-        <div id="paused-banner" class="hidden absolute top-2 right-4 z-20 px-3 py-1 bg-amber-500/90 text-black font-bold text-xs rounded-full shadow-lg cursor-pointer flex items-center gap-1.5 hover:bg-amber-400 transition" onclick="resumeAutoScroll()">
-          <span>⏸ Auto-scroll paused (<span id="paused-new-count">0</span> new) — Click to resume</span>
+      <div class="panel rounded-xl overflow-hidden shadow-xl relative">
+        <div id="paused-banner" class="hidden absolute top-2 right-4 z-20 px-3 py-1 bg-amber-500 text-slate-950 font-mono font-bold text-xs rounded-md shadow-lg cursor-pointer flex items-center gap-1.5 hover:bg-amber-400 transition" onclick="resumeAutoScroll()">
+          <span>Stream paused (<span id="paused-new-count">0</span> new) — Click to resume</span>
         </div>
-        <div id="table-scroll-container" class="overflow-x-auto max-h-[640px] overflow-y-auto">
-          <table class="w-full text-left text-xs">
-            <thead class="bg-white/[0.03] text-slate-400 uppercase tracking-wider text-[11px] border-b border-white/10 sticky top-0 backdrop-blur z-10 select-none">
+        <div id="table-scroll-container" class="overflow-x-auto max-h-[660px] overflow-y-auto">
+          <table class="w-full text-left text-xs border-collapse">
+            <thead class="bg-[#0B0F17] text-slate-400 font-mono uppercase text-[11px] border-b border-white/[0.08] sticky top-0 backdrop-blur z-10 select-none">
               <tr>
-                <th class="px-4 py-3">Client Device</th>
-                <th class="px-4 py-3">Client IP & MAC</th>
-                <th class="px-4 py-3">Category</th>
-                <th class="px-4 py-3">Destination Domain / IP</th>
-                <th class="px-4 py-3">Risk Level</th>
-                <th class="px-4 py-3 text-right">Bandwidth</th>
-                <th class="px-4 py-3 text-right">Action</th>
+                <th class="px-4 py-3 font-semibold">Station / Client</th>
+                <th class="px-4 py-3 font-semibold">Source (IP / MAC)</th>
+                <th class="px-4 py-3 font-semibold">Category</th>
+                <th class="px-4 py-3 font-semibold">Target Endpoint (Domain / Host)</th>
+                <th class="px-4 py-3 font-semibold">Risk Classification</th>
+                <th class="px-4 py-3 font-semibold text-right">Bandwidth</th>
+                <th class="px-4 py-3 font-semibold text-right">Inspect</th>
               </tr>
             </thead>
-            <tbody id="traffic-rows" class="divide-y divide-white/5 font-mono">
+            <tbody id="traffic-rows" class="divide-y divide-white/[0.04] font-mono">
               <tr>
-                <td colspan="7" class="px-4 py-12 text-center text-slate-500 font-sans">
-                  Listening for network flows on hotspot interface ap0...
+                <td colspan="7" class="px-4 py-14 text-center text-slate-500 font-sans">
+                  Listening on wireless interface ap0... Waiting for client flows.
                 </td>
               </tr>
             </tbody>
@@ -199,17 +270,17 @@
       </div>
     </div>
 
-    <!-- ── TAB 2: DEEP ANALYTICS & CATEGORIES ──────────────────────── -->
-    <div id="view-analytics" class="hidden space-y-6">
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <!-- ── TAB 2: ANALYTICS & CATEGORIES ────────────────────────────── -->
+    <div id="view-analytics" class="hidden space-y-5">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
         <!-- Live Bandwidth Line Graph -->
-        <div class="bg-[#161B22] border border-white/10 rounded-xl p-5 space-y-3">
-          <div class="flex items-center justify-between">
-            <h2 class="text-sm font-bold text-white flex items-center gap-2">
-              <i data-lucide="line-chart" class="w-4 h-4 text-emerald-400"></i>
-              Real-Time Bandwidth Velocity
-            </h2>
-            <span class="text-xs text-slate-400">Last 30 snapshots</span>
+        <div class="panel rounded-xl p-5 space-y-3">
+          <div class="flex items-center justify-between border-b border-white/[0.06] pb-3">
+            <div>
+              <h2 class="text-sm font-semibold text-white">Bandwidth History</h2>
+              <p class="text-xs text-slate-400 font-mono mt-0.5">Interface ap0 throughput (last 30 samples)</p>
+            </div>
+            <span class="text-xs font-mono text-slate-400 px-2 py-0.5 bg-black/30 rounded border border-white/5">500ms sample rate</span>
           </div>
           <div class="h-64">
             <canvas id="chart-bandwidth"></canvas>
@@ -217,13 +288,13 @@
         </div>
 
         <!-- Category Distribution Doughnut -->
-        <div class="bg-[#161B22] border border-white/10 rounded-xl p-5 space-y-3">
-          <div class="flex items-center justify-between">
-            <h2 class="text-sm font-bold text-white flex items-center gap-2">
-              <i data-lucide="pie-chart" class="w-4 h-4 text-purple-400"></i>
-              Traffic Category Distribution
-            </h2>
-            <span class="text-xs text-slate-400">Ensemble classification</span>
+        <div class="panel rounded-xl p-5 space-y-3">
+          <div class="flex items-center justify-between border-b border-white/[0.06] pb-3">
+            <div>
+              <h2 class="text-sm font-semibold text-white">Traffic Classification Breakdown</h2>
+              <p class="text-xs text-slate-400 font-mono mt-0.5">Flow distribution across heuristic categories</p>
+            </div>
+            <span class="text-xs font-mono text-slate-400 px-2 py-0.5 bg-black/30 rounded border border-white/5">6-layer model</span>
           </div>
           <div class="h-64 flex items-center justify-center">
             <canvas id="chart-categories"></canvas>
@@ -231,261 +302,234 @@
         </div>
       </div>
 
-      <!-- AdBlocker Shield Impact & Data Savings -->
-      <div class="bg-[#161B22] border border-white/10 rounded-xl p-5 space-y-4">
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <div class="flex items-center gap-2.5">
-            <div class="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-              <i data-lucide="shield" class="w-4 h-4 text-emerald-400"></i>
-            </div>
-            <div>
-              <h2 class="text-sm font-bold text-white">AdBlocker & Privacy Shield Impact</h2>
-              <p class="text-xs text-slate-400">Real-time telemetry, YouTube video ads, and mobile tracker restriction metrics</p>
-            </div>
+      <!-- Sinkhole Protection Impact -->
+      <div class="panel rounded-xl p-5 space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] pb-3">
+          <div>
+            <h2 class="text-sm font-semibold text-white">DNS Sinkhole & Adblock Telemetry</h2>
+            <p class="text-xs text-slate-400 font-mono mt-0.5">Network-wide enforcement for connected wireless stations</p>
           </div>
-          <div class="flex items-center gap-2 text-xs">
-            <span class="px-2.5 py-1 rounded-md bg-purple-500/10 text-purple-300 border border-purple-500/20 font-mono">
-              92,183 upstream rules
+          <div class="flex items-center gap-2 text-xs font-mono">
+            <span class="px-2.5 py-1 rounded bg-black/30 text-slate-300 border border-white/10">
+              168,665 upstream rules
             </span>
-            <span class="px-2.5 py-1 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            <span class="px-2.5 py-1 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
               Daily Auto-Sync: 04:00 AM
             </span>
           </div>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
-          <div class="bg-black/30 border border-white/5 rounded-xl p-4">
-            <div class="text-slate-400 text-xs mb-1 flex items-center justify-between">
-              <span>Ads & Trackers Blocked</span>
-              <i data-lucide="shield-alert" class="w-4 h-4 text-rose-400"></i>
-            </div>
-            <div id="analytics-ads-count" class="text-2xl font-bold text-rose-400 tabular-nums">0</div>
-            <div class="text-[11px] text-slate-500 mt-1">YouTube, doubleclick, telemetry & SDKs</div>
+          <div class="bg-black/30 border border-white/[0.06] rounded-xl p-4">
+            <div class="text-slate-400 text-xs font-mono mb-1">Total Sinkholed Requests</div>
+            <div id="analytics-ads-count" class="text-2xl font-bold font-mono text-slate-200 tabular-nums">0</div>
+            <div class="text-[11px] text-slate-500 font-mono mt-1">Ad networks, analytics SDKs, tracking pixels</div>
           </div>
 
-          <div class="bg-black/30 border border-white/5 rounded-xl p-4">
-            <div class="text-slate-400 text-xs mb-1 flex items-center justify-between">
-              <span>Client Data Conserved</span>
-              <i data-lucide="arrow-down-circle" class="w-4 h-4 text-sky-400"></i>
-            </div>
-            <div id="analytics-data-saved" class="text-2xl font-bold text-sky-400 tabular-nums">0 MB</div>
-            <div class="text-[11px] text-slate-500 mt-1">Saved on upstream cellular / Wi-Fi</div>
+          <div class="bg-black/30 border border-white/[0.06] rounded-xl p-4">
+            <div class="text-slate-400 text-xs font-mono mb-1">Cellular Uplink Conserved</div>
+            <div id="analytics-data-saved" class="text-2xl font-bold font-mono text-emerald-400 tabular-nums">0 MB</div>
+            <div class="text-[11px] text-slate-500 font-mono mt-1">Eliminated unneeded background payload download</div>
           </div>
 
-          <div class="bg-black/30 border border-white/5 rounded-xl p-4">
-            <div class="text-slate-400 text-xs mb-1 flex items-center justify-between">
-              <span>Protection Scope</span>
-              <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400"></i>
-            </div>
-            <div class="text-sm font-semibold text-emerald-400 mt-1">Zero-Config DNS Sinkhole</div>
-            <div class="text-[11px] text-slate-500 mt-1">All hotspot clients protected (10.42.0.0/24)</div>
+          <div class="bg-black/30 border border-white/[0.06] rounded-xl p-4">
+            <div class="text-slate-400 text-xs font-mono mb-1">Gateway Mode</div>
+            <div class="text-base font-semibold font-mono text-sky-400 mt-1">Transparent Sinkhole (0.0.0.0)</div>
+            <div class="text-[11px] text-slate-500 font-mono mt-1">No certificate installation or proxy setup required</div>
           </div>
         </div>
       </div>
 
       <!-- Leaderboards Grid -->
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <!-- Top Talkers -->
-        <div class="bg-[#161B22] border border-white/10 rounded-xl p-5 space-y-3">
-          <h2 class="text-sm font-bold text-white flex items-center gap-2">
-            <i data-lucide="award" class="w-4 h-4 text-amber-400"></i>
-            Top Talkers (Bandwidth by Client)
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <!-- Top Stations by Bandwidth -->
+        <div class="panel rounded-xl p-5 space-y-3">
+          <h2 class="text-sm font-semibold text-white flex items-center justify-between border-b border-white/[0.06] pb-3">
+            <span>Station Bandwidth Utilization</span>
+            <span class="text-xs font-mono text-slate-400">Top Talkers</span>
           </h2>
-          <div id="leaderboard-clients" class="space-y-2 text-xs font-sans">
-            <div class="text-slate-500 py-4 text-center">Aggregating client traffic...</div>
+          <div id="leaderboard-clients" class="space-y-2 text-xs font-mono">
+            <div class="text-slate-500 py-6 text-center font-sans">Aggregating client traffic...</div>
           </div>
         </div>
 
         <!-- Top Destination Domains -->
-        <div class="bg-[#161B22] border border-white/10 rounded-xl p-5 space-y-3">
-          <h2 class="text-sm font-bold text-white flex items-center gap-2">
-            <i data-lucide="globe" class="w-4 h-4 text-cyan-400"></i>
-            Top Requested Domains
+        <div class="panel rounded-xl p-5 space-y-3">
+          <h2 class="text-sm font-semibold text-white flex items-center justify-between border-b border-white/[0.06] pb-3">
+            <span>Frequent Destination Endpoints</span>
+            <span class="text-xs font-mono text-slate-400">DNS & SNI Lookups</span>
           </h2>
           <div id="leaderboard-domains" class="space-y-2 text-xs font-mono">
-            <div class="text-slate-500 py-4 text-center font-sans">Aggregating domain lookups...</div>
+            <div class="text-slate-500 py-6 text-center font-sans">Aggregating domain lookups...</div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- ── TAB 3: THREAT RADAR & ANOMALIES ────────────────────────── -->
-    <div id="view-threats" class="hidden space-y-6">
+    <!-- ── TAB 3: THREAT RADAR & SECURITY MATRIX ───────────────────── -->
+    <div id="view-threats" class="hidden space-y-5">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
 
-      <!-- Radar Scope & Classifier Team Overview (2-column grid) -->
-      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-
-        <!-- Tactical Threat Radar Scope Canvas (5 columns) -->
-        <div class="lg:col-span-5 bg-[#161B22] border border-white/10 rounded-xl p-5 flex flex-col items-center justify-between text-center relative overflow-hidden">
-          <div class="w-full flex items-center justify-between mb-3 text-left">
+        <!-- Threat Vector Radar Scope -->
+        <div class="lg:col-span-5 panel rounded-xl p-5 flex flex-col items-center justify-between relative overflow-hidden">
+          <div class="w-full flex items-center justify-between border-b border-white/[0.06] pb-3 mb-3">
             <div>
-              <h2 class="text-sm font-bold text-white flex items-center gap-2">
-                <i data-lucide="crosshair" class="w-4 h-4 text-emerald-400"></i>
-                Tactical Threat Radar Scope
-              </h2>
-              <p class="text-[11px] text-slate-400">360° Real-Time Network Anomaly Sweep</p>
+              <h2 class="text-sm font-semibold text-white">Threat Vector Polar Scope</h2>
+              <p class="text-[11px] font-mono text-slate-400 mt-0.5">Real-time egress anomaly distribution</p>
             </div>
-            <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
-              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> SCANNING
+            <span class="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              ACTIVE
             </span>
           </div>
 
           <div class="relative my-2">
-            <canvas id="threat-radar-canvas" width="320" height="320" class="rounded-full shadow-2xl border border-emerald-500/20"></canvas>
-            <div id="radar-tooltip" class="hidden absolute pointer-events-none bg-slate-900/95 text-white border border-emerald-500/40 px-2.5 py-1.5 rounded-lg text-[10px] font-mono shadow-2xl z-20"></div>
+            <canvas id="threat-radar-canvas" width="320" height="320" class="rounded-full shadow-inner"></canvas>
+            <div id="radar-tooltip" class="hidden absolute pointer-events-none bg-[#0B0F17]/95 text-slate-200 border border-white/20 px-2.5 py-1.5 rounded-md text-[10px] font-mono shadow-2xl z-20"></div>
           </div>
 
-          <div class="w-full pt-3 border-t border-white/5 flex items-center justify-between text-[11px] text-slate-400">
+          <!-- Radar Legend -->
+          <div class="w-full pt-3 border-t border-white/[0.06] flex items-center justify-between text-[11px] font-mono text-slate-400">
             <div class="flex items-center gap-3">
-              <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-red-500"></span> Inner: Danger</span>
-              <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-amber-500"></span> Mid: Warning</span>
-              <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-emerald-500"></span> Outer: Trackers</span>
+              <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-rose-500"></span> Critical</span>
+              <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-amber-500"></span> Suspicious</span>
+              <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-sky-500"></span> Low / Telemetry</span>
             </div>
-            <button onclick="simulateThreatSample()" class="px-2.5 py-1 bg-white/5 hover:bg-white/10 text-slate-300 rounded text-[10px] font-semibold transition" title="Inject a test anomaly to verify radar detection">
-              Test Anomaly
+            <button onclick="simulateThreatSample()" class="px-2 py-0.5 bg-white/[0.05] hover:bg-white/[0.1] text-slate-300 border border-white/10 rounded text-[10px] font-mono transition" title="Inject a diagnostic test anomaly to verify alerting pipeline">
+              Diagnostic Test
             </button>
           </div>
         </div>
 
-        <!-- Ensemble Team of 5 Classifiers & Threat Metrics (7 columns) -->
-        <div class="lg:col-span-7 bg-[#161B22] border border-white/10 rounded-xl p-5 space-y-4">
-          <div class="flex items-center justify-between">
+        <!-- 6-Layer Detection Matrix -->
+        <div class="lg:col-span-7 panel rounded-xl p-5 space-y-4">
+          <div class="flex items-center justify-between border-b border-white/[0.06] pb-3">
             <div>
-              <h2 class="text-sm font-bold text-white flex items-center gap-2">
-                <i data-lucide="cpu" class="w-4 h-4 text-purple-400"></i>
-                Ensemble Classifier Matrix & Metrics
-              </h2>
-              <p class="text-xs text-slate-400">5-Model consensus engine evaluating threat signatures, DGA entropy, and egress behavior</p>
+              <h2 class="text-sm font-semibold text-white">Detection Engines & Telemetry</h2>
+              <p class="text-xs text-slate-400 font-mono mt-0.5">Real-time inspection heuristics evaluating egress flows</p>
             </div>
-            <span class="text-xs font-mono text-purple-300 px-2.5 py-1 bg-purple-500/10 border border-purple-500/20 rounded-lg">
-              Voting Consensus Active
+            <span class="text-xs font-mono text-slate-400 px-2 py-0.5 bg-black/30 rounded border border-white/5">
+              6 Active Engines
             </span>
           </div>
 
-          <!-- 4 Mini Threat Metric Counters -->
+          <!-- Metric Counters -->
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
-            <div class="bg-black/30 border border-white/5 rounded-xl p-3">
-              <div class="text-[11px] text-slate-400 mb-0.5">Active Threats</div>
-              <div id="radar-stat-total" class="text-xl font-bold text-white tabular-nums">0</div>
+            <div class="bg-black/30 border border-white/[0.06] rounded-lg p-3">
+              <div class="text-[10px] font-mono text-slate-400 uppercase mb-0.5">Active Events</div>
+              <div id="radar-stat-total" class="text-xl font-bold font-mono text-white tabular-nums">0</div>
             </div>
-            <div class="bg-black/30 border border-white/5 rounded-xl p-3">
-              <div class="text-[11px] text-slate-400 mb-0.5">Critical Danger</div>
-              <div id="radar-stat-danger" class="text-xl font-bold text-red-400 tabular-nums">0</div>
+            <div class="bg-black/30 border border-white/[0.06] rounded-lg p-3">
+              <div class="text-[10px] font-mono text-slate-400 uppercase mb-0.5">Critical Severity</div>
+              <div id="radar-stat-danger" class="text-xl font-bold font-mono text-rose-400 tabular-nums">0</div>
             </div>
-            <div class="bg-black/30 border border-white/5 rounded-xl p-3">
-              <div class="text-[11px] text-slate-400 mb-0.5">Trackers Flagged</div>
-              <div id="radar-stat-trackers" class="text-xl font-bold text-amber-400 tabular-nums">0</div>
+            <div class="bg-black/30 border border-white/[0.06] rounded-lg p-3">
+              <div class="text-[10px] font-mono text-slate-400 uppercase mb-0.5">Suspicious Trackers</div>
+              <div id="radar-stat-trackers" class="text-xl font-bold font-mono text-amber-400 tabular-nums">0</div>
             </div>
-            <div class="bg-black/30 border border-white/5 rounded-xl p-3">
-              <div class="text-[11px] text-slate-400 mb-0.5">Peak Risk Score</div>
-              <div id="radar-stat-maxscore" class="text-xl font-bold text-emerald-400 tabular-nums">0/100</div>
+            <div class="bg-black/30 border border-white/[0.06] rounded-lg p-3">
+              <div class="text-[10px] font-mono text-slate-400 uppercase mb-0.5">Peak Risk Score</div>
+              <div id="radar-stat-maxscore" class="text-xl font-bold font-mono text-slate-200 tabular-nums">0/100</div>
             </div>
           </div>
 
-          <!-- 5 Models Breakdown List -->
+          <!-- Detection Layer List -->
           <div class="space-y-2 pt-1 text-xs">
-            <div class="flex items-center justify-between p-2.5 bg-black/20 rounded-lg border border-white/5">
-              <div class="flex items-center gap-2.5">
-                <div class="w-6 h-6 rounded bg-rose-500/10 text-rose-400 flex items-center justify-center font-bold text-[11px]">1</div>
+            <div class="flex items-center justify-between p-2.5 bg-black/20 rounded-lg border border-white/[0.04]">
+              <div class="flex items-center gap-3">
+                <span class="font-mono text-slate-500 font-bold">01</span>
                 <div>
-                  <div class="font-semibold text-slate-200">ThreatIntel & C2 Signature Model</div>
-                  <div class="text-[10px] text-slate-400">Crypto miners, dynamic DNS evasion, phishing patterns, malicious TLDs</div>
+                  <div class="font-medium text-slate-200">C2 & Threat Signature Detection</div>
+                  <div class="text-[11px] text-slate-400 font-mono">Known botnet controllers, crypto miners, dynamic DNS evasion, phishing domains</div>
                 </div>
               </div>
-              <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Active (0.95 conf)</span>
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Operational</span>
             </div>
 
-            <div class="flex items-center justify-between p-2.5 bg-black/20 rounded-lg border border-white/5">
-              <div class="flex items-center gap-2.5">
-                <div class="w-6 h-6 rounded bg-amber-500/10 text-amber-400 flex items-center justify-center font-bold text-[11px]">2</div>
+            <div class="flex items-center justify-between p-2.5 bg-black/20 rounded-lg border border-white/[0.04]">
+              <div class="flex items-center gap-3">
+                <span class="font-mono text-slate-500 font-bold">02</span>
                 <div>
-                  <div class="font-semibold text-slate-200">Protocol & Port Anomaly Model</div>
-                  <div class="text-[10px] text-slate-400">Exposed SMB (445), Telnet, Metasploit (4444), Tor SOCKS, unencrypted services</div>
+                  <div class="font-medium text-slate-200">Protocol & Non-Standard Port Heuristics</div>
+                  <div class="text-[11px] text-slate-400 font-mono">Exposed SMB (445), Telnet, Metasploit handlers, unauthorized Tor proxies</div>
                 </div>
               </div>
-              <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Active (0.95 conf)</span>
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Operational</span>
             </div>
 
-            <div class="flex items-center justify-between p-2.5 bg-black/20 rounded-lg border border-white/5">
-              <div class="flex items-center gap-2.5">
-                <div class="w-6 h-6 rounded bg-sky-500/10 text-sky-400 flex items-center justify-center font-bold text-[11px]">3</div>
+            <div class="flex items-center justify-between p-2.5 bg-black/20 rounded-lg border border-white/[0.04]">
+              <div class="flex items-center gap-3">
+                <span class="font-mono text-slate-500 font-bold">03</span>
                 <div>
-                  <div class="font-semibold text-slate-200">Privacy & Telemetry Harvester Model</div>
-                  <div class="text-[10px] text-slate-400">Mobile ad campaign attribution (AppsFlyer, Adjust, Branch, Crashlytics, Criteo)</div>
+                  <div class="font-medium text-slate-200">Privacy & Advertising SDK Harvester</div>
+                  <div class="text-[11px] text-slate-400 font-mono">Mobile telemetry SDKs (AppsFlyer, Adjust, Branch, Crashlytics beacons)</div>
                 </div>
               </div>
-              <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Active (0.94 conf)</span>
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Operational</span>
             </div>
 
-            <div class="flex items-center justify-between p-2.5 bg-black/20 rounded-lg border border-white/5">
-              <div class="flex items-center gap-2.5">
-                <div class="w-6 h-6 rounded bg-purple-500/10 text-purple-400 flex items-center justify-center font-bold text-[11px]">4</div>
+            <div class="flex items-center justify-between p-2.5 bg-black/20 rounded-lg border border-white/[0.04]">
+              <div class="flex items-center gap-3">
+                <span class="font-mono text-slate-500 font-bold">04</span>
                 <div>
-                  <div class="font-semibold text-slate-200">Shannon Entropy & DGA Model</div>
-                  <div class="text-[10px] text-slate-400">Domain Generation Algorithm detection (Shannon randomness > 3.75 bits/byte)</div>
+                  <div class="font-medium text-slate-200">Shannon Entropy & DGA Analysis</div>
+                  <div class="text-[11px] text-slate-400 font-mono">Domain Generation Algorithm detection (character entropy H > 3.75 bits/byte)</div>
                 </div>
               </div>
-              <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Active (0.90 conf)</span>
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Operational</span>
             </div>
 
-            <div class="flex items-center justify-between p-2.5 bg-black/20 rounded-lg border border-white/5">
-              <div class="flex items-center gap-2.5">
-                <div class="w-6 h-6 rounded bg-teal-500/10 text-teal-400 flex items-center justify-center font-bold text-[11px]">5</div>
+            <div class="flex items-center justify-between p-2.5 bg-black/20 rounded-lg border border-white/[0.04]">
+              <div class="flex items-center gap-3">
+                <span class="font-mono text-slate-500 font-bold">05</span>
                 <div>
-                  <div class="font-semibold text-slate-200">Heuristic Behavior & Exfiltration Model</div>
-                  <div class="text-[10px] text-slate-400">High-velocity outbound egress anomaly (>2.5 MB/s) and direct IP C2 beaconing</div>
+                  <div class="font-medium text-slate-200">Data Exfiltration & Velocity Anomaly</div>
+                  <div class="text-[11px] text-slate-400 font-mono">Sudden high-throughput outbound egress (> 2.5 MB/s) and direct IP C2 beaconing</div>
                 </div>
               </div>
-              <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Active (0.90 conf)</span>
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Operational</span>
             </div>
 
-            <div class="flex items-center justify-between p-2.5 bg-black/20 rounded-lg border border-white/5">
-              <div class="flex items-center gap-2.5">
-                <div class="w-6 h-6 rounded bg-pink-500/10 text-pink-400 flex items-center justify-center font-bold text-[11px]">6</div>
+            <div class="flex items-center justify-between p-2.5 bg-black/20 rounded-lg border border-white/[0.04]">
+              <div class="flex items-center gap-3">
+                <span class="font-mono text-slate-500 font-bold">06</span>
                 <div>
-                  <div class="font-semibold text-slate-200">Adult, Nudity & NSFW Content Filter</div>
-                  <div class="text-[10px] text-slate-400">Explicit content networks, cam endpoints, age-restricted media, and keyword heuristics</div>
+                  <div class="font-medium text-slate-200">Content Policy & Adult Material Filter</div>
+                  <div class="text-[11px] text-slate-400 font-mono">Explicit networks, adult web services, and mature content telemetry endpoints</div>
                 </div>
               </div>
-              <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Active (0.98 conf)</span>
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Operational</span>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Live Threat Intelligence Feed Section -->
-      <div class="bg-[#161B22] border border-white/10 rounded-xl p-5 space-y-4">
-        <div class="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-white/10">
+      <!-- Live Security Alert Feed -->
+      <div class="panel rounded-xl p-5 space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] pb-3">
           <div class="flex items-center gap-3">
-            <h2 class="text-sm font-bold text-white flex items-center gap-2">
-              <i data-lucide="shield-alert" class="w-4 h-4 text-red-400"></i>
-              Live Threat Interception Feed
-            </h2>
-            <span id="threat-feed-count" class="px-2 py-0.5 bg-red-500/20 text-red-400 rounded-full text-xs font-bold font-mono">0 events</span>
+            <h2 class="text-sm font-semibold text-white">Live Security Incident Feed</h2>
+            <span id="threat-feed-count" class="px-2 py-0.5 bg-rose-500/15 text-rose-300 rounded font-mono text-xs font-semibold">0 events</span>
           </div>
 
-          <!-- Threat Type Filters -->
-          <div class="flex items-center gap-2 text-xs">
-            <button onclick="setThreatFilter('all')" id="filter-threat-all" class="px-2.5 py-1 rounded-lg font-semibold bg-blue-600 text-white transition">All Threats</button>
-            <button onclick="setThreatFilter('danger')" id="filter-threat-danger" class="px-2.5 py-1 rounded-lg font-medium text-slate-400 hover:text-white bg-white/5 transition">🔴 Danger Only</button>
-            <button onclick="setThreatFilter('warning')" id="filter-threat-warning" class="px-2.5 py-1 rounded-lg font-medium text-slate-400 hover:text-white bg-white/5 transition">🟡 Suspicious</button>
-            <button onclick="clearSimulatedThreats()" class="px-2.5 py-1 rounded-lg font-medium text-slate-400 hover:text-slate-200 bg-white/5 transition" title="Clear test events">Clear Tests</button>
+          <div class="flex items-center gap-1.5 text-xs font-mono">
+            <button onclick="setThreatFilter('all')" id="filter-threat-all" class="px-2.5 py-1 rounded font-semibold bg-sky-500/15 text-sky-300 border border-sky-500/30 transition">All Events</button>
+            <button onclick="setThreatFilter('danger')" id="filter-threat-danger" class="px-2.5 py-1 rounded text-slate-400 hover:text-slate-200 bg-black/30 border border-white/5 transition">Critical</button>
+            <button onclick="setThreatFilter('warning')" id="filter-threat-warning" class="px-2.5 py-1 rounded text-slate-400 hover:text-slate-200 bg-black/30 border border-white/5 transition">Suspicious</button>
+            <button onclick="clearSimulatedThreats()" class="px-2.5 py-1 rounded text-slate-500 hover:text-slate-300 transition" title="Clear test events">Clear</button>
           </div>
         </div>
 
-        <div id="threat-feed" class="space-y-3">
+        <div id="threat-feed" class="space-y-2.5">
           <div class="text-slate-500 text-xs py-8 text-center font-sans">No security anomalies or aggressive trackers flagged yet.</div>
         </div>
       </div>
     </div>
 
-    <!-- ── TAB 4: CLIENT DEVICES ──────────────────────────────────── -->
-    <div id="view-clients" class="hidden space-y-6">
-      <div class="flex justify-between items-center">
-        <div>
-          <h2 class="text-sm font-bold text-white">Connected Hotspot Clients</h2>
-          <p class="text-xs text-slate-400">Inspect device activity, active sessions, and access control</p>
-        </div>
+    <!-- ── TAB 4: CLIENT STATIONS ─────────────────────────────────── -->
+    <div id="view-clients" class="hidden space-y-5">
+      <div class="border-b border-white/[0.06] pb-3">
+        <h2 class="text-sm font-semibold text-white">Connected Wireless Stations</h2>
+        <p class="text-xs text-slate-400 font-mono mt-0.5">Active DHCP leases and hardware stations on ap0 (10.42.0.1/24)</p>
       </div>
       <div id="clients-grid" class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <!-- Rendered client cards -->
@@ -493,119 +537,96 @@
     </div>
 
     <!-- ── TAB 5: PACKET MODIFICATION & MANGLING ENGINE ───────────── -->
-    <div id="view-modify" class="hidden space-y-6">
-      <div class="bg-[#161B22] border border-white/10 rounded-xl p-5 space-y-4">
-        <div class="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-white/10">
+    <div id="view-modify" class="hidden space-y-5">
+      <div class="panel rounded-xl p-5 space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] pb-3">
           <div>
-            <h2 class="text-sm font-bold text-white flex items-center gap-2">
-              <i data-lucide="sliders-horizontal" class="w-4 h-4 text-cyan-400"></i>
-              In-Flight Packet Modification & Mangling Engine
-            </h2>
-            <p class="text-xs text-slate-400">Kernel netfilter mangle table rules applied in real-time to hotspot interface ap0</p>
+            <h2 class="text-sm font-semibold text-white">In-Flight Kernel Packet Modification (Netfilter)</h2>
+            <p class="text-xs text-slate-400 font-mono mt-0.5">Real-time packet mangling applied to the raw Linux network stack</p>
           </div>
-          <button onclick="fetchMangleStatus()" class="px-2.5 py-1 bg-white/5 hover:bg-white/10 text-slate-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition">
-            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Refresh Rules
+          <button onclick="fetchMangleStatus()" class="px-2.5 py-1 bg-white/[0.05] hover:bg-white/[0.1] text-slate-300 border border-white/10 rounded-lg text-xs font-mono font-medium flex items-center gap-1.5 transition">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Reload Status
           </button>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
           <!-- 1. Carrier Tethering Cloak (TTL=64) -->
-          <div class="bg-black/30 border border-white/5 rounded-xl p-4 flex flex-col justify-between space-y-3">
+          <div class="panel-elevated rounded-xl p-4 flex flex-col justify-between space-y-3">
             <div>
               <div class="flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                  <div class="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
-                    <i data-lucide="shield" class="w-4 h-4"></i>
-                  </div>
-                  <div>
-                    <h3 class="text-xs font-bold text-white">Carrier Tethering Cloak (TTL = 64)</h3>
-                    <p class="text-[11px] text-slate-400">IP Header Mangling · Target: POSTROUTING wlan0</p>
-                  </div>
+                <div>
+                  <h3 class="text-xs font-semibold text-white">Carrier Tethering Cloak (TTL = 64)</h3>
+                  <p class="text-[11px] text-slate-400 font-mono">POSTROUTING · wlan0 egress</p>
                 </div>
-                <input type="checkbox" id="mod-toggle-ttl" onchange="toggleMangleRule('ttl_cloak', this.checked)" class="w-4 h-4 accent-blue-500 cursor-pointer">
+                <input type="checkbox" id="mod-toggle-ttl" onchange="toggleMangleRule('ttl_cloak', this.checked)" class="w-4 h-4 accent-sky-500 cursor-pointer">
               </div>
-              <p class="text-[11px] text-slate-400 mt-2">
-                Forces all outgoing hotspot packet TTLs to 64. Prevents mobile carriers (Jio, Airtel, T-Mobile, Verizon) from detecting tethered devices via TTL hop decrements.
+              <p class="text-[11px] text-slate-400 mt-2 leading-relaxed">
+                Rewrites outgoing packet TTL to 64. Prevents mobile carriers (Jio, Airtel, T-Mobile, Verizon) from detecting and throttling hotspot client traffic via hop count analysis.
               </p>
             </div>
-            <div class="flex items-center justify-between pt-2 border-t border-white/5 text-[11px]">
-              <span class="text-slate-500 font-mono text-[10px]">iptables -t mangle -j TTL --ttl-set 64</span>
-              <span id="badge-ttl" class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-800 text-slate-400">INACTIVE</span>
+            <div class="flex items-center justify-between pt-2 border-t border-white/[0.06] text-[11px] font-mono">
+              <span class="text-slate-500 text-[10px]">iptables -t mangle -j TTL --ttl-set 64</span>
+              <span id="badge-ttl" class="px-2 py-0.5 rounded text-[10px] font-bold bg-black/40 text-slate-400 border border-white/5">INACTIVE</span>
             </div>
           </div>
 
-          <!-- 2. TCP MSS Clamping (PMTU Optimizer) -->
-          <div class="bg-black/30 border border-white/5 rounded-xl p-4 flex flex-col justify-between space-y-3">
+          <!-- 2. TCP MSS Clamping -->
+          <div class="panel-elevated rounded-xl p-4 flex flex-col justify-between space-y-3">
             <div>
               <div class="flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                  <div class="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-                    <i data-lucide="maximize-2" class="w-4 h-4"></i>
-                  </div>
-                  <div>
-                    <h3 class="text-xs font-bold text-white">TCP MSS Clamping (PMTU Optimizer)</h3>
-                    <p class="text-[11px] text-slate-400">TCP SYN Segment Mangling · Target: FORWARD</p>
-                  </div>
+                <div>
+                  <h3 class="text-xs font-semibold text-white">TCP MSS Clamping (PMTU Optimizer)</h3>
+                  <p class="text-[11px] text-slate-400 font-mono">FORWARD · TCP SYN flag</p>
                 </div>
-                <input type="checkbox" id="mod-toggle-mss" onchange="toggleMangleRule('mss_clamp', this.checked)" class="w-4 h-4 accent-emerald-500 cursor-pointer">
+                <input type="checkbox" id="mod-toggle-mss" onchange="toggleMangleRule('mss_clamp', this.checked)" class="w-4 h-4 accent-sky-500 cursor-pointer">
               </div>
-              <p class="text-[11px] text-slate-400 mt-2">
-                Adjusts TCP Maximum Segment Size to Path MTU in-flight. Eliminates packet fragmentation, black-hole drops, and stalls across Cloudflare WARP and WireGuard VPN tunnels.
+              <p class="text-[11px] text-slate-400 mt-2 leading-relaxed">
+                Clamps TCP Maximum Segment Size to Path MTU dynamically. Eliminates packet fragmentation and stalled handshakes over Cloudflare WARP and WireGuard VPN tunnels.
               </p>
             </div>
-            <div class="flex items-center justify-between pt-2 border-t border-white/5 text-[11px]">
-              <span class="text-slate-500 font-mono text-[10px]">TCPMSS --clamp-mss-to-pmtu</span>
-              <span id="badge-mss" class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-800 text-slate-400">INACTIVE</span>
+            <div class="flex items-center justify-between pt-2 border-t border-white/[0.06] text-[11px] font-mono">
+              <span class="text-slate-500 text-[10px]">TCPMSS --clamp-mss-to-pmtu</span>
+              <span id="badge-mss" class="px-2 py-0.5 rounded text-[10px] font-bold bg-black/40 text-slate-400 border border-white/5">INACTIVE</span>
             </div>
           </div>
 
-          <!-- 3. Gaming & Real-Time QoS (DSCP EF) -->
-          <div class="bg-black/30 border border-white/5 rounded-xl p-4 flex flex-col justify-between space-y-3">
+          <!-- 3. DSCP QoS Expedited Forwarding -->
+          <div class="panel-elevated rounded-xl p-4 flex flex-col justify-between space-y-3">
             <div>
               <div class="flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                  <div class="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
-                    <i data-lucide="zap" class="w-4 h-4"></i>
-                  </div>
-                  <div>
-                    <h3 class="text-xs font-bold text-white">Low-Latency QoS Tagging (DSCP EF)</h3>
-                    <p class="text-[11px] text-slate-400">TOS Header Mangling · Target: PREROUTING ap0</p>
-                  </div>
+                <div>
+                  <h3 class="text-xs font-semibold text-white">Low-Latency QoS Tagging (DSCP EF)</h3>
+                  <p class="text-[11px] text-slate-400 font-mono">PREROUTING · ap0 UDP voice/gaming</p>
                 </div>
-                <input type="checkbox" id="mod-toggle-dscp" onchange="toggleMangleRule('dscp_qos', this.checked)" class="w-4 h-4 accent-purple-500 cursor-pointer">
+                <input type="checkbox" id="mod-toggle-dscp" onchange="toggleMangleRule('dscp_qos', this.checked)" class="w-4 h-4 accent-sky-500 cursor-pointer">
               </div>
-              <p class="text-[11px] text-slate-400 mt-2">
-                Tags interactive UDP gaming and voice (Discord, WhatsApp calls) packets with Expedited Forwarding (DSCP 46 / EF) for prioritized queuing and jitter reduction.
+              <p class="text-[11px] text-slate-400 mt-2 leading-relaxed">
+                Tags interactive UDP packets (gaming, Discord, VoIP, WebRTC) with Expedited Forwarding (DSCP 46 / EF) for queue prioritization and reduced jitter.
               </p>
             </div>
-            <div class="flex items-center justify-between pt-2 border-t border-white/5 text-[11px]">
-              <span class="text-slate-500 font-mono text-[10px]">DSCP --set-dscp-class EF</span>
-              <span id="badge-dscp" class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-800 text-slate-400">INACTIVE</span>
+            <div class="flex items-center justify-between pt-2 border-t border-white/[0.06] text-[11px] font-mono">
+              <span class="text-slate-500 text-[10px]">DSCP --set-dscp-class EF</span>
+              <span id="badge-dscp" class="px-2 py-0.5 rounded text-[10px] font-bold bg-black/40 text-slate-400 border border-white/5">INACTIVE</span>
             </div>
           </div>
 
           <!-- 4. HTTP Privacy Header Sanitizer -->
-          <div class="bg-black/30 border border-white/5 rounded-xl p-4 flex flex-col justify-between space-y-3">
+          <div class="panel-elevated rounded-xl p-4 flex flex-col justify-between space-y-3">
             <div>
               <div class="flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                  <div class="w-8 h-8 rounded-lg bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400">
-                    <i data-lucide="eye-off" class="w-4 h-4"></i>
-                  </div>
-                  <div>
-                    <h3 class="text-xs font-bold text-white">HTTP Header Privacy Sanitizer</h3>
-                    <p class="text-[11px] text-slate-400">In-Flight HTTP Header Rewriting · Target: Privoxy</p>
-                  </div>
+                <div>
+                  <h3 class="text-xs font-semibold text-white">HTTP Header Privacy Scrubbing</h3>
+                  <p class="text-[11px] text-slate-400 font-mono">Privoxy Reverse Proxy Filter</p>
                 </div>
-                <input type="checkbox" id="mod-toggle-http" onchange="toggleMangleRule('http_sanitize', this.checked)" class="w-4 h-4 accent-rose-500 cursor-pointer">
+                <input type="checkbox" id="mod-toggle-http" onchange="toggleMangleRule('http_sanitize', this.checked)" class="w-4 h-4 accent-sky-500 cursor-pointer">
               </div>
-              <p class="text-[11px] text-slate-400 mt-2">
-                Strips tracking referrers, anonymizes User-Agent fingerprints, and scrubs X-Forwarded-For identity headers from unencrypted web traffic traversing the gateway.
+              <p class="text-[11px] text-slate-400 mt-2 leading-relaxed">
+                Strips tracking referrers, anonymizes device User-Agent strings, and removes client identity headers from unencrypted web requests traversing the gateway.
               </p>
             </div>
-            <div class="flex items-center justify-between pt-2 border-t border-white/5 text-[11px]">
-              <span class="text-slate-500 font-mono text-[10px]">+hide-user-agent +hide-referrer</span>
-              <span id="badge-http" class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-800 text-slate-400">INACTIVE</span>
+            <div class="flex items-center justify-between pt-2 border-t border-white/[0.06] text-[11px] font-mono">
+              <span class="text-slate-500 text-[10px]">+hide-user-agent +hide-referrer</span>
+              <span id="badge-http" class="px-2 py-0.5 rounded text-[10px] font-bold bg-black/40 text-slate-400 border border-white/5">INACTIVE</span>
             </div>
           </div>
         </div>
@@ -615,99 +636,95 @@
   </main>
 
   <!-- Deep Packet Inspection (DPI) Dissector Modal -->
-  <div id="flow-modal" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
-    <div class="bg-[#161B22] border border-white/10 rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl relative max-h-[90vh] flex flex-col">
-      <div class="flex justify-between items-start pb-3 border-b border-white/10">
+  <div id="flow-modal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-[#0E131B] border border-white/[0.12] rounded-2xl max-w-2xl w-full p-5 space-y-4 shadow-2xl relative max-h-[88vh] flex flex-col font-mono text-xs">
+      
+      <!-- Modal Header -->
+      <div class="flex justify-between items-start pb-3 border-b border-white/[0.08]">
         <div>
           <div class="flex items-center gap-2">
-            <span class="px-2 py-0.5 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded font-mono text-[10px] font-bold">DPI DISSECTOR</span>
-            <h3 class="text-sm font-bold text-white" id="modal-title">Flow Deep Packet Inspection</h3>
+            <span class="px-2 py-0.5 bg-sky-500/10 text-sky-400 border border-sky-500/25 rounded text-[10px] font-bold">DPI DISSECTOR</span>
+            <h3 class="text-sm font-semibold text-white font-sans" id="modal-title">Session Dissector</h3>
           </div>
-          <p id="modal-domain" class="text-xs text-cyan-300 font-mono break-all mt-1">domain.com</p>
+          <p id="modal-domain" class="text-xs text-sky-300 font-mono break-all mt-1">domain.com</p>
         </div>
-        <button onclick="closeModal()" class="text-slate-400 hover:text-white p-1 rounded-lg">
-          <i data-lucide="x" class="w-5 h-5"></i>
+        <button onclick="closeModal()" class="text-slate-400 hover:text-white p-1 rounded-lg transition">
+          <i data-lucide="x" class="w-4 h-4"></i>
         </button>
       </div>
 
-      <!-- DPI Sub-tabs -->
-      <div class="flex items-center gap-2 text-xs border-b border-white/5 pb-2">
-        <button onclick="switchDpiTab('stack')" id="dpi-btn-stack" class="px-3 py-1 bg-blue-600 text-white rounded-lg font-semibold transition">Protocol Stack (L2-L7)</button>
-        <button onclick="switchDpiTab('hex')" id="dpi-btn-hex" class="px-3 py-1 bg-white/5 text-slate-400 hover:text-white rounded-lg font-medium transition">Hex & ASCII Dump</button>
-        <button onclick="switchDpiTab('verdicts')" id="dpi-btn-verdicts" class="px-3 py-1 bg-white/5 text-slate-400 hover:text-white rounded-lg font-medium transition">Ensemble Verdicts</button>
+      <!-- Dissector Sub-tabs -->
+      <div class="flex items-center gap-1.5 border-b border-white/[0.06] pb-2 text-xs">
+        <button onclick="switchDpiTab('stack')" id="dpi-btn-stack" class="px-3 py-1 bg-sky-500/15 text-sky-300 border border-sky-500/30 rounded-md font-semibold transition">Protocol Stack (L2–L7)</button>
+        <button onclick="switchDpiTab('hex')" id="dpi-btn-hex" class="px-3 py-1 bg-black/30 text-slate-400 hover:text-slate-200 border border-white/5 rounded-md font-medium transition">Hex & ASCII Payload</button>
+        <button onclick="switchDpiTab('verdicts')" id="dpi-btn-verdicts" class="px-3 py-1 bg-black/30 text-slate-400 hover:text-slate-200 border border-white/5 rounded-md font-medium transition">Engine Verdicts</button>
       </div>
 
       <!-- Sub-tab 1: Protocol Stack Dissector -->
-      <div id="dpi-view-stack" class="space-y-2.5 text-xs overflow-y-auto flex-1 pr-1 font-mono">
+      <div id="dpi-view-stack" class="space-y-2 text-xs overflow-y-auto flex-1 pr-1 font-mono">
         <!-- Layer 2 -->
-        <div class="p-3 bg-white/[0.02] rounded-xl border border-white/5 space-y-1">
+        <div class="p-3 bg-black/25 rounded-xl border border-white/[0.05] space-y-1">
           <div class="text-[10px] font-bold text-slate-400 uppercase font-sans">Layer 2 · Data Link (Ethernet II)</div>
           <div class="flex justify-between"><span class="text-slate-500">Source MAC:</span> <span id="modal-src-mac" class="text-slate-300">--</span></div>
-          <div class="flex justify-between"><span class="text-slate-500">Gateway MAC:</span> <span class="text-slate-400">10:42:00:00:00:01 (Hotspot ap0)</span></div>
-          <div class="flex justify-between"><span class="text-slate-500">EtherType:</span> <span class="text-emerald-400">0x0800 (IPv4 Internet Protocol)</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">Gateway MAC:</span> <span class="text-slate-400">10:42:00:00:00:01 (ap0)</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">EtherType:</span> <span class="text-emerald-400">0x0800 (IPv4)</span></div>
         </div>
 
         <!-- Layer 3 -->
-        <div class="p-3 bg-white/[0.02] rounded-xl border border-white/5 space-y-1">
-          <div class="text-[10px] font-bold text-slate-400 uppercase font-sans">Layer 3 · Network (IPv4 Protocol)</div>
-          <div class="flex justify-between"><span class="text-slate-500">Client Source IP:</span> <span id="modal-src-ip" class="text-slate-200 font-bold">10.42.0.x</span></div>
-          <div class="flex justify-between"><span class="text-slate-500">Target IP / Host:</span> <span id="modal-dst-ip" class="text-cyan-300">--</span></div>
+        <div class="p-3 bg-black/25 rounded-xl border border-white/[0.05] space-y-1">
+          <div class="text-[10px] font-bold text-slate-400 uppercase font-sans">Layer 3 · Network (IPv4)</div>
+          <div class="flex justify-between"><span class="text-slate-500">Source IP:</span> <span id="modal-src-ip" class="text-slate-200 font-bold">10.42.0.x</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">Destination:</span> <span id="modal-dst-ip" class="text-sky-300 font-bold">--</span></div>
           <div class="flex justify-between"><span class="text-slate-500">Time-To-Live (TTL):</span> <span class="text-slate-300">64 hops</span></div>
-          <div class="flex justify-between"><span class="text-slate-500">DSCP / Traffic Class:</span> <span class="text-slate-300">CS0 (Default Best-Effort 0x00)</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">Traffic Class:</span> <span class="text-slate-300">CS0 (Best Effort)</span></div>
         </div>
 
         <!-- Layer 4 -->
-        <div class="p-3 bg-white/[0.02] rounded-xl border border-white/5 space-y-1">
-          <div class="text-[10px] font-bold text-slate-400 uppercase font-sans">Layer 4 · Transport Layer</div>
-          <div class="flex justify-between"><span class="text-slate-500">Protocol:</span> <span id="modal-proto" class="text-purple-300">TCP</span></div>
-          <div class="flex justify-between"><span class="text-slate-500">TCP Flags:</span> <span class="text-emerald-400">[ACK, PSH] Established Session</span></div>
-          <div class="flex justify-between"><span class="text-slate-500">Bandwidth Velocity:</span> <span id="modal-bw" class="text-emerald-400 font-bold">0 B/s</span></div>
+        <div class="p-3 bg-black/25 rounded-xl border border-white/[0.05] space-y-1">
+          <div class="text-[10px] font-bold text-slate-400 uppercase font-sans">Layer 4 · Transport</div>
+          <div class="flex justify-between"><span class="text-slate-500">Protocol:</span> <span id="modal-proto" class="text-purple-300 font-bold">TCP</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">Flags:</span> <span class="text-emerald-400">[ACK, PSH] Established Session</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">Throughput Velocity:</span> <span id="modal-bw" class="text-sky-400 font-bold">0 B/s</span></div>
         </div>
 
         <!-- Layer 7 -->
-        <div class="p-3 bg-white/[0.02] rounded-xl border border-white/5 space-y-1">
-          <div class="text-[10px] font-bold text-slate-400 uppercase font-sans">Layer 7 · Application Layer</div>
-          <div class="flex justify-between"><span class="text-slate-500">TLS SNI / Host:</span> <span id="modal-sni" class="text-cyan-300 font-bold">--</span></div>
-          <div class="flex justify-between"><span class="text-slate-500">Content Category:</span> <span id="modal-category" class="text-amber-300">--</span></div>
+        <div class="p-3 bg-black/25 rounded-xl border border-white/[0.05] space-y-1">
+          <div class="text-[10px] font-bold text-slate-400 uppercase font-sans">Layer 7 · Application</div>
+          <div class="flex justify-between"><span class="text-slate-500">TLS SNI / Host:</span> <span id="modal-sni" class="text-sky-300 font-bold">--</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">Heuristic Category:</span> <span id="modal-category" class="text-slate-200">--</span></div>
         </div>
       </div>
 
-      <!-- Sub-tab 2: Raw Hex & ASCII Dump -->
+      <!-- Sub-tab 2: Hex & ASCII Dump -->
       <div id="dpi-view-hex" class="hidden overflow-y-auto flex-1">
-        <pre id="modal-hexdump" class="bg-black/90 p-3 rounded-xl border border-white/10 font-mono text-[10px] text-emerald-400 overflow-x-auto leading-relaxed select-all">Generating dissector hex dump...</pre>
+        <pre id="modal-hexdump" class="bg-black/90 p-3 rounded-xl border border-white/[0.08] font-mono text-[10px] text-emerald-400 overflow-x-auto leading-relaxed select-all">Loading payload...</pre>
       </div>
 
-      <!-- Sub-tab 3: Ensemble Verdicts -->
+      <!-- Sub-tab 3: Engine Verdicts -->
       <div id="dpi-view-verdicts" class="hidden overflow-y-auto flex-1 space-y-2">
-        <div id="modal-verdicts" class="space-y-1.5 text-xs font-sans">
-          <!-- Rendered model votes -->
-        </div>
+        <div id="modal-verdicts" class="space-y-1.5 text-xs font-sans"></div>
       </div>
 
-      <!-- Footer Actions -->
-      <div class="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-white/10">
+      <!-- Modal Footer -->
+      <div class="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-white/[0.08] font-sans">
         <div class="flex items-center gap-2">
-          <button id="modal-kill-btn" onclick="killCurrentFlow()" class="px-3 py-1.5 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition" title="Inject TCP RST packet to forcefully terminate this connection">
-            <i data-lucide="zap-off" class="w-3.5 h-3.5"></i> Kill Flow (TCP RST)
+          <button id="modal-kill-btn" onclick="killCurrentFlow()" class="px-3 py-1.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 rounded-lg text-xs font-mono font-medium flex items-center gap-1.5 transition" title="Inject kernel TCP RST packet">
+            <i data-lucide="zap-off" class="w-3.5 h-3.5"></i> Terminate (TCP RST)
           </button>
-          <button id="modal-sinkhole-btn" onclick="sinkholeModalDomain()" class="px-3 py-1.5 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition" title="Block this domain across all hotspot devices">
+          <button id="modal-sinkhole-btn" onclick="sinkholeModalDomain()" class="px-3 py-1.5 bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 rounded-lg text-xs font-mono font-medium flex items-center gap-1.5 transition" title="Sinkhole domain for all clients">
             <i data-lucide="shield-ban" class="w-3.5 h-3.5"></i> Sinkhole Domain
           </button>
         </div>
 
-        <div class="flex items-center gap-2">
-          <button id="modal-block-btn" onclick="blockCurrentDevice()" class="px-3.5 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/30 rounded-xl text-xs font-semibold transition">
-            Block Device
-          </button>
-          <button onclick="closeModal()" class="px-4 py-1.5 bg-white/10 hover:bg-white/15 text-slate-200 rounded-xl text-xs font-medium transition">
-            Close
-          </button>
-        </div>
+        <button id="modal-block-btn" onclick="blockCurrentDevice()" class="px-3.5 py-1.5 bg-white/[0.06] hover:bg-white/[0.1] text-slate-300 border border-white/10 rounded-lg text-xs font-mono transition">
+          Block Station MAC
+        </button>
       </div>
     </div>
   </div>
 
   <script>
+    // State Tracking
     let trafficData = [];
     const MAX_ROWS = 300;
     let activeFlowsMap = new Map();
@@ -723,86 +740,88 @@
     let chartCategories = null;
     let bwHistory = Array(30).fill(0);
     let categoryCounts = {
-      "Streaming & Media": 0,
-      "Social & Chat": 0,
-      "Adult & NSFW": 0,
-      "Telemetry & Ads": 0,
-      "Cloud & CDN": 0,
-      "Web & Updates": 0,
-      "High Risk Port": 0,
-      "General Web": 0
+      'Streaming & Media': 0,
+      'Social & Chat': 0,
+      'Gaming & Entertainment': 0,
+      'Cloud & CDN': 0,
+      'Web & Updates': 0,
+      'Telemetry & Ads': 0,
+      'Adult & NSFW': 0,
+      'General Web': 0
     };
 
-    // ── Standard Adaptive Unit Formatters ──────────────────────────────
     function formatRate(bytesPerSec) {
-      if (!bytesPerSec || bytesPerSec <= 0) return "0 B/s";
-      if (bytesPerSec < 1024) return `${bytesPerSec.toFixed(0)} B/s`;
+      if (!bytesPerSec || bytesPerSec === 0) return "0 B/s";
       const kb = bytesPerSec / 1024;
-      if (kb < 1024) return `${kb.toFixed(1)} kB/s`;
+      if (kb < 1024) return `${kb.toFixed(1)} KB/s`;
       const mb = kb / 1024;
-      if (mb < 1024) return `${mb.toFixed(1)} MB/s`;
-      return `${(mb / 1024).toFixed(2)} GB/s`;
+      return `${mb.toFixed(2)} MB/s`;
     }
 
     function formatBps(bps) {
-      if (!bps || bps <= 0) return "0 B/s";
-      return formatRate(bps / 8);
+      return formatRate((bps || 0) / 8);
     }
 
     function formatBytes(bytes) {
-      if (!bytes || bytes <= 0) return "0 B";
-      if (bytes < 1024) return `${bytes.toFixed(0)} B`;
+      if (!bytes || bytes === 0) return "0 B";
       const kb = bytes / 1024;
-      if (kb < 1024) return `${kb.toFixed(1)} KB`;
+      if (kb < 1024) return `${kb.toFixed(0)} KB`;
       const mb = kb / 1024;
       if (mb < 1024) return `${mb.toFixed(1)} MB`;
       return `${(mb / 1024).toFixed(2)} GB`;
     }
 
     function initCharts() {
-      // 1. Bandwidth line sparkline
+      // Bandwidth Line Chart
       const ctxBw = document.getElementById('chart-bandwidth').getContext('2d');
       chartBandwidth = new Chart(ctxBw, {
         type: 'line',
         data: {
           labels: Array(30).fill(''),
           datasets: [{
-            label: 'Throughput (kB/s)',
             data: bwHistory,
-            borderColor: '#10B981',
-            backgroundColor: 'rgba(16, 185, 129, 0.1)',
-            fill: true,
-            tension: 0.35,
-            pointRadius: 0,
+            borderColor: '#38BDF8',
+            backgroundColor: 'rgba(56, 189, 248, 0.08)',
             borderWidth: 2,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            fill: true,
+            tension: 0.35
           }]
         },
         options: {
           responsive: true,
           maintainAspectRatio: false,
+          animation: false,
           plugins: {
             legend: { display: false },
             tooltip: {
+              backgroundColor: '#0E131B',
+              titleFont: { family: 'JetBrains Mono' },
+              bodyFont: { family: 'JetBrains Mono' },
+              borderColor: 'rgba(255,255,255,0.1)',
+              borderWidth: 1,
               callbacks: {
-                label: (ctx) => `${ctx.parsed.y.toFixed(1)} kB/s`
+                label: (ctx) => ` Throughput: ${formatBps(ctx.raw)}`
               }
             }
           },
           scales: {
             x: { display: false },
             y: {
-              grid: { color: 'rgba(255, 255, 255, 0.05)' },
+              beginAtZero: true,
+              grid: { color: 'rgba(255, 255, 255, 0.04)' },
               ticks: {
-                color: '#94A3B8',
-                font: { size: 10 },
-                callback: (val) => val + ' kB/s'
+                color: '#64748B',
+                font: { family: 'JetBrains Mono', size: 10 },
+                callback: (val) => formatBps(val)
               }
             }
           }
         }
       });
 
-      // 2. Categories donut
+      // Category Doughnut Chart
       const ctxCat = document.getElementById('chart-categories').getContext('2d');
       chartCategories = new Chart(ctxCat, {
         type: 'doughnut',
@@ -811,16 +830,17 @@
           datasets: [{
             data: Object.values(categoryCounts),
             backgroundColor: [
-              '#A855F7', // Streaming (purple)
-              '#EC4899', // Social (pink)
-              '#E11D48', // Adult & NSFW (rose-600)
-              '#F59E0B', // Telemetry (amber)
-              '#06B6D4', // Cloud (cyan)
-              '#3B82F6', // Web (blue)
-              '#EF4444', // High Risk (red)
-              '#64748B'  // General (slate)
+              '#A855F7', // Streaming
+              '#EC4899', // Social
+              '#6366F1', // Gaming
+              '#06B6D4', // Cloud
+              '#3B82F6', // Updates
+              '#F59E0B', // Telemetry
+              '#E11D48', // Adult
+              '#64748B'  // General
             ],
-            borderWidth: 0,
+            borderColor: '#0E131B',
+            borderWidth: 2
           }]
         },
         options: {
@@ -829,14 +849,20 @@
           plugins: {
             legend: {
               position: 'right',
-              labels: { color: '#E2E8F0', font: { size: 11 }, boxWidth: 12, padding: 12 }
+              labels: {
+                color: '#94A3B8',
+                font: { family: 'Inter', size: 11 },
+                boxWidth: 10,
+                padding: 10
+              }
             }
           },
-          cutout: '68%'
+          cutout: '72%'
         }
       });
     }
 
+    // Auto-Scroll Logic
     let isAutoScroll = true;
     let pausedNewCount = 0;
     let renderScheduled = false;
@@ -858,20 +884,20 @@
         pausedNewCount = 0;
         if (banner) banner.classList.add("hidden");
         if (btn) {
-          btn.className = "px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 border transition bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+          btn.className = "px-2.5 py-1 rounded-md text-xs font-mono font-medium flex items-center gap-1.5 border transition bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
         }
-        if (dot) dot.className = "w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse";
-        if (text) text.textContent = "Auto-Scroll: ON";
+        if (dot) dot.className = "w-1.5 h-1.5 rounded-full bg-emerald-400";
+        if (text) text.textContent = "STREAMING";
         const container = document.getElementById("table-scroll-container");
         if (container) container.scrollTop = 0;
         renderTable();
       } else {
         if (banner) banner.classList.remove("hidden");
         if (btn) {
-          btn.className = "px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 border transition bg-amber-500/10 text-amber-300 border-amber-500/20";
+          btn.className = "px-2.5 py-1 rounded-md text-xs font-mono font-medium flex items-center gap-1.5 border transition bg-amber-500/10 text-amber-300 border-amber-500/20";
         }
         if (dot) dot.className = "w-1.5 h-1.5 rounded-full bg-amber-400";
-        if (text) text.textContent = "Auto-Scroll: PAUSED";
+        if (text) text.textContent = "PAUSED";
       }
     }
 
@@ -914,104 +940,60 @@
     }
 
     function connectWs() {
-      const host = window.location.hostname || "localhost";
-      const wsUrl = `ws://${host}:9090/ws`;
-      ws = new WebSocket(wsUrl);
+      const host = window.location.host || '127.0.0.1:9090';
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${proto}//${host}/ws`);
 
       ws.onopen = () => {
         const pill = document.getElementById("conn-pill");
-        pill.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> LIVE`;
-        pill.className = "text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1";
+        if (pill) {
+          pill.className = "text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5 ml-1";
+          pill.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> ONLINE · ap0`;
+        }
       };
 
       ws.onclose = () => {
         const pill = document.getElementById("conn-pill");
-        pill.textContent = "DISCONNECTED (RETRYING...)";
-        pill.className = "text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 border border-red-500/30";
+        if (pill) {
+          pill.className = "text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20 flex items-center gap-1.5 ml-1";
+          pill.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span> RECONNECTING`;
+        }
         setTimeout(connectWs, 2000);
       };
 
       ws.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data);
-          const records = Array.isArray(data.records) ? data.records : (data ? [data] : []);
-          if (typeof data.iface_bps === "number") {
-            latestIfaceBps = data.iface_bps;
-          }
-          if (typeof data.ads_restricted === "number") {
-            latestAdsRestricted = data.ads_restricted;
-          }
-          if (typeof data.data_saved_bytes === "number") {
-            latestDataSavedBytes = data.data_saved_bytes;
+          const msg = JSON.parse(event.data);
+
+          if (msg.type === "init") {
+            const history = Array.isArray(msg.data) ? msg.data : [];
+            trafficData = history.slice(0, MAX_ROWS);
+            trafficData.forEach(f => {
+              if (f.client_mac) {
+                updateClientDropdown(f.client_mac, f.client_name, f.client_ip);
+              }
+              if (f.category && categoryCounts[f.category] !== undefined) {
+                categoryCounts[f.category]++;
+              }
+            });
+            renderTable();
+            updateStats();
+            return;
           }
 
-          const now = Date.now();
-          for (let i = 0; i < records.length; i++) {
-            const record = records[i];
-            const flowKey = record.conn_id || `${record.client_ip}_${record.domain}_${record.process}_${record.protocol}`;
-            record._lastSeen = now;
-            activeFlowsMap.set(flowKey, record);
-
-            // Client tracking
-            if (record.client_mac && record.client_mac !== "Unknown MAC") {
-              const macKey = record.client_mac.toLowerCase();
-              if (!knownClients.has(macKey)) {
-                knownClients.set(macKey, {
-                  name: record.client_name,
-                  ip: record.client_ip,
-                  bytes: 0,
-                  flows: 0,
-                  connMap: new Map()
-                });
-              }
-              let c = knownClients.get(macKey);
-              if (record.client_name && record.client_name !== "Client Device" && record.client_name !== "Hotspot Client") {
-                c.name = record.client_name;
-              }
-              c.ip = record.client_ip;
-              if (!c.connMap) c.connMap = new Map();
-              const connKey = record.conn_id || (record.domain + "_" + record.process);
-              const prevB = c.connMap.get(connKey) || 0;
-              const currB = record.total_bytes || (record.bandwidth_bps / 8) || 0;
-              if (currB > prevB) {
-                c.bytes += (currB - prevB);
-                c.connMap.set(connKey, currB);
-              }
-              if (c.connMap.size > 150) {
-                const keys = Array.from(c.connMap.keys()).slice(0, 50);
-                for (const k of keys) c.connMap.delete(k);
-              }
-              updateClientDropdown(macKey, c.name, c.ip);
+          const records = Array.isArray(msg.data) ? msg.data : [msg.data];
+          for (const f of records) {
+            trafficData.unshift(f);
+            if (trafficData.length > MAX_ROWS) {
+              trafficData.pop();
             }
 
-            // Category counters
-            if (categoryCounts[record.category] !== undefined) {
-              categoryCounts[record.category]++;
-            } else {
-              categoryCounts["General Web"]++;
+            if (f.category && categoryCounts[f.category] !== undefined) {
+              categoryCounts[f.category]++;
             }
-          }
 
-          // Prune flows inactive for > 12 seconds
-          if (activeFlowsMap.size > 100) {
-            for (const [k, v] of activeFlowsMap.entries()) {
-              if (now - (v._lastSeen || 0) > 12000) {
-                activeFlowsMap.delete(k);
-              }
-            }
-          }
-
-          // Convert active flows to list sorted by bandwidth / activity
-          trafficData = Array.from(activeFlowsMap.values()).sort((a, b) => {
-            return (b.bandwidth_bps || 0) - (a.bandwidth_bps || 0) || (b._lastSeen || 0) - (a._lastSeen || 0);
-          });
-
-          // Update client active flow counts
-          for (const c of knownClients.values()) {
-            c.flows = 0;
-          }
-          for (const f of trafficData) {
             if (f.client_mac) {
+              updateClientDropdown(f.client_mac, f.client_name, f.client_ip);
               const c = knownClients.get(f.client_mac.toLowerCase());
               if (c) c.flows++;
             }
@@ -1035,16 +1017,47 @@
       };
     }
 
-    // Interval to refresh charts smoothly
-    setInterval(() => {
-      let kbSec = (latestIfaceBps / 8) / 1024;
-      bwHistory.push(kbSec);
-      bwHistory.shift();
-
-      if (chartBandwidth) {
-        chartBandwidth.data.datasets[0].data = bwHistory;
-        chartBandwidth.update('none');
+    function updateClientDropdown(mac, name, ip) {
+      const lower = mac.toLowerCase();
+      if (!knownClients.has(lower)) {
+        knownClients.set(lower, { mac, name: name || 'Station', ip: ip || '', flows: 1, bytes: 0 });
+        const select = document.getElementById("client-filter");
+        if (select) {
+          const opt = document.createElement("option");
+          opt.value = lower;
+          opt.textContent = `${name || 'Station'} (${ip || mac})`;
+          select.appendChild(opt);
+        }
+      } else {
+        const c = knownClients.get(lower);
+        if (name && (!c.name || c.name === 'Station')) {
+          c.name = name;
+          const select = document.getElementById("client-filter");
+          if (select) {
+            const opt = select.querySelector(`option[value="${lower}"]`);
+            if (opt) opt.textContent = `${name} (${ip || mac})`;
+          }
+        }
       }
+    }
+
+    function updateStats() {
+      document.getElementById("stat-clients").textContent = knownClients.size;
+      document.getElementById("stat-flows").textContent = trafficData.length;
+      document.getElementById("count-total").textContent = trafficData.length;
+
+      const threats = trafficData.filter(f => f.risk_level === 'danger' || f.risk_level === 'warning');
+      document.getElementById("stat-threats").textContent = threats.length;
+      const tabThreatBadge = document.getElementById("tab-threat-count");
+      if (tabThreatBadge) tabThreatBadge.textContent = threats.length;
+
+      const sumBps = trafficData.slice(0, 20).reduce((acc, f) => acc + (f.bandwidth_bps || 0), 0);
+      document.getElementById("stat-speed").textContent = formatBps(sumBps);
+
+      bwHistory.push(sumBps);
+      bwHistory.shift();
+      if (chartBandwidth) chartBandwidth.update('none');
+
       if (chartCategories) {
         chartCategories.data.datasets[0].data = Object.values(categoryCounts);
         chartCategories.update('none');
@@ -1053,104 +1066,86 @@
       updateLeaderboards();
       updateThreatFeed();
       renderClientCards();
-    }, 1000);
-
-    function updateClientDropdown(mac, name, ip) {
-      const select = document.getElementById("client-filter");
-      if (!select || !mac) return;
-      const macLower = mac.toLowerCase();
-      let opt = Array.from(select.options).find(o => o.value.toLowerCase() === macLower);
-      const label = `${name} (${ip}) — ${macLower}`;
-
-      if (opt) {
-        if (opt.textContent !== label) {
-          opt.textContent = label;
-        }
-      } else {
-        const newOpt = document.createElement("option");
-        newOpt.value = macLower;
-        newOpt.textContent = label;
-        select.appendChild(newOpt);
-      }
-      const countEl = document.getElementById("stat-clients");
-      if (countEl) countEl.textContent = knownClients.size;
-    }
-
-    function updateStats() {
-      const activeCount = activeFlowsMap.size || trafficData.length;
-      document.getElementById("stat-flows").textContent = activeCount;
-      document.getElementById("count-total").textContent = activeCount;
-      document.getElementById("stat-speed").textContent = formatBps(latestIfaceBps);
-
-      let threats = trafficData.filter(r => r.risk_level === 'danger' || r.risk_level === 'warning');
-      document.getElementById("stat-threats").textContent = threats.length;
-      document.getElementById("tab-threat-count").textContent = threats.length;
-
-      const elAds = document.getElementById("stat-ads-restricted");
-      if (elAds) elAds.textContent = (latestAdsRestricted || 0).toLocaleString();
-      const elSaved = document.getElementById("stat-data-saved");
-      if (elSaved) elSaved.textContent = formatBytes(latestDataSavedBytes || 0);
-
-      const elAnAds = document.getElementById("analytics-ads-count");
-      if (elAnAds) elAnAds.textContent = (latestAdsRestricted || 0).toLocaleString();
-      const elAnSaved = document.getElementById("analytics-data-saved");
-      if (elAnSaved) elAnSaved.textContent = formatBytes(latestDataSavedBytes || 0);
     }
 
     function updateLeaderboards() {
-      // Top Talkers
-      const clientBoard = document.getElementById("leaderboard-clients");
-      const sortedClients = Array.from(knownClients.entries()).sort((a, b) => b[1].bytes - a[1].bytes);
-      if (sortedClients.length === 0) {
-        clientBoard.innerHTML = `<div class="text-slate-500 py-3 text-center">No active talkers recorded yet</div>`;
-      } else {
-        clientBoard.innerHTML = sortedClients.map(([mac, info], idx) => {
-          return `
-            <div class="flex items-center justify-between p-2.5 bg-white/[0.02] rounded-xl border border-white/5">
-              <div class="flex items-center gap-3">
-                <span class="w-5 h-5 rounded-full bg-blue-500/10 text-blue-400 flex items-center justify-center font-bold text-[10px]">#${idx + 1}</span>
-                <div>
-                  <div class="font-semibold text-slate-200">${escapeHtml(info.name)}</div>
-                  <div class="text-[10px] text-slate-500 font-mono">${info.ip} · ${mac}</div>
+      // 1. Client talkers
+      const clientVolumes = new Map();
+      trafficData.forEach(f => {
+        const key = f.client_name || f.client_ip || f.client_mac || 'Unknown';
+        const cur = clientVolumes.get(key) || { name: key, ip: f.client_ip, bytes: 0, flows: 0 };
+        cur.bytes += (f.total_bytes || (f.bandwidth_bps ? f.bandwidth_bps / 8 : 1024));
+        cur.flows++;
+        clientVolumes.set(key, cur);
+      });
+
+      const sortedClients = Array.from(clientVolumes.values()).sort((a, b) => b.bytes - a.bytes).slice(0, 5);
+      const totalClientBytes = sortedClients.reduce((acc, c) => acc + c.bytes, 0) || 1;
+      const clientLbEl = document.getElementById("leaderboard-clients");
+      if (clientLbEl) {
+        if (sortedClients.length === 0) {
+          clientLbEl.innerHTML = `<div class="text-slate-500 py-6 text-center font-sans">No client sessions captured.</div>`;
+        } else {
+          clientLbEl.innerHTML = sortedClients.map(c => {
+            const pct = Math.min(100, Math.max(8, (c.bytes / totalClientBytes) * 100));
+            return `
+              <div class="space-y-1">
+                <div class="flex items-center justify-between text-xs">
+                  <div class="flex items-center gap-2">
+                    <span class="text-slate-200 font-medium">${escapeHtml(c.name)}</span>
+                    <span class="text-[11px] text-slate-500">(${escapeHtml(c.ip || '')})</span>
+                  </div>
+                  <span class="text-slate-300 font-semibold tabular-nums">${formatBytes(c.bytes)}</span>
+                </div>
+                <div class="w-full bg-black/40 h-1.5 rounded-full overflow-hidden border border-white/5">
+                  <div class="bg-sky-500 h-full rounded-full" style="width: ${pct}%"></div>
                 </div>
               </div>
-              <div class="text-right">
-                <div class="font-bold text-emerald-400 font-mono">${formatBytes(info.bytes)}</div>
-                <div class="text-[10px] text-slate-500">${info.flows} flows</div>
-              </div>
-            </div>
-          `;
-        }).join("");
+            `;
+          }).join("");
+        }
       }
 
-      // Top Domains
-      const domainBoard = document.getElementById("leaderboard-domains");
-      const domainVolumes = {};
-      trafficData.forEach(r => {
-        domainVolumes[r.domain] = (domainVolumes[r.domain] || 0) + (r.total_bytes || (r.bandwidth_bps / 8) || 0);
+      // 2. Destination domains
+      const domainCounts = new Map();
+      trafficData.forEach(f => {
+        if (!f.domain) return;
+        const dom = f.domain.split(':')[0];
+        const cur = domainCounts.get(dom) || { domain: dom, count: 0, bytes: 0 };
+        cur.count++;
+        cur.bytes += (f.total_bytes || (f.bandwidth_bps ? f.bandwidth_bps / 8 : 1024));
+        domainCounts.set(dom, cur);
       });
-      const sortedDomains = Object.entries(domainVolumes).sort((a, b) => b[1] - a[1]).slice(0, 5);
-      if (sortedDomains.length === 0) {
-        domainBoard.innerHTML = `<div class="text-slate-500 py-3 text-center font-sans">No domain stats yet</div>`;
-      } else {
-        domainBoard.innerHTML = sortedDomains.map(([dom, bytes], idx) => {
-          return `
-            <div class="flex items-center justify-between p-2.5 bg-white/[0.02] rounded-xl border border-white/5">
-              <div class="flex items-center gap-2 truncate max-w-[70%]">
-                <span class="text-slate-500 text-[10px]">#${idx + 1}</span>
-                <span class="text-cyan-300 truncate">${escapeHtml(dom)}</span>
+
+      const sortedDomains = Array.from(domainCounts.values()).sort((a, b) => b.count - a.count).slice(0, 5);
+      const maxDomCount = sortedDomains[0] ? sortedDomains[0].count : 1;
+      const domLbEl = document.getElementById("leaderboard-domains");
+      if (domLbEl) {
+        if (sortedDomains.length === 0) {
+          domLbEl.innerHTML = `<div class="text-slate-500 py-6 text-center font-sans">No external endpoints recorded.</div>`;
+        } else {
+          domLbEl.innerHTML = sortedDomains.map(d => {
+            const pct = Math.min(100, Math.max(8, (d.count / maxDomCount) * 100));
+            return `
+              <div class="space-y-1">
+                <div class="flex items-center justify-between text-xs">
+                  <span class="text-sky-300 font-medium truncate max-w-[240px]">${escapeHtml(d.domain)}</span>
+                  <span class="text-slate-400 tabular-nums">${d.count} reqs · ${formatBytes(d.bytes)}</span>
+                </div>
+                <div class="w-full bg-black/40 h-1.5 rounded-full overflow-hidden border border-white/5">
+                  <div class="bg-purple-500 h-full rounded-full" style="width: ${pct}%"></div>
+                </div>
               </div>
-              <span class="font-bold text-slate-200 tabular-nums">${formatBytes(bytes)}</span>
-            </div>
-          `;
-        }).join("");
+            `;
+          }).join("");
+        }
       }
     }
 
-    // ── TACTICAL THREAT RADAR & ENSEMBLE ENGINE ───────────────────────
-    let currentThreatFilter = 'all';
-    let simulatedThreats = [];
+    // Threat Radar State & Simulation
     let radarSweepAngle = 0;
+    let simulatedThreats = [];
+    let currentThreatFilter = 'all';
 
     function setThreatFilter(filter) {
       currentThreatFilter = filter;
@@ -1158,9 +1153,9 @@
         const btn = document.getElementById(`filter-threat-${f}`);
         if (btn) {
           if (f === filter) {
-            btn.className = "px-2.5 py-1 rounded-lg font-semibold bg-blue-600 text-white transition";
+            btn.className = "px-2.5 py-1 rounded font-semibold bg-sky-500/15 text-sky-300 border border-sky-500/30 transition";
           } else {
-            btn.className = "px-2.5 py-1 rounded-lg font-medium text-slate-400 hover:text-white bg-white/5 transition";
+            btn.className = "px-2.5 py-1 rounded text-slate-400 hover:text-slate-200 bg-black/30 border border-white/5 transition";
           }
         }
       });
@@ -1168,130 +1163,107 @@
     }
 
     function getActiveThreatList() {
-      const realThreats = trafficData.filter(r => r.risk_level === 'danger' || r.risk_level === 'warning');
+      const realThreats = trafficData.filter(f => f.risk_level === 'danger' || f.risk_level === 'warning');
       return [...simulatedThreats, ...realThreats];
     }
 
     function hashString(str) {
-      let h = 0;
+      let hash = 0;
       for (let i = 0; i < str.length; i++) {
-        h = ((h << 5) - h) + str.charCodeAt(i);
-        h |= 0;
+        hash = ((hash << 5) - hash) + str.charCodeAt(i);
+        hash |= 0;
       }
-      return Math.abs(h);
+      return Math.abs(hash);
     }
 
     function simulateThreatSample() {
-      const samples = [
+      const sampleThreats = [
         {
-          conn_id: "sim_" + Date.now() + "_1",
-          domain: "x9q-mining-pool.nanopool.org:3333",
-          client_name: "Hotspot Client (iPhone)",
-          client_ip: "10.42.0.15",
-          client_mac: "32:ae:84:12:ef:90",
-          process: "xmrig-daemon",
-          protocol: "TCP",
-          risk_level: "danger",
-          risk_score: 95,
-          threat_tags: ["Crypto Mining Activity", "Non-Standard Port 3333"],
+          domain: 'pool.minexmr.com:4444',
+          client_ip: '10.42.0.45',
+          client_mac: 'b4:22:99:aa:bb:cc',
+          client_name: 'Workstation',
+          category: 'Telemetry & Ads',
+          risk_level: 'danger',
+          risk_score: 92,
+          threat_tags: ['Crypto Miner C2', 'Stratum Protocol (4444)'],
           team_verdicts: [
-            { model_name: "ThreatIntel", verdict: "Crypto Mining Activity", confidence: 0.98, is_risk: true },
-            { model_name: "ProtocolAnomaly", verdict: "Direct IP / Port Anomaly", confidence: 0.85, is_risk: true },
-            { model_name: "PrivacyTracker", verdict: "No Tracking Signatures", confidence: 0.90, is_risk: false },
-            { model_name: "EntropyDGA", verdict: "Natural Domain Distribution", confidence: 0.92, is_risk: false },
-            { model_name: "BehaviorHeuristic", verdict: "High Persistent Packet Rate", confidence: 0.88, is_risk: true }
+            { model_name: 'ThreatIntel', verdict: 'Known Monero Miner Pool', is_risk: true, confidence: 0.98 },
+            { model_name: 'Protocol Port', verdict: 'Stratum Protocol 4444 Alert', is_risk: true, confidence: 0.95 },
+            { model_name: 'Behavior', verdict: 'Persistent Low-Bps Beaconing', is_risk: true, confidence: 0.88 }
           ]
         },
         {
-          conn_id: "sim_" + Date.now() + "_2",
-          domain: "q8z4kk91mf7v12.duckdns.org:4444",
-          client_name: "Connected Device",
-          client_ip: "10.42.0.88",
-          client_mac: "50:ed:3c:44:91:02",
-          process: "reverse_shell",
-          protocol: "TCP",
-          risk_level: "danger",
-          risk_score: 88,
-          threat_tags: ["Dynamic DNS / Tunneling Evasion", "Metasploit Port 4444", "High Shannon Entropy (3.92)"],
+          domain: 'tracker.appsflyer.com',
+          client_ip: '10.42.0.12',
+          client_mac: 'f0:18:98:33:44:55',
+          client_name: "iPhone 15",
+          category: 'Telemetry & Ads',
+          risk_level: 'warning',
+          risk_score: 42,
+          threat_tags: ['Mobile Fingerprinting', 'Ad Attribution Beacon'],
           team_verdicts: [
-            { model_name: "ThreatIntel", verdict: "Dynamic DNS / Tunneling Evasion", confidence: 0.85, is_risk: true },
-            { model_name: "ProtocolAnomaly", verdict: "Metasploit / Reverse Shell Port 4444", confidence: 0.96, is_risk: true },
-            { model_name: "EntropyDGA", verdict: "High Entropy (3.92) DGA Suspected", confidence: 0.82, is_risk: true },
-            { model_name: "PrivacyTracker", verdict: "No Tracking Signatures", confidence: 0.90, is_risk: false },
-            { model_name: "BehaviorHeuristic", verdict: "Direct RAT Payload Beacon", confidence: 0.91, is_risk: true }
+            { model_name: 'Privacy Harvester', verdict: 'Device ID Telemetry', is_risk: true, confidence: 0.94 },
+            { model_name: 'ThreatIntel', verdict: 'Tracking Network', is_risk: false, confidence: 0.50 }
           ]
         },
         {
-          conn_id: "sim_" + Date.now() + "_3",
-          domain: "events.appsflyer.com",
-          client_name: "Mobile iPhone",
-          client_ip: "10.42.0.15",
-          client_mac: "32:ae:84:12:ef:90",
-          process: "iOS App SDK",
-          protocol: "HTTPS",
-          risk_level: "warning",
-          risk_score: 45,
-          threat_tags: ["Mobile Ad Campaign Tracker", "Telemetry Ingestion"],
+          domain: 'rt.pornhub.com',
+          client_ip: '10.42.0.88',
+          client_mac: '2c:54:91:88:22:11',
+          client_name: 'iPad Pro',
+          category: 'Adult & NSFW',
+          risk_level: 'warning',
+          risk_score: 65,
+          threat_tags: ['Adult Content Network', 'NSFW Media Stream'],
           team_verdicts: [
-            { model_name: "PrivacyTracker", verdict: "Mobile Ad Campaign Tracker", confidence: 0.95, is_risk: true },
-            { model_name: "ThreatIntel", verdict: "Clean Reputation", confidence: 0.90, is_risk: false },
-            { model_name: "ProtocolAnomaly", verdict: "Standard Port Compliance", confidence: 0.92, is_risk: false },
-            { model_name: "EntropyDGA", verdict: "Natural Domain Distribution", confidence: 0.90, is_risk: false },
-            { model_name: "BehaviorHeuristic", verdict: "Normal Traffic Velocity", confidence: 0.90, is_risk: false }
-          ]
-        },
-        {
-          conn_id: "sim_" + Date.now() + "_4",
-          domain: "public.onlyfans.com",
-          client_name: "Hotspot Device",
-          client_ip: "10.42.0.34",
-          client_mac: "b8:27:eb:84:aa:11",
-          process: "Mobile Safari",
-          protocol: "HTTPS",
-          risk_level: "warning",
-          risk_score: 60,
-          category: "Adult & NSFW",
-          threat_tags: ["Explicit Adult / NSFW Destination", "Age-Restricted Explicit Media"],
-          team_verdicts: [
-            { model_name: "AdultContentFilter", verdict: "Explicit Adult / NSFW Destination", confidence: 0.99, is_risk: true },
-            { model_name: "PrivacyTracker", verdict: "No Tracking Signatures", confidence: 0.90, is_risk: false },
-            { model_name: "ThreatIntel", verdict: "Clean Reputation", confidence: 0.90, is_risk: false },
-            { model_name: "ProtocolAnomaly", verdict: "Standard Port Compliance", confidence: 0.92, is_risk: false },
-            { model_name: "EntropyDGA", verdict: "Natural Domain Distribution", confidence: 0.90, is_risk: false },
-            { model_name: "BehaviorHeuristic", verdict: "Normal Traffic Velocity", confidence: 0.90, is_risk: false }
+            { model_name: 'Adult & NSFW Filter', verdict: 'Explicit Media CDN Flagged', is_risk: true, confidence: 0.98 },
+            { model_name: 'Privacy Harvester', verdict: 'Tracking Telemetry Embedded', is_risk: true, confidence: 0.85 }
           ]
         }
       ];
 
-      const sample = samples[Math.floor(Math.random() * samples.length)];
-      simulatedThreats.unshift(sample);
-      if (simulatedThreats.length > 8) simulatedThreats.pop();
+      const item = sampleThreats[Math.floor(Math.random() * sampleThreats.length)];
+      const threatObj = {
+        ...item,
+        timestamp: Date.now(),
+        simulated: true
+      };
+
+      simulatedThreats.unshift(threatObj);
+      if (simulatedThreats.length > 20) simulatedThreats.pop();
+
       updateThreatFeed();
+      updateStats();
     }
 
     function clearSimulatedThreats() {
       simulatedThreats = [];
       updateThreatFeed();
+      updateStats();
     }
 
     async function sinkholeThreatDomain(domain) {
-      const cleanDom = domain.split(':')[0];
-      if (!confirm(`Permanently block and sinkhole domain '${cleanDom}' across all hotspot clients?`)) return;
+      if (!domain) return;
       try {
-        const host = window.location.hostname || "localhost";
-        const res = await fetch(`http://${host}:9090/api/threats/sinkhole`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ domain: cleanDom })
+        const resp = await fetch('/api/adblock/add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ domain: domain })
         });
-        const data = await res.json();
-        alert(data.message || `Domain ${cleanDom} sinkholed.`);
-        fetchAdblockStatus();
+        const res = await resp.json();
+        if (res.ok) {
+          alert(`Domain ${domain} sinkholed successfully.`);
+          fetchAdblockStatus();
+        } else {
+          alert(`Failed: ${res.error || 'Unknown error'}`);
+        }
       } catch (e) {
         alert("Failed to sinkhole domain: " + e);
       }
     }
 
+    // Polar Threat Radar Scope Canvas
     function initThreatRadar() {
       const canvas = document.getElementById("threat-radar-canvas");
       if (!canvas) return;
@@ -1304,8 +1276,8 @@
         const cy = height / 2;
         const radius = cx - 12;
 
-        // Clear dark tactical background
-        ctx.fillStyle = "#0A0E14";
+        // Dark obsidian slate background
+        ctx.fillStyle = "#0A0E15";
         ctx.fillRect(0, 0, width, height);
 
         ctx.save();
@@ -1313,24 +1285,24 @@
         ctx.arc(cx, cy, radius, 0, Math.PI * 2);
         ctx.clip();
 
-        // Concentric Tactical Range Rings
+        // Concentric Rings
         const ringLevels = [0.28, 0.55, 0.82, 1.0];
         ringLevels.forEach((pct, idx) => {
           ctx.beginPath();
           ctx.arc(cx, cy, radius * pct, 0, Math.PI * 2);
-          ctx.strokeStyle = idx === 3 ? "rgba(16, 185, 129, 0.4)" : "rgba(16, 185, 129, 0.16)";
+          ctx.strokeStyle = idx === 3 ? "rgba(56, 189, 248, 0.35)" : "rgba(255, 255, 255, 0.08)";
           ctx.lineWidth = idx === 3 ? 1.5 : 1;
           ctx.stroke();
 
-          // Range ring text
-          ctx.fillStyle = "rgba(16, 185, 129, 0.35)";
-          ctx.font = "8px monospace";
-          const label = idx === 0 ? "DANGER" : idx === 1 ? "WARNING" : idx === 2 ? "TRACKER" : "PERIMETER";
+          // Axis level ticks
+          ctx.fillStyle = "rgba(148, 163, 184, 0.4)";
+          ctx.font = "8px 'JetBrains Mono', monospace";
+          const label = idx === 0 ? "CRITICAL" : idx === 1 ? "ELEVATED" : idx === 2 ? "LOW" : "PERIMETER";
           ctx.fillText(label, cx + 4, cy - (radius * pct) + 9);
         });
 
         // Crosshairs
-        ctx.strokeStyle = "rgba(16, 185, 129, 0.18)";
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(cx - radius, cy);
@@ -1339,48 +1311,32 @@
         ctx.lineTo(cx, cy + radius);
         ctx.stroke();
 
-        // Degrees ticks (every 30 deg)
-        for (let deg = 0; deg < 360; deg += 30) {
-          const rad = (deg * Math.PI) / 180;
-          const x1 = cx + Math.cos(rad) * (radius - 5);
-          const y1 = cy + Math.sin(rad) * (radius - 5);
-          const x2 = cx + Math.cos(rad) * radius;
-          const y2 = cy + Math.sin(rad) * radius;
-          ctx.beginPath();
-          ctx.moveTo(x1, y1);
-          ctx.lineTo(x2, y2);
-          ctx.strokeStyle = "rgba(16, 185, 129, 0.3)";
-          ctx.stroke();
-        }
-
-        // Rotating Sweep Beam with phosphor fade
-        radarSweepAngle = (radarSweepAngle + 0.025) % (Math.PI * 2);
-        const trailSegments = 24;
+        // Rotating Sweep Line
+        radarSweepAngle = (radarSweepAngle + 0.02) % (Math.PI * 2);
+        const trailSegments = 20;
         for (let i = 0; i < trailSegments; i++) {
           const a = radarSweepAngle - (i * 0.025);
-          const alpha = (1 - (i / trailSegments)) * 0.22;
+          const alpha = (1 - (i / trailSegments)) * 0.15;
           ctx.beginPath();
           ctx.moveTo(cx, cy);
           ctx.arc(cx, cy, radius, a - 0.025, a, false);
           ctx.closePath();
-          ctx.fillStyle = `rgba(16, 185, 129, ${alpha})`;
+          ctx.fillStyle = `rgba(56, 189, 248, ${alpha})`;
           ctx.fill();
         }
 
-        // Leading sweep line
         ctx.beginPath();
         ctx.moveTo(cx, cy);
         ctx.lineTo(cx + Math.cos(radarSweepAngle) * radius, cy + Math.sin(radarSweepAngle) * radius);
-        ctx.strokeStyle = "rgba(52, 211, 153, 0.85)";
+        ctx.strokeStyle = "rgba(56, 189, 248, 0.7)";
         ctx.lineWidth = 1.5;
         ctx.stroke();
 
-        // Plot Active Threat Blips
+        // Plot Threat Points
         const allThreats = getActiveThreatList();
         allThreats.forEach(t => {
           const hash = hashString((t.domain || "") + (t.client_ip || ""));
           const blipAngle = ((hash % 360) * Math.PI) / 180;
-
           const score = Math.max(0, Math.min(100, t.risk_score || (t.risk_level === 'danger' ? 75 : 35)));
           const distPct = 0.90 - (score / 100) * 0.68;
           const blipDist = radius * distPct;
@@ -1392,26 +1348,25 @@
           const isPinging = diff < 0.25;
 
           const isDanger = t.risk_level === 'danger';
-          const color = isDanger ? "#EF4444" : "#F59E0B";
+          const color = isDanger ? "#F43F5E" : "#F59E0B";
 
-          // Pulsing halo
+          // Halo
           ctx.beginPath();
-          ctx.arc(bx, by, isPinging ? 9 : 5.5, 0, Math.PI * 2);
+          ctx.arc(bx, by, isPinging ? 8 : 5, 0, Math.PI * 2);
           ctx.fillStyle = isDanger
-            ? (isPinging ? "rgba(239, 68, 68, 0.55)" : "rgba(239, 68, 68, 0.25)")
-            : (isPinging ? "rgba(245, 158, 11, 0.55)" : "rgba(245, 158, 11, 0.25)");
+            ? (isPinging ? "rgba(244, 63, 94, 0.5)" : "rgba(244, 63, 94, 0.2)")
+            : (isPinging ? "rgba(245, 158, 11, 0.5)" : "rgba(245, 158, 11, 0.2)");
           ctx.fill();
 
-          // Blip Center Dot
+          // Dot
           ctx.beginPath();
-          ctx.arc(bx, by, 3, 0, Math.PI * 2);
+          ctx.arc(bx, by, 2.5, 0, Math.PI * 2);
           ctx.fillStyle = isPinging ? "#FFFFFF" : color;
           ctx.fill();
 
-          // Label
           if (isPinging || isDanger) {
             ctx.fillStyle = isPinging ? "#FFFFFF" : color;
-            ctx.font = "8px monospace";
+            ctx.font = "8px 'JetBrains Mono', monospace";
             const shortDom = (t.domain || "").split('.')[0].slice(0, 9);
             ctx.fillText(shortDom, bx + 5, by - 4);
           }
@@ -1419,11 +1374,11 @@
 
         ctx.restore();
 
-        // Outer Tactical Perimeter Ring
+        // Perimeter Ring
         ctx.beginPath();
         ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-        ctx.strokeStyle = "rgba(16, 185, 129, 0.5)";
-        ctx.lineWidth = 2;
+        ctx.strokeStyle = "rgba(56, 189, 248, 0.3)";
+        ctx.lineWidth = 1.5;
         ctx.stroke();
 
         requestAnimationFrame(drawRadar);
@@ -1438,8 +1393,6 @@
       if (!feed) return;
 
       const allThreats = getActiveThreatList();
-
-      // Update radar stat counters
       const totalCount = allThreats.length;
       const dangerCount = allThreats.filter(t => t.risk_level === 'danger').length;
       const warningCount = allThreats.filter(t => t.risk_level === 'warning').length;
@@ -1466,8 +1419,8 @@
       if (filtered.length === 0) {
         feed.innerHTML = `
           <div class="text-slate-500 text-xs py-8 text-center font-sans">
-            <div class="mb-1 text-slate-400 font-semibold">No anomalies matching current filter criteria.</div>
-            <div class="text-[11px] text-slate-500">The 360° tactical sweep is actively monitoring all client egress flows.</div>
+            <div class="mb-0.5 text-slate-400 font-medium">No security events matching filter criteria.</div>
+            <div class="text-[11px] text-slate-600 font-mono">Monitoring wireless interface ap0 for anomalous traffic.</div>
           </div>
         `;
         return;
@@ -1476,96 +1429,116 @@
       feed.innerHTML = filtered.slice(0, 15).map(t => {
         const isDanger = t.risk_level === 'danger';
         const score = t.risk_score || (isDanger ? 80 : 40);
-        const borderClass = isDanger ? 'border-red-500/30 bg-red-950/15' : 'border-amber-500/30 bg-amber-950/15';
-        const badgeClass = isDanger ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-amber-500/20 text-amber-400 border border-amber-500/30';
+        const borderClass = isDanger ? 'border-rose-500/30 bg-rose-950/10' : 'border-amber-500/30 bg-amber-950/10';
+        const badgeClass = isDanger ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30' : 'bg-amber-500/15 text-amber-400 border border-amber-500/30';
 
         const verdicts = Array.isArray(t.team_verdicts) ? t.team_verdicts : [];
         const verdictsHtml = verdicts.map(v => {
           const vClass = v.is_risk
-            ? 'bg-red-500/10 text-red-300 border border-red-500/20'
-            : 'bg-white/5 text-slate-400 border border-white/5';
+            ? 'bg-rose-500/10 text-rose-300 border border-rose-500/20'
+            : 'bg-black/30 text-slate-400 border border-white/5';
           return `<span class="px-2 py-0.5 rounded text-[10px] font-mono ${vClass}"><strong>${escapeHtml(v.model_name)}:</strong> ${escapeHtml(v.verdict)}</span>`;
         }).join(" ");
 
         const cleanDomain = t.domain.split(':')[0];
 
         return `
-          <div class="p-3.5 rounded-xl border ${borderClass} space-y-2.5 transition hover:border-white/20">
+          <div class="p-3.5 rounded-xl border ${borderClass} space-y-2.5 transition">
             <div class="flex flex-wrap items-center justify-between gap-2">
-              <div class="flex items-center gap-2.5 flex-wrap">
-                <span class="px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase ${badgeClass}">
-                  ${isDanger ? 'CRITICAL DANGER' : 'SUSPICIOUS'}
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase ${badgeClass}">
+                  ${isDanger ? 'CRITICAL' : 'SUSPICIOUS'}
                 </span>
                 <span class="text-xs font-semibold text-slate-200">${escapeHtml(t.client_name)}</span>
-                <span class="text-xs font-mono text-slate-400">(${escapeHtml(t.client_ip)})</span>
-                <span class="text-slate-500 text-xs">→</span>
-                <span class="text-xs font-mono font-bold text-white bg-black/40 px-2 py-0.5 rounded border border-white/10">${escapeHtml(t.domain)}</span>
+                <span class="text-xs font-mono text-slate-500">(${escapeHtml(t.client_ip)})</span>
+                <span class="text-slate-600 text-xs font-mono">→</span>
+                <span class="text-xs font-mono font-semibold text-sky-300 bg-black/40 px-2 py-0.5 rounded border border-white/10">${escapeHtml(t.domain)}</span>
               </div>
-              <div class="flex items-center gap-2 text-xs">
-                <span class="font-mono text-[11px] font-bold ${isDanger ? 'text-red-400' : 'text-amber-400'}">Risk: ${score}/100</span>
-                <button onclick="sinkholeThreatDomain('${cleanDomain}')" class="px-2.5 py-1 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 rounded-lg text-[11px] font-semibold transition" title="Sinkhole domain for all hotspot clients">
-                  Sinkhole Domain
+              <div class="flex items-center gap-2 text-xs font-mono">
+                <span class="text-[11px] font-semibold ${isDanger ? 'text-rose-400' : 'text-amber-400'}">Risk: ${score}/100</span>
+                <button onclick="sinkholeThreatDomain('${cleanDomain}')" class="px-2.5 py-1 bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 rounded-md text-[11px] font-medium transition" title="Sinkhole domain for all hotspot clients">
+                  Sinkhole
                 </button>
-                <button onclick="blockClientMac('${t.client_mac}')" class="px-2.5 py-1 bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/30 rounded-lg text-[11px] font-semibold transition" title="Block client device">
-                  Block Client
+                <button onclick="blockClientMac('${t.client_mac}')" class="px-2.5 py-1 bg-white/[0.05] hover:bg-white/[0.1] text-slate-300 border border-white/10 rounded-md text-[11px] font-medium transition" title="Block client device">
+                  Block Station
                 </button>
               </div>
             </div>
 
-            <!-- Ensemble Model Verdict Chips -->
             <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
-              ${verdictsHtml || (t.threat_tags || []).map(tag => `<span class="px-2 py-0.5 rounded text-[10px] font-mono bg-red-500/10 text-red-300 border border-red-500/20">${escapeHtml(tag)}</span>`).join(" ")}
+              ${verdictsHtml || (t.threat_tags || []).map(tag => `<span class="px-2 py-0.5 rounded text-[10px] font-mono bg-rose-500/10 text-rose-300 border border-rose-500/20">${escapeHtml(tag)}</span>`).join(" ")}
             </div>
           </div>
         `;
       }).join("");
     }
 
+    // Stations Grid
     function renderClientCards() {
       const grid = document.getElementById("clients-grid");
+      if (!grid) return;
+
       if (knownClients.size === 0) {
-        grid.innerHTML = `<div class="col-span-3 text-slate-500 text-center py-12">No active hotspot devices connected yet</div>`;
+        grid.innerHTML = `
+          <div class="col-span-3 text-slate-500 text-xs py-12 text-center panel rounded-xl">
+            No wireless stations currently associated with ap0.
+          </div>
+        `;
         return;
       }
-      grid.innerHTML = Array.from(knownClients.entries()).map(([mac, info]) => {
+
+      const clientTraffic = new Map();
+      trafficData.forEach(f => {
+        if (!f.client_mac) return;
+        const mac = f.client_mac.toLowerCase();
+        const cur = clientTraffic.get(mac) || { bytes: 0, latestThreat: null };
+        cur.bytes += (f.total_bytes || (f.bandwidth_bps ? f.bandwidth_bps / 8 : 512));
+        if (!cur.latestThreat && (f.risk_level === 'danger' || f.risk_level === 'warning')) {
+          cur.latestThreat = f;
+        }
+        clientTraffic.set(mac, cur);
+      });
+
+      grid.innerHTML = Array.from(knownClients.values()).map(c => {
+        const lower = c.mac.toLowerCase();
+        const tInfo = clientTraffic.get(lower) || { bytes: 0, latestThreat: null };
+        const hasThreat = !!tInfo.latestThreat;
+
         return `
-          <div class="bg-[#161B22] border border-white/10 rounded-xl p-5 space-y-4 shadow-lg">
+          <div class="panel rounded-xl p-4 space-y-3">
             <div class="flex items-start justify-between">
-              <div class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 font-bold">
-                  <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></svg>
+              <div class="flex items-center gap-2.5">
+                <div class="w-8 h-8 rounded-lg bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
+                  <i data-lucide="smartphone" class="w-4 h-4"></i>
                 </div>
                 <div>
-                  <h3 class="font-bold text-sm text-white">${escapeHtml(info.name)}</h3>
-                  <div class="text-[11px] text-slate-400 font-mono">${info.ip}</div>
+                  <h3 class="text-xs font-semibold text-white">${escapeHtml(c.name)}</h3>
+                  <p class="text-[11px] text-slate-500 font-mono">${escapeHtml(c.ip || 'DHCP Pending')}</p>
                 </div>
               </div>
-              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                ACTIVE
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono font-medium ${hasThreat ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}">
+                ${hasThreat ? 'ALERT' : 'CLEAN'}
               </span>
             </div>
 
-            <div class="grid grid-cols-2 gap-2 text-xs p-2.5 bg-white/[0.02] rounded-xl border border-white/5 font-mono">
-              <div>
-                <div class="text-[10px] text-slate-500 uppercase font-sans">Data Volume</div>
-                <div class="font-bold text-emerald-400">${formatBytes(info.bytes)}</div>
-              </div>
-              <div>
-                <div class="text-[10px] text-slate-500 uppercase font-sans">Active Flows</div>
-                <div class="font-bold text-slate-200">${info.flows}</div>
-              </div>
+            <div class="pt-2 border-t border-white/[0.06] text-xs font-mono space-y-1">
+              <div class="flex justify-between text-slate-400"><span class="text-slate-500">Hardware MAC:</span> <span class="text-slate-300">${escapeHtml(c.mac)}</span></div>
+              <div class="flex justify-between text-slate-400"><span class="text-slate-500">Traffic Transferred:</span> <span class="text-slate-200 font-semibold tabular-nums">${formatBytes(tInfo.bytes)}</span></div>
+              <div class="flex justify-between text-slate-400"><span class="text-slate-500">Active Flows:</span> <span class="text-slate-200 tabular-nums">${c.flows} sessions</span></div>
             </div>
 
-            <div class="text-[10px] text-slate-500 font-mono break-all">MAC: ${mac}</div>
-
-            <button onclick="blockClientMac('${mac}')" class="w-full py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/30 rounded-lg text-xs font-semibold transition">
-              Disconnect & Block Device
-            </button>
+            <div class="pt-2 flex justify-end gap-2 border-t border-white/[0.06]">
+              <button onclick="blockClientMac('${c.mac}')" class="px-2.5 py-1 bg-white/[0.05] hover:bg-white/[0.1] text-slate-300 border border-white/10 rounded-md text-[11px] font-mono transition">
+                Block Station
+              </button>
+            </div>
           </div>
         `;
       }).join("");
+      lucide.createIcons();
     }
 
+    // Flow Table Renderer
     function renderTable() {
       const selectedMac = document.getElementById("client-filter").value.toLowerCase();
       const selectedCat = document.getElementById("category-filter").value;
@@ -1604,10 +1577,10 @@
 
       lastFilteredList = filtered;
       const displayRows = filtered.slice(0, 50);
-      document.getElementById("count-visible").textContent = `${displayRows.length} of ${filtered.length}`;
+      document.getElementById("count-visible").textContent = `${displayRows.length}`;
 
       if (displayRows.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" class="px-4 py-12 text-center text-slate-500 font-sans">No matching flows found</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" class="px-4 py-12 text-center text-slate-500 font-sans">No matching network flows found.</td></tr>`;
         return;
       }
 
@@ -1615,67 +1588,70 @@
         const speedStr = formatBps(row.bandwidth_bps);
         const volStr = row.total_bytes ? formatBytes(row.total_bytes) : "";
 
-        // Category badge styling
-        let catColor = "bg-slate-800 text-slate-300 border-white/10";
+        // Refined category styling
+        let catColor = "bg-white/[0.04] text-slate-300 border-white/10";
         if (row.category.includes("Streaming")) catColor = "bg-purple-500/10 text-purple-300 border-purple-500/20";
         else if (row.category.includes("Social")) catColor = "bg-pink-500/10 text-pink-300 border-pink-500/20";
         else if (row.category.includes("Gaming")) catColor = "bg-indigo-500/10 text-indigo-300 border-indigo-500/20";
         else if (row.category.includes("Telemetry") || row.category.includes("Ads")) catColor = "bg-amber-500/10 text-amber-300 border-amber-500/20";
-        else if (row.category.includes("Cloud")) catColor = "bg-cyan-500/10 text-cyan-300 border-cyan-500/20";
+        else if (row.category.includes("Cloud")) catColor = "bg-sky-500/10 text-sky-300 border-sky-500/20";
         else if (row.category.includes("Updates")) catColor = "bg-blue-500/10 text-blue-300 border-blue-500/20";
+        else if (row.category.includes("Adult")) catColor = "bg-rose-500/10 text-rose-300 border-rose-500/20";
 
-        // Risk pill styling
-        let riskPill = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">SAFE</span>`;
+        // Refined risk styling
+        let riskPill = `<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono font-medium text-slate-400 bg-black/20 border border-white/5"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> SAFE</span>`;
         if (row.risk_level === 'danger') {
-          riskPill = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-red-500/20 text-red-400 border border-red-500/30">DANGER (${row.risk_score})</span>`;
+          riskPill = `<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono font-bold text-rose-400 bg-rose-500/10 border border-rose-500/25"><span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span> DANGER (${row.risk_score || 80})</span>`;
         } else if (row.risk_level === 'warning') {
-          riskPill = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">TRACKER (${row.risk_score})</span>`;
+          riskPill = `<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono font-medium text-amber-400 bg-amber-500/10 border border-amber-500/25"><span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span> TRACKER (${row.risk_score || 40})</span>`;
         } else if (row.risk_level === 'low') {
-          riskPill = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/10 text-blue-300 border border-blue-500/20">LOW (${row.risk_score})</span>`;
+          riskPill = `<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono font-medium text-sky-400 bg-sky-500/10 border border-sky-500/20"><span class="w-1.5 h-1.5 rounded-full bg-sky-400"></span> LOW</span>`;
         }
 
-        const isCustomName = (row.client_name !== "Client Device" && row.client_name !== "Hotspot Client");
+        const isCustomName = (row.client_name && row.client_name !== "Client Device" && row.client_name !== "Hotspot Client" && row.client_name !== "Station");
         const clientBadge = isCustomName 
-          ? `<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-blue-500/15 text-blue-300 border border-blue-500/30 font-medium">
-               <span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
+          ? `<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-sky-500/10 text-sky-300 border border-sky-500/20 font-medium font-sans">
+               <span class="w-1.5 h-1.5 rounded-full bg-sky-400"></span>
                ${escapeHtml(row.client_name)}
              </span>`
-          : `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-white/5">
-               ${escapeHtml(row.client_name)}
+          : `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white/[0.04] text-slate-300 border border-white/5 font-sans">
+               ${escapeHtml(row.client_name || 'Station')}
              </span>`;
 
         return `
-          <tr class="hover:bg-white/[0.04] transition group">
-            <td class="px-4 py-2.5 font-sans text-xs">
+          <tr class="hover:bg-white/[0.025] transition border-b border-white/[0.03]">
+            <td class="px-4 py-2.5">
               ${clientBadge}
             </td>
-            <td class="px-4 py-2.5 text-slate-300">
-              <div class="font-mono text-slate-200">${escapeHtml(row.client_ip)}</div>
-              <div class="text-[10px] text-slate-500 font-mono">${escapeHtml(row.client_mac)}</div>
+            <td class="px-4 py-2.5">
+              <div class="text-slate-200">${escapeHtml(row.client_ip || '10.42.0.x')}</div>
+              <div class="text-[10px] text-slate-500">${escapeHtml(row.client_mac || '--')}</div>
             </td>
-            <td class="px-4 py-2.5 font-sans">
-              <span class="px-2 py-0.5 rounded text-[11px] font-medium border ${catColor}">
-                ${escapeHtml(row.category)}
+            <td class="px-4 py-2.5">
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono font-medium border ${catColor}">
+                ${escapeHtml(row.category || 'General Web')}
               </span>
             </td>
-            <td class="px-4 py-2.5 font-medium text-cyan-300 break-all max-w-[280px]">
-              ${escapeHtml(row.domain)}
+            <td class="px-4 py-2.5 font-semibold text-sky-300 truncate max-w-[280px]" title="${escapeHtml(row.domain || '')}">
+              ${escapeHtml(row.domain || '--')}
             </td>
             <td class="px-4 py-2.5">
               ${riskPill}
             </td>
             <td class="px-4 py-2.5 text-right font-mono tabular-nums">
-              <div class="font-bold text-emerald-400">${speedStr}</div>
-              ${volStr ? `<div class="text-[10px] text-slate-500 font-sans">vol ${volStr}</div>` : ""}
+              <div class="font-bold text-slate-200">${speedStr}</div>
+              ${volStr ? `<div class="text-[10px] text-slate-500">${volStr}</div>` : ""}
             </td>
             <td class="px-4 py-2.5 text-right">
-              <button onclick="inspectFlow(${idx})" class="p-1 hover:bg-white/10 text-slate-400 hover:text-white rounded-lg transition" title="Inspect Ensemble Classification">
-                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+              <button onclick="inspectFlow(${idx})" class="p-1 hover:bg-white/10 text-slate-400 hover:text-white rounded transition" title="Inspect Protocol Stack & Hex Dump">
+                <i data-lucide="layers" class="w-3.5 h-3.5"></i>
               </button>
             </td>
           </tr>
         `;
       }).join("");
+
+      lucide.createIcons();
 
       // Maintain scroll position smoothly without fighting user gestures
       if (scrollContainer) {
@@ -1683,6 +1659,7 @@
       }
     }
 
+    // DPI Modal Dissector & Actions
     function switchDpiTab(tab) {
       ['stack', 'hex', 'verdicts'].forEach(t => {
         const view = document.getElementById(`dpi-view-${t}`);
@@ -1690,36 +1667,36 @@
         if (view && btn) {
           if (t === tab) {
             view.classList.remove("hidden");
-            btn.className = "px-3 py-1 bg-blue-600 text-white rounded-lg font-semibold transition";
+            btn.className = "px-3 py-1 bg-sky-500/15 text-sky-300 border border-sky-500/30 rounded-md font-semibold transition";
           } else {
             view.classList.add("hidden");
-            btn.className = "px-3 py-1 bg-white/5 text-slate-400 hover:text-white rounded-lg font-medium transition";
+            btn.className = "px-3 py-1 bg-black/30 text-slate-400 hover:text-slate-200 border border-white/5 rounded-md font-medium transition";
           }
         }
       });
     }
 
     function generateHexDump(flow) {
-      const text = `GET / HTTP/1.1\r\nHost: ${flow.domain}\r\nUser-Agent: Mozilla/5.0 (iPhone; CPU OS 17_0)\r\nAccept: */*\r\n\r\n`;
-      const bytes = [];
-      bytes.push(0x45, 0x00, 0x00, 0x54, 0x7a, 0x8f, 0x40, 0x00, 0x40, 0x06, 0xb2, 0xe4);
-      (flow.client_ip || "10.42.0.15").split('.').forEach(p => bytes.push(parseInt(p, 10) || 0));
-      bytes.push(142, 250, 190, 46);
-      bytes.push(0xc4, 0x9a, 0x01, 0xbb, 0xa1, 0xb2, 0xc3, 0xd4, 0x00, 0x00, 0x00, 0x00, 0x50, 0x18, 0x01, 0xf5);
-      for (let i = 0; i < text.length && bytes.length < 128; i++) {
-        bytes.push(text.charCodeAt(i));
+      const sample = `${flow.domain || 'host'} ${flow.client_ip || '10.42.0.1'} [HTTP/2.0 TLS_AES_128_GCM_SHA256 SNI=${flow.domain}]`;
+      let hexLines = [];
+      let byteIndex = 0;
+
+      for (let offset = 0; offset < 96; offset += 16) {
+        const hexOffset = offset.toString(16).padStart(4, '0');
+        let hexBytes = [];
+        let asciiChars = [];
+
+        for (let i = 0; i < 16; i++) {
+          const charCode = (sample.charCodeAt((offset + i) % sample.length) + (offset * 3) + i) % 256;
+          hexBytes.push(charCode.toString(16).padStart(2, '0'));
+          asciiChars.push((charCode >= 32 && charCode <= 126) ? String.fromCharCode(charCode) : '.');
+        }
+
+        const hexStr = hexBytes.slice(0, 8).join(" ") + "  " + hexBytes.slice(8).join(" ");
+        hexLines.push(`${hexOffset}  ${hexStr}  |${asciiChars.join("")}|`);
       }
 
-      let out = "";
-      for (let i = 0; i < bytes.length; i += 16) {
-        const chunk = bytes.slice(i, i + 16);
-        const offset = i.toString(16).padStart(4, '0');
-        const hex = chunk.map(b => b.toString(16).padStart(2, '0')).join(' ');
-        const hexPad = hex.padEnd(48, ' ');
-        const ascii = chunk.map(b => (b >= 32 && b <= 126) ? String.fromCharCode(b) : '.').join('');
-        out += `${offset}   ${hexPad}   ${ascii}\n`;
-      }
-      return out;
+      return hexLines.join("\n");
     }
 
     function inspectFlow(index) {
@@ -1727,32 +1704,32 @@
       if (!flow) return;
       currentSelectedFlow = flow;
 
-      document.getElementById("modal-domain").textContent = flow.domain;
+      document.getElementById("modal-domain").textContent = flow.domain || "--";
       document.getElementById("modal-src-mac").textContent = flow.client_mac || "--";
-      document.getElementById("modal-src-ip").textContent = `${flow.client_ip} (${flow.client_name})`;
-      document.getElementById("modal-dst-ip").textContent = flow.domain;
-      document.getElementById("modal-proto").textContent = `${flow.protocol} / ${flow.process || 'Native Process'}`;
-      document.getElementById("modal-bw").textContent = `${formatBps(flow.bandwidth_bps)} (Session Total: ${formatBytes(flow.total_bytes || 0)})`;
-      document.getElementById("modal-sni").textContent = flow.domain;
+      document.getElementById("modal-src-ip").textContent = flow.client_ip || "10.42.0.x";
+      document.getElementById("modal-dst-ip").textContent = flow.domain || "Unknown";
+      document.getElementById("modal-proto").textContent = (flow.domain && flow.domain.includes(':')) ? 'UDP/TCP' : 'TCP';
+      document.getElementById("modal-bw").textContent = formatBps(flow.bandwidth_bps);
+      document.getElementById("modal-sni").textContent = flow.domain ? flow.domain.split(':')[0] : "--";
       document.getElementById("modal-category").textContent = flow.category || "General Web";
 
       document.getElementById("modal-hexdump").textContent = generateHexDump(flow);
 
       const verdictsDiv = document.getElementById("modal-verdicts");
-      if (flow.team_verdicts && flow.team_verdicts.length) {
+      if (Array.isArray(flow.team_verdicts) && flow.team_verdicts.length > 0) {
         verdictsDiv.innerHTML = flow.team_verdicts.map(v => {
-          const badgeClass = v.is_risk ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+          const colorClass = v.is_risk ? 'text-rose-400 border-rose-500/20 bg-rose-500/10' : 'text-slate-300 border-white/5 bg-black/20';
           return `
-            <div class="flex items-center justify-between p-2 rounded-lg bg-black/20 border border-white/5">
-              <span class="font-semibold text-slate-300">${v.model_name}:</span>
-              <span class="px-2 py-0.5 rounded text-[10px] font-mono border ${badgeClass}">
-                ${v.verdict} (${(v.confidence * 100).toFixed(0)}%)
+            <div class="p-2.5 rounded-lg border ${colorClass} flex justify-between items-center text-xs">
+              <span class="font-semibold text-slate-200">${escapeHtml(v.model_name)}</span>
+              <span class="font-mono text-[11px] ${v.is_risk ? 'text-rose-400 font-bold' : 'text-slate-400'}">
+                ${escapeHtml(v.verdict)} (${(v.confidence * 100).toFixed(0)}%)
               </span>
             </div>
           `;
         }).join("");
       } else {
-        verdictsDiv.innerHTML = `<div class="text-slate-500">No raw model telemetry available for this flow.</div>`;
+        verdictsDiv.innerHTML = `<div class="text-slate-500 py-4 text-center">No telemetry model anomalies recorded for this flow.</div>`;
       }
 
       switchDpiTab('stack');
@@ -1767,210 +1744,221 @@
 
     async function killCurrentFlow() {
       if (!currentSelectedFlow) return;
-      const clientIp = currentSelectedFlow.client_ip;
-      const targetHost = currentSelectedFlow.domain.split(':')[0];
-      if (!confirm(`Inject TCP RST (Reset) packet to forcefully terminate connection between ${clientIp} and ${targetHost}?`)) return;
-
       try {
-        const host = window.location.hostname || "localhost";
-        const res = await fetch(`http://${host}:9090/api/flows/kill`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ client_ip: clientIp, target_ip: targetHost })
+        const resp = await fetch('/api/flows/kill', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            client_ip: currentSelectedFlow.client_ip,
+            target_ip: currentSelectedFlow.domain ? currentSelectedFlow.domain.split(':')[0] : ''
+          })
         });
-        const data = await res.json();
-        alert(data.message || `TCP RST injected.`);
-        closeModal();
+        const res = await resp.json();
+        if (res.ok) {
+          alert("TCP RST injected. Session forcefully closed.");
+          closeModal();
+        } else {
+          alert(`Failed: ${res.error || 'Unknown error'}`);
+        }
       } catch (e) {
         alert("Failed to kill flow: " + e);
       }
     }
 
     function sinkholeModalDomain() {
-      if (currentSelectedFlow && currentSelectedFlow.domain) {
-        sinkholeThreatDomain(currentSelectedFlow.domain);
-        closeModal();
-      }
+      if (!currentSelectedFlow || !currentSelectedFlow.domain) return;
+      const dom = currentSelectedFlow.domain.split(':')[0];
+      sinkholeThreatDomain(dom);
+      closeModal();
     }
 
+    // Packet Modification Netfilter API
     async function fetchMangleStatus() {
       try {
-        const host = window.location.hostname || "localhost";
-        const res = await fetch(`http://${host}:9090/api/mangle/status`);
-        if (res.ok) {
-          const data = await res.json();
-          updateMangleUI(data);
-        }
+        const resp = await fetch('/api/mangle/status');
+        const data = await resp.json();
+        updateMangleUI(data);
       } catch (e) {
-        console.warn("Failed to fetch mangle status:", e);
+        console.error("Failed to fetch mangle status:", e);
       }
     }
 
     async function toggleMangleRule(rule, enable) {
       try {
-        const host = window.location.hostname || "localhost";
-        const res = await fetch(`http://${host}:9090/api/mangle/toggle`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
+        const resp = await fetch('/api/mangle/toggle', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ rule, enable })
         });
-        if (res.ok) {
-          const data = await res.json();
-          updateMangleUI(data);
-        }
+        const data = await resp.json();
+        updateMangleUI(data);
       } catch (e) {
-        alert("Failed to toggle mangle rule: " + e);
-        fetchMangleStatus();
+        alert("Failed to toggle packet mangling rule: " + e);
       }
     }
 
     function updateMangleUI(data) {
-      const setBadge = (id, checkId, active, labelOn, labelOff) => {
+      const updateRuleBadge = (id, toggleId, isActive) => {
         const badge = document.getElementById(id);
-        const check = document.getElementById(checkId);
+        const toggle = document.getElementById(toggleId);
+        if (toggle) toggle.checked = isActive;
         if (badge) {
-          badge.textContent = active ? labelOn : labelOff;
-          badge.className = active
-            ? "px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-            : "px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-800 text-slate-400";
+          if (isActive) {
+            badge.className = "px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/25";
+            badge.textContent = "ACTIVE";
+          } else {
+            badge.className = "px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-black/40 text-slate-400 border border-white/5";
+            badge.textContent = "INACTIVE";
+          }
         }
-        if (check) check.checked = !!active;
       };
 
-      setBadge("badge-ttl", "mod-toggle-ttl", data.ttl_cloak, "ACTIVE (TTL 64)", "INACTIVE");
-      setBadge("badge-mss", "mod-toggle-mss", data.mss_clamp, "ACTIVE (CLAMPED)", "INACTIVE");
-      setBadge("badge-dscp", "mod-toggle-dscp", data.dscp_qos, "ACTIVE (DSCP EF)", "INACTIVE");
-      setBadge("badge-http", "mod-toggle-http", data.http_sanitize, "ACTIVE (REWRITING)", "INACTIVE");
+      updateRuleBadge("badge-ttl", "mod-toggle-ttl", data.ttl_cloak);
+      updateRuleBadge("badge-mss", "mod-toggle-mss", data.mss_clamp);
+      updateRuleBadge("badge-dscp", "mod-toggle-dscp", data.dscp_qos);
+      updateRuleBadge("badge-http", "mod-toggle-http", data.http_sanitize);
     }
 
     function blockCurrentDevice() {
-      if (currentSelectedFlow && currentSelectedFlow.client_mac) {
-        blockClientMac(currentSelectedFlow.client_mac);
-        closeModal();
-      }
+      if (!currentSelectedFlow || !currentSelectedFlow.client_mac) return;
+      blockClientMac(currentSelectedFlow.client_mac);
+      closeModal();
     }
 
     async function blockClientMac(mac) {
-      if (!confirm(`Are you sure you want to disconnect and block MAC address ${mac}?`)) return;
+      if (!mac || !confirm(`Permanently block station with MAC ${mac}?`)) return;
       try {
-        const host = window.location.hostname || "localhost";
-        const res = await fetch(`http://${host}:9090/api/clients/block`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
+        const resp = await fetch('/api/clients/block', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ mac })
         });
-        const data = await res.json();
-        alert(data.message || `Client ${mac} blocked successfully.`);
+        const res = await resp.json();
+        if (res.ok) {
+          alert(`MAC ${mac} added to hotspot filter and station kicked.`);
+        } else {
+          alert(`Failed: ${res.error || 'Unknown error'}`);
+        }
       } catch (e) {
-        alert("Failed to block client: " + e);
+        alert("Failed to block MAC: " + e);
       }
     }
 
+    // Navigation Tabs
     function switchTab(tab) {
       ['flows', 'analytics', 'threats', 'clients', 'modify'].forEach(t => {
         const view = document.getElementById(`view-${t}`);
         const btn = document.getElementById(`tab-btn-${t}`);
-        if (t === tab) {
-          view.classList.remove("hidden");
-          btn.className = "px-3.5 py-1.5 rounded-lg font-semibold bg-blue-600 text-white flex items-center gap-1.5 transition";
-          if (t === 'modify') fetchMangleStatus();
-        } else {
-          view.classList.add("hidden");
-          btn.className = "px-3.5 py-1.5 rounded-lg font-medium text-slate-400 hover:text-white flex items-center gap-1.5 transition";
+        if (view && btn) {
+          if (t === tab) {
+            view.classList.remove("hidden");
+            btn.className = "px-3 py-1.5 rounded-md font-semibold bg-sky-500/15 text-sky-300 border border-sky-500/30 flex items-center gap-1.5 transition";
+          } else {
+            view.classList.add("hidden");
+            btn.className = "px-3 py-1.5 rounded-md text-slate-400 hover:text-slate-200 border border-transparent flex items-center gap-1.5 transition";
+          }
         }
       });
-      lucide.createIcons();
+      if (tab === 'modify') fetchMangleStatus();
+      if (tab === 'analytics') updateStats();
     }
 
     function clearBuffer() {
-      if (activeFlowsMap) activeFlowsMap.clear();
       trafficData = [];
+      categoryCounts = {
+        'Streaming & Media': 0,
+        'Social & Chat': 0,
+        'Gaming & Entertainment': 0,
+        'Cloud & CDN': 0,
+        'Web & Updates': 0,
+        'Telemetry & Ads': 0,
+        'Adult & NSFW': 0,
+        'General Web': 0
+      };
       renderTable();
       updateStats();
     }
 
     async function exportPcapng() {
-      const btn = document.getElementById("btn-export");
-      btn.innerHTML = `<span class="animate-pulse">Capturing packets...</span>`;
-      btn.disabled = true;
-
       try {
-        const host = window.location.hostname || "localhost";
-        const res = await fetch(`http://${host}:9090/api/export/pcapng`, { method: "POST" });
-        const data = await res.json();
-        alert(`Wireshark capture saved: ${data.file}\nOpen with: wireshark ${data.file}`);
+        const resp = await fetch('/api/export/pcapng');
+        if (!resp.ok) throw new Error("Export endpoint error");
+        const blob = await resp.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `hotspot_hub_capture_${Date.now()}.pcapng`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        a.remove();
       } catch (e) {
-        alert("Failed to trigger PCAPNG export: " + e);
-      } finally {
-        btn.innerHTML = `<i data-lucide="download" class="w-3.5 h-3.5"></i> Export PCAPNG`;
-        btn.disabled = false;
-        lucide.createIcons();
+        alert("PCAPNG Export requires live packet engine: " + e.message);
       }
     }
 
-    let adblockState = { enabled: true, rules_count: 0 };
-
+    // Adblock Shield Sync
+    let adblockActive = true;
     async function fetchAdblockStatus() {
       try {
-        const host = window.location.hostname || "localhost";
-        const res = await fetch(`http://${host}:9090/api/adblock/status`);
-        if (res.ok) {
-          const data = await res.json();
-          adblockState = data;
-          if (typeof data.ads_restricted === "number") {
-            latestAdsRestricted = data.ads_restricted;
-          }
-          if (typeof data.data_saved_bytes === "number") {
-            latestDataSavedBytes = data.data_saved_bytes;
-          }
-          updateAdblockUI();
-          updateStats();
-        }
+        const resp = await fetch('/api/adblock/status');
+        const data = await resp.json();
+        adblockActive = data.enabled;
+        latestAdsRestricted = data.blocked_count || 0;
+        latestDataSavedBytes = data.data_saved_bytes || 0;
+
+        document.getElementById("stat-ads-restricted").textContent = latestAdsRestricted.toLocaleString();
+        document.getElementById("stat-data-saved").textContent = formatBytes(latestDataSavedBytes);
+
+        const a1 = document.getElementById("analytics-ads-count");
+        if (a1) a1.textContent = latestAdsRestricted.toLocaleString();
+        const a2 = document.getElementById("analytics-data-saved");
+        if (a2) a2.textContent = formatBytes(latestDataSavedBytes);
+
+        updateAdblockUI();
       } catch (e) {
-        console.warn("Failed to fetch adblock status:", e);
+        console.error("Failed to fetch adblock status:", e);
       }
     }
 
     async function toggleAdblockShield() {
-      const btn = document.getElementById("btn-adblock");
-      const text = document.getElementById("adblock-btn-text");
-      if (text) text.textContent = "Switching…";
-
       try {
-        const host = window.location.hostname || "localhost";
-        const res = await fetch(`http://${host}:9090/api/adblock/toggle`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ enabled: !adblockState.enabled })
+        const nextState = !adblockActive;
+        const resp = await fetch('/api/adblock/toggle', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: nextState })
         });
-        if (res.ok) {
-          const data = await res.json();
-          adblockState = data;
-          updateAdblockUI();
-        }
+        const res = await resp.json();
+        adblockActive = res.enabled;
+        updateAdblockUI();
       } catch (e) {
         alert("Failed to toggle adblock shield: " + e);
-        fetchAdblockStatus();
       }
     }
 
     function updateAdblockUI() {
       const btn = document.getElementById("btn-adblock");
       const text = document.getElementById("adblock-btn-text");
-      if (!btn || !text) return;
-      if (adblockState.enabled) {
-        btn.className = "flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-semibold transition";
-        const kRules = adblockState.rules_count ? `${Math.round(adblockState.rules_count / 1000)}k` : "ON";
-        text.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block mr-1"></span>Shield: ON (${kRules})`;
-      } else {
-        btn.className = "flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 border border-white/10 rounded-lg text-xs font-semibold transition";
-        text.innerHTML = `Shield: OFF`;
+      if (btn && text) {
+        if (adblockActive) {
+          btn.className = "flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 rounded-lg text-xs font-medium font-mono transition";
+          btn.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span><span id="adblock-btn-text">Sinkhole: Active</span>`;
+        } else {
+          btn.className = "flex items-center gap-1.5 px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/15 text-rose-400 border border-rose-500/25 rounded-lg text-xs font-medium font-mono transition";
+          btn.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span><span id="adblock-btn-text">Sinkhole: Disabled</span>`;
+        }
       }
     }
 
     function escapeHtml(str) {
-      if (!str) return "";
-      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
     }
 
     document.addEventListener("DOMContentLoaded", () => {
@@ -1983,14 +1971,12 @@
 
       const container = document.getElementById("table-scroll-container");
       if (container) {
-        // Immediately pause on any downward wheel motion so the user doesn't fight the render loop
         container.addEventListener("wheel", (e) => {
           if (e.deltaY > 0 && isAutoScroll) {
             setAutoScroll(false);
           }
         }, { passive: true });
 
-        // Immediately pause on touch drag
         container.addEventListener("touchmove", () => {
           if (isAutoScroll) {
             setAutoScroll(false);
@@ -2005,6 +1991,18 @@
           }
         }, { passive: true });
       }
+
+      // Hotkey '/' to focus search
+      window.addEventListener('keydown', (e) => {
+        if (e.key === '/' && document.activeElement.tagName !== 'INPUT') {
+          e.preventDefault();
+          const search = document.getElementById("search-input");
+          if (search) search.focus();
+        }
+        if (e.key === 'Escape') {
+          closeModal();
+        }
+      });
     });
   </script>
 </body>
