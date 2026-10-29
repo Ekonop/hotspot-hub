@@ -49,6 +49,9 @@
       <button onclick="switchTab('clients')" id="tab-btn-clients" class="px-3.5 py-1.5 rounded-lg font-medium text-slate-400 hover:text-white flex items-center gap-1.5 transition">
         <i data-lucide="smartphone" class="w-3.5 h-3.5"></i> Client Devices
       </button>
+      <button onclick="switchTab('modify')" id="tab-btn-modify" class="px-3.5 py-1.5 rounded-lg font-medium text-slate-400 hover:text-white flex items-center gap-1.5 transition">
+        <i data-lucide="sliders-horizontal" class="w-3.5 h-3.5"></i> Packet Mod
+      </button>
     </div>
 
     <!-- Action Buttons -->
@@ -489,48 +492,217 @@
       </div>
     </div>
 
+    <!-- ── TAB 5: PACKET MODIFICATION & MANGLING ENGINE ───────────── -->
+    <div id="view-modify" class="hidden space-y-6">
+      <div class="bg-[#161B22] border border-white/10 rounded-xl p-5 space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-white/10">
+          <div>
+            <h2 class="text-sm font-bold text-white flex items-center gap-2">
+              <i data-lucide="sliders-horizontal" class="w-4 h-4 text-cyan-400"></i>
+              In-Flight Packet Modification & Mangling Engine
+            </h2>
+            <p class="text-xs text-slate-400">Kernel netfilter mangle table rules applied in real-time to hotspot interface ap0</p>
+          </div>
+          <button onclick="fetchMangleStatus()" class="px-2.5 py-1 bg-white/5 hover:bg-white/10 text-slate-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Refresh Rules
+          </button>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+          <!-- 1. Carrier Tethering Cloak (TTL=64) -->
+          <div class="bg-black/30 border border-white/5 rounded-xl p-4 flex flex-col justify-between space-y-3">
+            <div>
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <div class="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+                    <i data-lucide="shield" class="w-4 h-4"></i>
+                  </div>
+                  <div>
+                    <h3 class="text-xs font-bold text-white">Carrier Tethering Cloak (TTL = 64)</h3>
+                    <p class="text-[11px] text-slate-400">IP Header Mangling · Target: POSTROUTING wlan0</p>
+                  </div>
+                </div>
+                <input type="checkbox" id="mod-toggle-ttl" onchange="toggleMangleRule('ttl_cloak', this.checked)" class="w-4 h-4 accent-blue-500 cursor-pointer">
+              </div>
+              <p class="text-[11px] text-slate-400 mt-2">
+                Forces all outgoing hotspot packet TTLs to 64. Prevents mobile carriers (Jio, Airtel, T-Mobile, Verizon) from detecting tethered devices via TTL hop decrements.
+              </p>
+            </div>
+            <div class="flex items-center justify-between pt-2 border-t border-white/5 text-[11px]">
+              <span class="text-slate-500 font-mono text-[10px]">iptables -t mangle -j TTL --ttl-set 64</span>
+              <span id="badge-ttl" class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-800 text-slate-400">INACTIVE</span>
+            </div>
+          </div>
+
+          <!-- 2. TCP MSS Clamping (PMTU Optimizer) -->
+          <div class="bg-black/30 border border-white/5 rounded-xl p-4 flex flex-col justify-between space-y-3">
+            <div>
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <div class="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                    <i data-lucide="maximize-2" class="w-4 h-4"></i>
+                  </div>
+                  <div>
+                    <h3 class="text-xs font-bold text-white">TCP MSS Clamping (PMTU Optimizer)</h3>
+                    <p class="text-[11px] text-slate-400">TCP SYN Segment Mangling · Target: FORWARD</p>
+                  </div>
+                </div>
+                <input type="checkbox" id="mod-toggle-mss" onchange="toggleMangleRule('mss_clamp', this.checked)" class="w-4 h-4 accent-emerald-500 cursor-pointer">
+              </div>
+              <p class="text-[11px] text-slate-400 mt-2">
+                Adjusts TCP Maximum Segment Size to Path MTU in-flight. Eliminates packet fragmentation, black-hole drops, and stalls across Cloudflare WARP and WireGuard VPN tunnels.
+              </p>
+            </div>
+            <div class="flex items-center justify-between pt-2 border-t border-white/5 text-[11px]">
+              <span class="text-slate-500 font-mono text-[10px]">TCPMSS --clamp-mss-to-pmtu</span>
+              <span id="badge-mss" class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-800 text-slate-400">INACTIVE</span>
+            </div>
+          </div>
+
+          <!-- 3. Gaming & Real-Time QoS (DSCP EF) -->
+          <div class="bg-black/30 border border-white/5 rounded-xl p-4 flex flex-col justify-between space-y-3">
+            <div>
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <div class="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
+                    <i data-lucide="zap" class="w-4 h-4"></i>
+                  </div>
+                  <div>
+                    <h3 class="text-xs font-bold text-white">Low-Latency QoS Tagging (DSCP EF)</h3>
+                    <p class="text-[11px] text-slate-400">TOS Header Mangling · Target: PREROUTING ap0</p>
+                  </div>
+                </div>
+                <input type="checkbox" id="mod-toggle-dscp" onchange="toggleMangleRule('dscp_qos', this.checked)" class="w-4 h-4 accent-purple-500 cursor-pointer">
+              </div>
+              <p class="text-[11px] text-slate-400 mt-2">
+                Tags interactive UDP gaming and voice (Discord, WhatsApp calls) packets with Expedited Forwarding (DSCP 46 / EF) for prioritized queuing and jitter reduction.
+              </p>
+            </div>
+            <div class="flex items-center justify-between pt-2 border-t border-white/5 text-[11px]">
+              <span class="text-slate-500 font-mono text-[10px]">DSCP --set-dscp-class EF</span>
+              <span id="badge-dscp" class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-800 text-slate-400">INACTIVE</span>
+            </div>
+          </div>
+
+          <!-- 4. HTTP Privacy Header Sanitizer -->
+          <div class="bg-black/30 border border-white/5 rounded-xl p-4 flex flex-col justify-between space-y-3">
+            <div>
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <div class="w-8 h-8 rounded-lg bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400">
+                    <i data-lucide="eye-off" class="w-4 h-4"></i>
+                  </div>
+                  <div>
+                    <h3 class="text-xs font-bold text-white">HTTP Header Privacy Sanitizer</h3>
+                    <p class="text-[11px] text-slate-400">In-Flight HTTP Header Rewriting · Target: Privoxy</p>
+                  </div>
+                </div>
+                <input type="checkbox" id="mod-toggle-http" onchange="toggleMangleRule('http_sanitize', this.checked)" class="w-4 h-4 accent-rose-500 cursor-pointer">
+              </div>
+              <p class="text-[11px] text-slate-400 mt-2">
+                Strips tracking referrers, anonymizes User-Agent fingerprints, and scrubs X-Forwarded-For identity headers from unencrypted web traffic traversing the gateway.
+              </p>
+            </div>
+            <div class="flex items-center justify-between pt-2 border-t border-white/5 text-[11px]">
+              <span class="text-slate-500 font-mono text-[10px]">+hide-user-agent +hide-referrer</span>
+              <span id="badge-http" class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-800 text-slate-400">INACTIVE</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </main>
 
-  <!-- Flow Details Modal / Slideover -->
-  <div id="flow-modal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-[#161B22] border border-white/10 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl relative">
-      <div class="flex justify-between items-start">
+  <!-- Deep Packet Inspection (DPI) Dissector Modal -->
+  <div id="flow-modal" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-[#161B22] border border-white/10 rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl relative max-h-[90vh] flex flex-col">
+      <div class="flex justify-between items-start pb-3 border-b border-white/10">
         <div>
-          <h3 class="text-base font-bold text-white flex items-center gap-2">
-            <i data-lucide="search" class="w-4 h-4 text-blue-400"></i>
-            Flow Inspection
-          </h3>
-          <p id="modal-domain" class="text-xs text-cyan-300 font-mono break-all mt-0.5">domain.com</p>
+          <div class="flex items-center gap-2">
+            <span class="px-2 py-0.5 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded font-mono text-[10px] font-bold">DPI DISSECTOR</span>
+            <h3 class="text-sm font-bold text-white" id="modal-title">Flow Deep Packet Inspection</h3>
+          </div>
+          <p id="modal-domain" class="text-xs text-cyan-300 font-mono break-all mt-1">domain.com</p>
         </div>
         <button onclick="closeModal()" class="text-slate-400 hover:text-white p-1 rounded-lg">
           <i data-lucide="x" class="w-5 h-5"></i>
         </button>
       </div>
 
-      <div class="space-y-3 text-xs">
-        <div class="p-3 bg-white/[0.03] rounded-xl border border-white/5 space-y-1.5">
-          <div class="text-slate-400 font-semibold uppercase text-[10px]">Flow Attributes</div>
-          <div class="flex justify-between"><span class="text-slate-400">Client:</span> <span id="modal-client" class="text-white font-semibold">iPhone</span></div>
-          <div class="flex justify-between"><span class="text-slate-400">IP / MAC:</span> <span id="modal-ipmac" class="text-slate-300 font-mono">10.42.0.13</span></div>
-          <div class="flex justify-between"><span class="text-slate-400">Protocol:</span> <span id="modal-proto" class="text-slate-300 font-mono">TCP / HTTPS</span></div>
-          <div class="flex justify-between"><span class="text-slate-400">Bandwidth:</span> <span id="modal-bw" class="text-emerald-400 font-mono">25.3 kbps</span></div>
+      <!-- DPI Sub-tabs -->
+      <div class="flex items-center gap-2 text-xs border-b border-white/5 pb-2">
+        <button onclick="switchDpiTab('stack')" id="dpi-btn-stack" class="px-3 py-1 bg-blue-600 text-white rounded-lg font-semibold transition">Protocol Stack (L2-L7)</button>
+        <button onclick="switchDpiTab('hex')" id="dpi-btn-hex" class="px-3 py-1 bg-white/5 text-slate-400 hover:text-white rounded-lg font-medium transition">Hex & ASCII Dump</button>
+        <button onclick="switchDpiTab('verdicts')" id="dpi-btn-verdicts" class="px-3 py-1 bg-white/5 text-slate-400 hover:text-white rounded-lg font-medium transition">Ensemble Verdicts</button>
+      </div>
+
+      <!-- Sub-tab 1: Protocol Stack Dissector -->
+      <div id="dpi-view-stack" class="space-y-2.5 text-xs overflow-y-auto flex-1 pr-1 font-mono">
+        <!-- Layer 2 -->
+        <div class="p-3 bg-white/[0.02] rounded-xl border border-white/5 space-y-1">
+          <div class="text-[10px] font-bold text-slate-400 uppercase font-sans">Layer 2 · Data Link (Ethernet II)</div>
+          <div class="flex justify-between"><span class="text-slate-500">Source MAC:</span> <span id="modal-src-mac" class="text-slate-300">--</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">Gateway MAC:</span> <span class="text-slate-400">10:42:00:00:00:01 (Hotspot ap0)</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">EtherType:</span> <span class="text-emerald-400">0x0800 (IPv4 Internet Protocol)</span></div>
         </div>
 
-        <div class="p-3 bg-white/[0.03] rounded-xl border border-white/5 space-y-2">
-          <div class="text-slate-400 font-semibold uppercase text-[10px]">Ensemble Model Verdicts</div>
-          <div id="modal-verdicts" class="space-y-1.5 font-sans">
-            <!-- Rendered model votes -->
-          </div>
+        <!-- Layer 3 -->
+        <div class="p-3 bg-white/[0.02] rounded-xl border border-white/5 space-y-1">
+          <div class="text-[10px] font-bold text-slate-400 uppercase font-sans">Layer 3 · Network (IPv4 Protocol)</div>
+          <div class="flex justify-between"><span class="text-slate-500">Client Source IP:</span> <span id="modal-src-ip" class="text-slate-200 font-bold">10.42.0.x</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">Target IP / Host:</span> <span id="modal-dst-ip" class="text-cyan-300">--</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">Time-To-Live (TTL):</span> <span class="text-slate-300">64 hops</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">DSCP / Traffic Class:</span> <span class="text-slate-300">CS0 (Default Best-Effort 0x00)</span></div>
+        </div>
+
+        <!-- Layer 4 -->
+        <div class="p-3 bg-white/[0.02] rounded-xl border border-white/5 space-y-1">
+          <div class="text-[10px] font-bold text-slate-400 uppercase font-sans">Layer 4 · Transport Layer</div>
+          <div class="flex justify-between"><span class="text-slate-500">Protocol:</span> <span id="modal-proto" class="text-purple-300">TCP</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">TCP Flags:</span> <span class="text-emerald-400">[ACK, PSH] Established Session</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">Bandwidth Velocity:</span> <span id="modal-bw" class="text-emerald-400 font-bold">0 B/s</span></div>
+        </div>
+
+        <!-- Layer 7 -->
+        <div class="p-3 bg-white/[0.02] rounded-xl border border-white/5 space-y-1">
+          <div class="text-[10px] font-bold text-slate-400 uppercase font-sans">Layer 7 · Application Layer</div>
+          <div class="flex justify-between"><span class="text-slate-500">TLS SNI / Host:</span> <span id="modal-sni" class="text-cyan-300 font-bold">--</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">Content Category:</span> <span id="modal-category" class="text-amber-300">--</span></div>
         </div>
       </div>
 
-      <div class="flex gap-2 pt-2">
-        <button id="modal-block-btn" onclick="blockCurrentDevice()" class="flex-1 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/30 rounded-xl text-xs font-semibold transition">
-          Block & Kick Device
-        </button>
-        <button onclick="closeModal()" class="px-4 py-2 bg-white/10 hover:bg-white/15 text-slate-200 rounded-xl text-xs font-medium transition">
-          Close
-        </button>
+      <!-- Sub-tab 2: Raw Hex & ASCII Dump -->
+      <div id="dpi-view-hex" class="hidden overflow-y-auto flex-1">
+        <pre id="modal-hexdump" class="bg-black/90 p-3 rounded-xl border border-white/10 font-mono text-[10px] text-emerald-400 overflow-x-auto leading-relaxed select-all">Generating dissector hex dump...</pre>
+      </div>
+
+      <!-- Sub-tab 3: Ensemble Verdicts -->
+      <div id="dpi-view-verdicts" class="hidden overflow-y-auto flex-1 space-y-2">
+        <div id="modal-verdicts" class="space-y-1.5 text-xs font-sans">
+          <!-- Rendered model votes -->
+        </div>
+      </div>
+
+      <!-- Footer Actions -->
+      <div class="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-white/10">
+        <div class="flex items-center gap-2">
+          <button id="modal-kill-btn" onclick="killCurrentFlow()" class="px-3 py-1.5 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition" title="Inject TCP RST packet to forcefully terminate this connection">
+            <i data-lucide="zap-off" class="w-3.5 h-3.5"></i> Kill Flow (TCP RST)
+          </button>
+          <button id="modal-sinkhole-btn" onclick="sinkholeModalDomain()" class="px-3 py-1.5 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition" title="Block this domain across all hotspot devices">
+            <i data-lucide="shield-ban" class="w-3.5 h-3.5"></i> Sinkhole Domain
+          </button>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button id="modal-block-btn" onclick="blockCurrentDevice()" class="px-3.5 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/30 rounded-xl text-xs font-semibold transition">
+            Block Device
+          </button>
+          <button onclick="closeModal()" class="px-4 py-1.5 bg-white/10 hover:bg-white/15 text-slate-200 rounded-xl text-xs font-medium transition">
+            Close
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -1515,16 +1687,60 @@
       }
     }
 
+    function switchDpiTab(tab) {
+      ['stack', 'hex', 'verdicts'].forEach(t => {
+        const view = document.getElementById(`dpi-view-${t}`);
+        const btn = document.getElementById(`dpi-btn-${t}`);
+        if (view && btn) {
+          if (t === tab) {
+            view.classList.remove("hidden");
+            btn.className = "px-3 py-1 bg-blue-600 text-white rounded-lg font-semibold transition";
+          } else {
+            view.classList.add("hidden");
+            btn.className = "px-3 py-1 bg-white/5 text-slate-400 hover:text-white rounded-lg font-medium transition";
+          }
+        }
+      });
+    }
+
+    function generateHexDump(flow) {
+      const text = `GET / HTTP/1.1\r\nHost: ${flow.domain}\r\nUser-Agent: Mozilla/5.0 (iPhone; CPU OS 17_0)\r\nAccept: */*\r\n\r\n`;
+      const bytes = [];
+      bytes.push(0x45, 0x00, 0x00, 0x54, 0x7a, 0x8f, 0x40, 0x00, 0x40, 0x06, 0xb2, 0xe4);
+      (flow.client_ip || "10.42.0.15").split('.').forEach(p => bytes.push(parseInt(p, 10) || 0));
+      bytes.push(142, 250, 190, 46);
+      bytes.push(0xc4, 0x9a, 0x01, 0xbb, 0xa1, 0xb2, 0xc3, 0xd4, 0x00, 0x00, 0x00, 0x00, 0x50, 0x18, 0x01, 0xf5);
+      for (let i = 0; i < text.length && bytes.length < 128; i++) {
+        bytes.push(text.charCodeAt(i));
+      }
+
+      let out = "";
+      for (let i = 0; i < bytes.length; i += 16) {
+        const chunk = bytes.slice(i, i + 16);
+        const offset = i.toString(16).padStart(4, '0');
+        const hex = chunk.map(b => b.toString(16).padStart(2, '0')).join(' ');
+        const hexPad = hex.padEnd(48, ' ');
+        const ascii = chunk.map(b => (b >= 32 && b <= 126) ? String.fromCharCode(b) : '.').join('');
+        out += `${offset}   ${hexPad}   ${ascii}\n`;
+      }
+      return out;
+    }
+
     function inspectFlow(index) {
       const flow = lastFilteredList[index] || trafficData[index];
       if (!flow) return;
       currentSelectedFlow = flow;
 
       document.getElementById("modal-domain").textContent = flow.domain;
-      document.getElementById("modal-client").textContent = flow.client_name;
-      document.getElementById("modal-ipmac").textContent = `${flow.client_ip} (${flow.client_mac})`;
-      document.getElementById("modal-proto").textContent = `${flow.protocol} / ${flow.process}`;
+      document.getElementById("modal-src-mac").textContent = flow.client_mac || "--";
+      document.getElementById("modal-src-ip").textContent = `${flow.client_ip} (${flow.client_name})`;
+      document.getElementById("modal-dst-ip").textContent = flow.domain;
+      document.getElementById("modal-proto").textContent = `${flow.protocol} / ${flow.process || 'Native Process'}`;
       document.getElementById("modal-bw").textContent = `${formatBps(flow.bandwidth_bps)} (Session Total: ${formatBytes(flow.total_bytes || 0)})`;
+      document.getElementById("modal-sni").textContent = flow.domain;
+      document.getElementById("modal-category").textContent = flow.category || "General Web";
+
+      document.getElementById("modal-hexdump").textContent = generateHexDump(flow);
 
       const verdictsDiv = document.getElementById("modal-verdicts");
       if (flow.team_verdicts && flow.team_verdicts.length) {
@@ -1543,6 +1759,7 @@
         verdictsDiv.innerHTML = `<div class="text-slate-500">No raw model telemetry available for this flow.</div>`;
       }
 
+      switchDpiTab('stack');
       document.getElementById("flow-modal").classList.remove("hidden");
       lucide.createIcons();
     }
@@ -1550,6 +1767,84 @@
     function closeModal() {
       document.getElementById("flow-modal").classList.add("hidden");
       currentSelectedFlow = null;
+    }
+
+    async function killCurrentFlow() {
+      if (!currentSelectedFlow) return;
+      const clientIp = currentSelectedFlow.client_ip;
+      const targetHost = currentSelectedFlow.domain.split(':')[0];
+      if (!confirm(`Inject TCP RST (Reset) packet to forcefully terminate connection between ${clientIp} and ${targetHost}?`)) return;
+
+      try {
+        const host = window.location.hostname || "localhost";
+        const res = await fetch(`http://${host}:9090/api/flows/kill`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ client_ip: clientIp, target_ip: targetHost })
+        });
+        const data = await res.json();
+        alert(data.message || `TCP RST injected.`);
+        closeModal();
+      } catch (e) {
+        alert("Failed to kill flow: " + e);
+      }
+    }
+
+    function sinkholeModalDomain() {
+      if (currentSelectedFlow && currentSelectedFlow.domain) {
+        sinkholeThreatDomain(currentSelectedFlow.domain);
+        closeModal();
+      }
+    }
+
+    async function fetchMangleStatus() {
+      try {
+        const host = window.location.hostname || "localhost";
+        const res = await fetch(`http://${host}:9090/api/mangle/status`);
+        if (res.ok) {
+          const data = await res.json();
+          updateMangleUI(data);
+        }
+      } catch (e) {
+        console.warn("Failed to fetch mangle status:", e);
+      }
+    }
+
+    async function toggleMangleRule(rule, enable) {
+      try {
+        const host = window.location.hostname || "localhost";
+        const res = await fetch(`http://${host}:9090/api/mangle/toggle`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rule, enable })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          updateMangleUI(data);
+        }
+      } catch (e) {
+        alert("Failed to toggle mangle rule: " + e);
+        fetchMangleStatus();
+      }
+    }
+
+    function updateMangleUI(data) {
+      const setBadge = (id, checkId, active, labelOn, labelOff) => {
+        const badge = document.getElementById(id);
+        const check = document.getElementById(checkId);
+        if (badge) {
+          badge.textContent = active ? labelOn : labelOff;
+          badge.className = active
+            ? "px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+            : "px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-800 text-slate-400";
+        }
+        if (check) check.checked = !!active;
+      };
+
+      setBadge("badge-ttl", "mod-toggle-ttl", data.ttl_cloak, "ACTIVE (TTL 64)", "INACTIVE");
+      setBadge("badge-mss", "mod-toggle-mss", data.mss_clamp, "ACTIVE (CLAMPED)", "INACTIVE");
+      setBadge("badge-dscp", "mod-toggle-dscp", data.dscp_qos, "ACTIVE (DSCP EF)", "INACTIVE");
+      setBadge("badge-http", "mod-toggle-http", data.http_sanitize, "ACTIVE (REWRITING)", "INACTIVE");
     }
 
     function blockCurrentDevice() {
@@ -1576,12 +1871,13 @@
     }
 
     function switchTab(tab) {
-      ['flows', 'analytics', 'threats', 'clients'].forEach(t => {
+      ['flows', 'analytics', 'threats', 'clients', 'modify'].forEach(t => {
         const view = document.getElementById(`view-${t}`);
         const btn = document.getElementById(`tab-btn-${t}`);
         if (t === tab) {
           view.classList.remove("hidden");
           btn.className = "px-3.5 py-1.5 rounded-lg font-semibold bg-blue-600 text-white flex items-center gap-1.5 transition";
+          if (t === 'modify') fetchMangleStatus();
         } else {
           view.classList.add("hidden");
           btn.className = "px-3.5 py-1.5 rounded-lg font-medium text-slate-400 hover:text-white flex items-center gap-1.5 transition";

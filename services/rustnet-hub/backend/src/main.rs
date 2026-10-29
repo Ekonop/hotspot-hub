@@ -115,6 +115,9 @@ async fn main() {
         .route("/api/export/pcapng", post(export_pcapng))
         .route("/api/clients/block", post(block_client))
         .route("/api/threats/sinkhole", post(sinkhole_domain))
+        .route("/api/mangle/status", get(mangle_status))
+        .route("/api/mangle/toggle", post(mangle_toggle))
+        .route("/api/flows/kill", post(flow_kill))
         .route("/api/adblock/status", get(adblock_status))
         .route("/api/adblock/toggle", post(adblock_toggle))
         .route("/api/adblock/update", post(adblock_update))
@@ -430,6 +433,144 @@ async fn sinkhole_domain(Json(payload): Json<SinkholeRequest>) -> Response {
             "message": format!("Failed to sinkhole domain '{}'", domain)
         })).into_response(),
     }
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct MangleStatus {
+    pub ttl_cloak: bool,
+    pub mss_clamp: bool,
+    pub dscp_qos: bool,
+    pub http_sanitize: bool,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct MangleToggleRequest {
+    pub rule: String,
+    pub enable: bool,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct FlowKillRequest {
+    pub client_ip: String,
+    pub target_ip: String,
+}
+
+async fn check_iptables_rule(args: &[&str]) -> bool {
+    let out = tokio::process::Command::new("iptables")
+        .args(args)
+        .output()
+        .await;
+    match out {
+        Ok(o) => o.status.success(),
+        Err(_) => false,
+    }
+}
+
+async fn mangle_status() -> Response {
+    let ttl_cloak = check_iptables_rule(&["-t", "mangle", "-C", "POSTROUTING", "-o", "wlan0", "-j", "TTL", "--ttl-set", "64"]).await;
+    let mss_clamp = check_iptables_rule(&["-t", "mangle", "-C", "FORWARD", "-p", "tcp", "--tcp-flags", "SYN,RST", "SYN", "-j", "TCPMSS", "--clamp-mss-to-pmtu"]).await;
+    let dscp_qos = check_iptables_rule(&["-t", "mangle", "-C", "PREROUTING", "-i", "ap0", "-p", "udp", "--dport", "10000:65535", "-j", "DSCP", "--set-dscp-class", "EF"]).await;
+    let http_sanitize = tokio::fs::read_to_string("/etc/privoxy/user.action")
+        .await
+        .map(|s| s.contains("hide-user-agent") && !s.contains("# +hide-user-agent"))
+        .unwrap_or(false);
+
+    Json(MangleStatus {
+        ttl_cloak,
+        mss_clamp,
+        dscp_qos,
+        http_sanitize,
+    }).into_response()
+}
+
+async fn mangle_toggle(Json(payload): Json<MangleToggleRequest>) -> Response {
+    match payload.rule.as_str() {
+        "ttl_cloak" => {
+            let _ = tokio::process::Command::new("iptables")
+                .args(&["-t", "mangle", "-D", "POSTROUTING", "-o", "wlan0", "-j", "TTL", "--ttl-set", "64"])
+                .output().await;
+            if payload.enable {
+                let _ = tokio::process::Command::new("iptables")
+                    .args(&["-t", "mangle", "-A", "POSTROUTING", "-o", "wlan0", "-j", "TTL", "--ttl-set", "64"])
+                    .output().await;
+            }
+        }
+        "mss_clamp" => {
+            let _ = tokio::process::Command::new("iptables")
+                .args(&["-t", "mangle", "-D", "FORWARD", "-p", "tcp", "--tcp-flags", "SYN,RST", "SYN", "-j", "TCPMSS", "--clamp-mss-to-pmtu"])
+                .output().await;
+            if payload.enable {
+                let _ = tokio::process::Command::new("iptables")
+                    .args(&["-t", "mangle", "-A", "FORWARD", "-p", "tcp", "--tcp-flags", "SYN,RST", "SYN", "-j", "TCPMSS", "--clamp-mss-to-pmtu"])
+                    .output().await;
+            }
+        }
+        "dscp_qos" => {
+            let _ = tokio::process::Command::new("iptables")
+                .args(&["-t", "mangle", "-D", "PREROUTING", "-i", "ap0", "-p", "udp", "--dport", "10000:65535", "-j", "DSCP", "--set-dscp-class", "EF"])
+                .output().await;
+            if payload.enable {
+                let _ = tokio::process::Command::new("iptables")
+                    .args(&["-t", "mangle", "-A", "PREROUTING", "-i", "ap0", "-p", "udp", "--dport", "10000:65535", "-j", "DSCP", "--set-dscp-class", "EF"])
+                    .output().await;
+            }
+        }
+        "http_sanitize" => {
+            let user_action = "/etc/privoxy/user.action";
+            if let Ok(mut content) = tokio::fs::read_to_string(user_action).await {
+                let block = "\n# Hotspot Hub Privacy Header Mangle\n{ +hide-user-agent{HotspotHub/Shield} +hide-referrer{forge} }\n/\n";
+                if payload.enable {
+                    if !content.contains("Hotspot Hub Privacy Header Mangle") {
+                        content.push_str(block);
+                        let _ = tokio::fs::write(user_action, content).await;
+                    }
+                } else {
+                    let cleaned = content.replace(block, "");
+                    let _ = tokio::fs::write(user_action, cleaned).await;
+                }
+                let _ = tokio::process::Command::new("systemctl")
+                    .args(&["restart", "privoxy.service"])
+                    .output().await;
+            }
+        }
+        _ => return Json(serde_json::json!({"status": "error", "message": "Unknown rule"})).into_response(),
+    }
+
+    mangle_status().await
+}
+
+async fn flow_kill(Json(payload): Json<FlowKillRequest>) -> Response {
+    let client_ip = payload.client_ip.trim();
+    let target_ip = payload.target_ip.trim();
+
+    if client_ip.is_empty() || target_ip.is_empty() {
+        return Json(serde_json::json!({"status": "error", "message": "Invalid IP address"})).into_response();
+    }
+
+    // Inject TCP RST via iptables REJECT
+    let _ = tokio::process::Command::new("iptables")
+        .args(&["-I", "FORWARD", "1", "-s", client_ip, "-d", target_ip, "-p", "tcp", "-j", "REJECT", "--reject-with", "tcp-reset"])
+        .output().await;
+    let _ = tokio::process::Command::new("iptables")
+        .args(&["-I", "FORWARD", "1", "-s", target_ip, "-d", client_ip, "-p", "tcp", "-j", "REJECT", "--reject-with", "tcp-reset"])
+        .output().await;
+
+    let c_ip = client_ip.to_string();
+    let t_ip = target_ip.to_string();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let _ = tokio::process::Command::new("iptables")
+            .args(&["-D", "FORWARD", "-s", &c_ip, "-d", &t_ip, "-p", "tcp", "-j", "REJECT", "--reject-with", "tcp-reset"])
+            .output().await;
+        let _ = tokio::process::Command::new("iptables")
+            .args(&["-D", "FORWARD", "-s", &t_ip, "-d", &c_ip, "-p", "tcp", "-j", "REJECT", "--reject-with", "tcp-reset"])
+            .output().await;
+    });
+
+    Json(serde_json::json!({
+        "status": "success",
+        "message": format!("TCP RST injected. Flow terminated between {} and {}", client_ip, target_ip)
+    })).into_response()
 }
 
 async fn wpad_handler() -> impl IntoResponse {
