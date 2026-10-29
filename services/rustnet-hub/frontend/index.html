@@ -53,6 +53,10 @@
 
     <!-- Action Buttons -->
     <div class="flex items-center gap-3">
+      <button onclick="toggleAdblockShield()" id="btn-adblock" class="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-semibold transition" title="Toggle Hybrid DNS Sinkhole & Privoxy Proxy Shield">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+        <span id="adblock-btn-text">Shield: ON</span>
+      </button>
       <button onclick="exportPcapng()" id="btn-export" class="flex items-center gap-2 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white rounded-lg text-xs font-semibold shadow-lg transition">
         <i data-lucide="download" class="w-3.5 h-3.5"></i>
         Export PCAPNG
@@ -1046,6 +1050,59 @@
       }
     }
 
+    let adblockState = { enabled: true, rules_count: 0 };
+
+    async function fetchAdblockStatus() {
+      try {
+        const host = window.location.hostname || "localhost";
+        const res = await fetch(`http://${host}:9090/api/adblock/status`);
+        if (res.ok) {
+          const data = await res.json();
+          adblockState = data;
+          updateAdblockUI();
+        }
+      } catch (e) {
+        console.warn("Failed to fetch adblock status:", e);
+      }
+    }
+
+    async function toggleAdblockShield() {
+      const btn = document.getElementById("btn-adblock");
+      const text = document.getElementById("adblock-btn-text");
+      if (text) text.textContent = "Switching…";
+
+      try {
+        const host = window.location.hostname || "localhost";
+        const res = await fetch(`http://${host}:9090/api/adblock/toggle`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled: !adblockState.enabled })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          adblockState = data;
+          updateAdblockUI();
+        }
+      } catch (e) {
+        alert("Failed to toggle adblock shield: " + e);
+        fetchAdblockStatus();
+      }
+    }
+
+    function updateAdblockUI() {
+      const btn = document.getElementById("btn-adblock");
+      const text = document.getElementById("adblock-btn-text");
+      if (!btn || !text) return;
+      if (adblockState.enabled) {
+        btn.className = "flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-semibold transition";
+        const kRules = adblockState.rules_count ? `${Math.round(adblockState.rules_count / 1000)}k` : "ON";
+        text.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block mr-1"></span>Shield: ON (${kRules})`;
+      } else {
+        btn.className = "flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 border border-white/10 rounded-lg text-xs font-semibold transition";
+        text.innerHTML = `Shield: OFF`;
+      }
+    }
+
     function escapeHtml(str) {
       if (!str) return "";
       return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -1055,6 +1112,8 @@
       lucide.createIcons();
       initCharts();
       connectWs();
+      fetchAdblockStatus();
+      setInterval(fetchAdblockStatus, 15000);
 
       const container = document.getElementById("table-scroll-container");
       if (container) {

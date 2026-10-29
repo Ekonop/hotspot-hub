@@ -58,6 +58,8 @@ for f in "$ROOT"/assets/*; do
 done
 sudo install -Dm755 "$ROOT/helpers/hotspot-on.sh" /usr/share/hotspot-hub/helpers/hotspot-on.sh
 sudo install -Dm755 "$ROOT/helpers/hotspot-off.sh" /usr/share/hotspot-hub/helpers/hotspot-off.sh
+sudo install -Dm755 "$ROOT/helpers/hotspot-adblock.sh" /usr/share/hotspot-hub/helpers/hotspot-adblock.sh
+sudo install -Dm755 "$ROOT/helpers/hotspot-adblock.sh" /usr/local/bin/hotspot-adblock.sh
 sudo install -Dm755 "$ROOT/src/hotspot-channelsync.sh" /usr/local/bin/hotspot-channelsync.sh
 sudo install -Dm755 "$ROOT/src/90-hotspot-channelsync" /etc/NetworkManager/dispatcher.d/90-hotspot-channelsync
 sudo install -Dm644 "$ROOT/src/hotspot-channelsync.service" /etc/systemd/system/hotspot-channelsync.service

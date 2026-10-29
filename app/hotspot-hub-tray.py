@@ -1159,11 +1159,92 @@ def main(page: ft.Page) -> None:
         )
     )
 
+    # AdBlocker & Proxy Shield in Tab 2
+    chk_adblock_tab = unified_switch(
+        value=bool(cfg.get("adblock_enabled", True)),
+        on_change=lambda e: on_toggle_adblock(e.control.value),
+    )
+    adblock_status_text = register_text(ft.Text("Shield status: Loading…", size=12, font_family="monospace"))
+
+    def on_toggle_adblock(val: bool) -> None:
+        def _bg() -> None:
+            ok, msg = hub.toggle_adblock(val)
+            show_snack(f"AdBlocker Shield {'enabled' if val else 'disabled'}", SUCCESS if ok else DANGER)
+            refresh_sys()
+        threading.Thread(target=_bg, daemon=True).start()
+
+    def on_update_adblock_rules() -> None:
+        show_snack("Updating adblock blocklists from upstream…", PRIMARY)
+        def _bg() -> None:
+            ok, count, msg = hub.update_adblock_rules()
+            if ok:
+                show_snack(f"Adblock rules updated: {count:,} active", SUCCESS)
+            else:
+                show_snack(f"Failed to update rules: {msg}", DANGER)
+            refresh_sys()
+        threading.Thread(target=_bg, daemon=True).start()
+
+    btn_update_adblock = action_btn(
+        "Update Rules",
+        lambda e: on_update_adblock_rules(),
+        icon=ft.Icons.CLOUD_SYNC_ROUNDED,
+        variant="quiet",
+        compact=True,
+    )
+
+    btn_custom_adblock = action_btn(
+        "Add Domain…",
+        lambda e: show_add_domain_dialog(),
+        icon=ft.Icons.ADD_ROUNDED,
+        variant="primary",
+        compact=True,
+    )
+
+    adblock_card = app_card(
+        ft.Column(
+            [
+                ft.Row(
+                    [
+                        ft.Row(
+                            [
+                                ft.Icon(ft.Icons.SECURITY_ROUNDED, size=16, color=SUCCESS),
+                                register_text(ft.Text("AdBlocker & Proxy Shield", size=14, weight=ft.FontWeight.W_700)),
+                                ft.Container(
+                                    content=ft.Text("HYBRID", size=9, weight=ft.FontWeight.W_800, color=SUCCESS),
+                                    bgcolor=ft.Colors.with_opacity(0.12, SUCCESS),
+                                    border_radius=4,
+                                    padding=ft.Padding(5, 2, 5, 2),
+                                ),
+                            ],
+                            spacing=6,
+                        ),
+                        chk_adblock_tab,
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                ),
+                adblock_status_text,
+                ft.Row(
+                    [
+                        register_muted(ft.Text("Zero-config DNS sinkhole + Privoxy HTTP proxy on 10.42.0.1:8118", size=11)),
+                        ft.Container(expand=True),
+                        btn_update_adblock,
+                        btn_custom_adblock,
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    spacing=6,
+                ),
+            ],
+            spacing=8,
+        )
+    )
+
     clients_view = ft.Column(
         [
             clients_card,
             ft.Container(height=4),
             mac_card,
+            ft.Container(height=4),
+            adblock_card,
         ],
         spacing=4,
         visible=False,
@@ -1543,6 +1624,15 @@ def main(page: ft.Page) -> None:
                 f"Mode: {'Allowlist' if mf_mode == 'allow' else 'Denylist'} · {len(allowed)} allowed · {len(blocked)} blocked"
             )
 
+            ab = hub.adblock_status()
+            ab_enabled = ab.get("enabled", False)
+            chk_adblock_tab.value = ab_enabled
+            rules_n = ab.get("rules_count", 0)
+            proxy_str = "Privoxy ON (:8118)" if ab.get("proxy_running") else "Proxy OFF"
+            adblock_status_text.value = (
+                f"{rules_n:,} rules active · {proxy_str} · WPAD active" if ab_enabled else "Shield disabled (direct DNS/HTTP)"
+            )
+
             bypass = hub.vpn_bypass_on()
             vpn_bypass_badge.content.value = "Active (pref 50)" if bypass else "Inactive"
             vpn_bypass_badge.content.color = SUCCESS if bypass else MUTED_GRAY
@@ -1812,6 +1902,48 @@ def main(page: ft.Page) -> None:
                 tight=True,
             ),
             actions=[ft.TextButton("Close", on_click=lambda e: page.pop_dialog())],
+        )
+        page.show_dialog(dlg)
+
+    def show_add_domain_dialog() -> None:
+        """Prompt dialog to add a custom domain to adblock sinkhole."""
+        txt_domain = ft.TextField(
+            label="Domain to block",
+            hint_text="e.g. tracking.example.com",
+            dense=True,
+            text_size=12,
+            autofocus=True,
+        )
+
+        def on_add(e: Any) -> None:
+            dom = (txt_domain.value or "").strip()
+            if dom:
+                ok = hub.add_custom_adblock_domain(dom)
+                if ok:
+                    show_snack(f"Blocked {dom}", SUCCESS)
+                    refresh_sys()
+                else:
+                    show_snack(f"Failed to block {dom}", DANGER)
+            page.pop_dialog()
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Add Custom Blocked Domain", size=15, weight=ft.FontWeight.W_700),
+            content=ft.Container(
+                content=ft.Column(
+                    [
+                        register_muted(ft.Text("Instantly sinkholes this domain for all connected devices via local DNS.", size=12)),
+                        txt_domain,
+                    ],
+                    spacing=12,
+                    tight=True,
+                ),
+                width=360,
+            ),
+            actions=[
+                ft.TextButton("Cancel", on_click=lambda e: page.pop_dialog()),
+                ft.FilledButton("Block Domain", on_click=on_add),
+            ],
         )
         page.show_dialog(dlg)
 

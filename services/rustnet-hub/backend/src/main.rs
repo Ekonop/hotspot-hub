@@ -107,9 +107,14 @@ async fn main() {
     // 3. API & WebSocket Router
     let app = Router::new()
         .route("/", get(|| async { axum::response::Html(include_str!("../../frontend/index.html")) }))
+        .route("/wpad.dat", get(wpad_handler))
+        .route("/proxy.pac", get(wpad_handler))
         .route("/ws", get(ws_handler))
         .route("/api/export/pcapng", post(export_pcapng))
         .route("/api/clients/block", post(block_client))
+        .route("/api/adblock/status", get(adblock_status))
+        .route("/api/adblock/toggle", post(adblock_toggle))
+        .route("/api/adblock/update", post(adblock_update))
         .route("/api/health", get(|| async { Json(serde_json::json!({"status": "ok", "service": "rustnet-hub"})) }))
         .layer(CorsLayer::permissive())
         .with_state(state);
@@ -383,4 +388,62 @@ async fn block_client(Json(req): Json<BlockRequest>) -> Response {
     } else {
         Json(serde_json::json!({"status": "error", "message": "Invalid MAC address"})).into_response()
     }
+}
+
+async fn wpad_handler() -> impl IntoResponse {
+    (
+        [(axum::http::header::CONTENT_TYPE, "application/x-ns-proxy-autoconfig")],
+        r#"function FindProxyForURL(url, host) {
+    if (isPlainHostName(host) ||
+        shExpMatch(host, "*.local") ||
+        isInNet(dnsResolve(host), "10.0.0.0", "255.0.0.0") ||
+        isInNet(dnsResolve(host), "172.16.0.0", "255.240.0.0") ||
+        isInNet(dnsResolve(host), "192.168.0.0", "255.255.0.0") ||
+        isInNet(dnsResolve(host), "127.0.0.0", "255.0.0.0")) {
+        return "DIRECT";
+    }
+    return "PROXY 10.42.0.1:8118; DIRECT";
+}"#,
+    )
+}
+
+async fn adblock_status() -> Response {
+    let output = tokio::process::Command::new("/usr/local/bin/hotspot-adblock.sh")
+        .arg("status")
+        .output()
+        .await;
+    match output {
+        Ok(out) => {
+            let s = String::from_utf8_lossy(&out.stdout).to_string();
+            let val = serde_json::from_str::<serde_json::Value>(&s).unwrap_or(serde_json::json!({"enabled": false}));
+            Json(val).into_response()
+        }
+        Err(_) => Json(serde_json::json!({"enabled": false, "error": "status check failed"})).into_response(),
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct AdblockToggleReq {
+    pub enabled: bool,
+}
+
+async fn adblock_toggle(Json(payload): Json<AdblockToggleReq>) -> Response {
+    let arg = if payload.enabled { "enable" } else { "disable" };
+    let _ = tokio::process::Command::new("sudo")
+        .arg("-n")
+        .arg("/usr/local/bin/hotspot-adblock.sh")
+        .arg(arg)
+        .output()
+        .await;
+    adblock_status().await
+}
+
+async fn adblock_update() -> Response {
+    let _ = tokio::process::Command::new("sudo")
+        .arg("-n")
+        .arg("/usr/local/bin/hotspot-adblock.sh")
+        .arg("update")
+        .output()
+        .await;
+    adblock_status().await
 }

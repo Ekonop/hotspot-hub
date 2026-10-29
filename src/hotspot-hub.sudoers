@@ -17,3 +17,4 @@
 %wheel ALL=(root) NOPASSWD: /usr/bin/sysctl -w net.ipv6.conf.ap0.disable_ipv6=*
 %wheel ALL=(root) NOPASSWD: /usr/bin/tc qdisc *
 %wheel ALL=(root) NOPASSWD: /usr/bin/rustnet *
+%wheel ALL=(root) NOPASSWD: /usr/local/bin/hotspot-adblock.sh *

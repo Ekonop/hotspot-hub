@@ -22,6 +22,7 @@ DISABLED_FLAG = Path("/run/hotspot-hub-disabled")
 DEFAULT_CONFIG: dict[str, Any] = {
     "mac_filter_enabled": False,
     "mac_filter_mode": "allow",  # "allow" (whitelist) or "deny" (blacklist)
+    "adblock_enabled": True,     # Hybrid DNS sinkhole + Privoxy proxy shield
     "band": "Auto",              # "Auto", "2.4GHz", "5GHz"
     "wpa3_supported": False,
     "security": "wpa2",          # "wpa2" or "wpa3-sae"

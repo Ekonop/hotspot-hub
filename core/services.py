@@ -1317,3 +1317,65 @@ def set_autostart(enabled: bool) -> bool:
             return True
     except OSError:
         return False
+
+
+# ── HYBRID ADBLOCKER & PROXY SHIELD ─────────────────────────────────
+
+ADBLOCK_SCRIPT = "/usr/local/bin/hotspot-adblock.sh"
+
+def adblock_status() -> dict[str, Any]:
+    """Return dictionary of current hybrid adblocker & proxy shield status."""
+    try:
+        rc, out = priv([ADBLOCK_SCRIPT, "status"])
+        if rc == 0 and out:
+            data = json.loads(out)
+            if isinstance(data, dict):
+                return data
+    except Exception as e:
+        logger.debug("adblock_status error: %s", e)
+    return {
+        "enabled": False,
+        "rules_count": 0,
+        "proxy_running": False,
+        "proxy_port": 8118,
+        "wpad_url": "http://10.42.0.1:9090/wpad.dat",
+        "dns_sinkhole": False,
+    }
+
+def toggle_adblock(enable: bool) -> tuple[bool, str]:
+    """Enable or disable the hybrid adblocker & proxy shield."""
+    action = "enable" if enable else "disable"
+    try:
+        rc, out = priv([ADBLOCK_SCRIPT, action])
+        cfg = load_app_config()
+        cfg["adblock_enabled"] = enable
+        save_app_config(cfg)
+        return rc == 0, out.strip() if out else f"Adblocker {action}d."
+    except Exception as e:
+        return False, str(e)
+
+def update_adblock_rules() -> tuple[bool, int, str]:
+    """Download latest blocklists and update dnsmasq sinkhole."""
+    try:
+        rc, out = priv([ADBLOCK_SCRIPT, "update"])
+        status = adblock_status()
+        return rc == 0, status.get("rules_count", 0), out.strip() if out else "Rules updated."
+    except Exception as e:
+        return False, 0, str(e)
+
+def add_custom_adblock_domain(domain: str) -> bool:
+    """Add a domain to custom blocklist."""
+    try:
+        rc, _ = priv([ADBLOCK_SCRIPT, "add", domain.strip()])
+        return rc == 0
+    except Exception:
+        return False
+
+def remove_custom_adblock_domain(domain: str) -> bool:
+    """Remove a domain from custom blocklist."""
+    try:
+        rc, _ = priv([ADBLOCK_SCRIPT, "remove", domain.strip()])
+        return rc == 0
+    except Exception:
+        return False
+

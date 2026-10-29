@@ -481,6 +481,49 @@ def cmd_mac_filter(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_adblock(args: argparse.Namespace) -> int:
+    """Manage hybrid adblocker & proxy shield."""
+    action = args.action
+    if action == "status":
+        st = hub.adblock_status()
+        state = "ENABLED" if st.get("enabled") else "DISABLED"
+        proxy = "RUNNING" if st.get("proxy_running") else "STOPPED"
+        print(f"AdBlocker Shield:   {state}")
+        print(f"Active Rules:       {st.get('rules_count', 0):,}")
+        print(f"Privoxy HTTP Proxy: {proxy} (Port: {st.get('proxy_port', 8118)})")
+        print(f"WPAD Auto-Config:   {st.get('wpad_url')}")
+        print(f"DNS Sinkhole:       {'ACTIVE' if st.get('dns_sinkhole') else 'INACTIVE'}")
+        return 0
+    elif action in ("enable", "on"):
+        ok, msg = hub.toggle_adblock(True)
+        print(msg)
+        return 0 if ok else 1
+    elif action in ("disable", "off"):
+        ok, msg = hub.toggle_adblock(False)
+        print(msg)
+        return 0 if ok else 1
+    elif action in ("update", "refresh"):
+        print("Updating adblock blocklists from upstream...")
+        ok, count, msg = hub.update_adblock_rules()
+        print(f"{msg} ({count:,} rules)")
+        return 0 if ok else 1
+    elif action == "add":
+        if not args.domain:
+            print("Error: Missing domain to block. Usage: hotspot-hub-cli adblock add <domain>", file=sys.stderr)
+            return 1
+        ok = hub.add_custom_adblock_domain(args.domain)
+        print(f"Blocked {args.domain}" if ok else f"Failed to block {args.domain}")
+        return 0 if ok else 1
+    elif action in ("remove", "del"):
+        if not args.domain:
+            print("Error: Missing domain to unblock. Usage: hotspot-hub-cli adblock remove <domain>", file=sys.stderr)
+            return 1
+        ok = hub.remove_custom_adblock_domain(args.domain)
+        print(f"Unblocked {args.domain}" if ok else f"Failed to unblock {args.domain}")
+        return 0 if ok else 1
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build and return command-line argument parser."""
     parser = argparse.ArgumentParser(
@@ -564,6 +607,14 @@ def build_parser() -> argparse.ArgumentParser:
                            help="Profile action")
     p_profile.add_argument("name", nargs="?", help="Profile name for add/switch/remove")
     p_profile.set_defaults(func=cmd_profile)
+
+    # adblock
+    p_ab = subparsers.add_parser(
+        "adblock", help="Manage hybrid adblocker & proxy shield (status/on/off/update/add/remove)")
+    p_ab.add_argument("action", choices=["status", "on", "off", "enable", "disable", "update", "refresh", "add", "remove", "del"],
+                      help="Adblock action")
+    p_ab.add_argument("domain", nargs="?", help="Domain name for add/remove actions")
+    p_ab.set_defaults(func=cmd_adblock)
 
     return parser
 
