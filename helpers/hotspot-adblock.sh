@@ -47,24 +47,68 @@ enable-remote-toggle 0
 # ========================================================
 EOF
   fi
+
+  local user_action="/etc/privoxy/user.action"
+  if [ -f "$user_action" ] && ! grep -q "Hotspot Hub YouTube & AdBlock Rules" "$user_action"; then
+    cat << "EOF" >> "$user_action"
+
+# ========================================================
+# Hotspot Hub YouTube & AdBlock Rules
+# ========================================================
+{ +block{YouTube Ads & Tracking} }
+.youtube.com/api/stats/ads
+.youtube.com/pagead/
+.youtube.com/ptracking
+.youtube.com/api/stats/qoe
+.youtube.com/api/stats/playback
+.youtube.com/youtubei/v1/log_event
+.youtube.com/api/stats/watchtime
+.youtube.com/pcs/activeview
+.googlevideo.com/videoplayback\?.*(&|%26)oad=
+.googlevideo.com/videoplayback\?.*(&|%26)ctier=L
+.googlevideo.com/initplayback\?.*(&|%26)oad=
+s.youtube.com
+video-stats.l.google.com
+ads.youtube.com
+ad.youtube.com
+.doubleclick.net
+.googleads.g.doubleclick.net
+.pubads.g.doubleclick.net
+.pagead2.googlesyndication.com
+.adservice.google.com
+# ========================================================
+EOF
+  fi
 }
 
 apply_iptables_rules() {
-  # Intercept port 53 (DNS) to force all client DNS into local dnsmasq sinkhole
+  # 1. Intercept port 53 (DNS) to force all client DNS into local dnsmasq sinkhole
   iptables -t nat -C PREROUTING -i "$AP_IF" -p udp --dport 53 -j REDIRECT --to-ports 53 2>/dev/null || \
     iptables -t nat -A PREROUTING -i "$AP_IF" -p udp --dport 53 -j REDIRECT --to-ports 53 2>/dev/null || true
   iptables -t nat -C PREROUTING -i "$AP_IF" -p tcp --dport 53 -j REDIRECT --to-ports 53 2>/dev/null || \
     iptables -t nat -A PREROUTING -i "$AP_IF" -p tcp --dport 53 -j REDIRECT --to-ports 53 2>/dev/null || true
 
-  # Transparent HTTP redirection to Privoxy port 8118
+  # 2. Transparent HTTP redirection to Privoxy port 8118
   iptables -t nat -C PREROUTING -i "$AP_IF" -p tcp --dport 80 -j REDIRECT --to-ports "$PROXY_PORT" 2>/dev/null || \
     iptables -t nat -A PREROUTING -i "$AP_IF" -p tcp --dport 80 -j REDIRECT --to-ports "$PROXY_PORT" 2>/dev/null || true
+
+  # 3. Block QUIC (UDP 443) on hotspot clients.
+  # Forces iOS YouTube, mobile Safari, and apps to immediately fallback to TCP HTTPS,
+  # preventing UDP connection migration, WPAD/proxy evasion, and DoH bypass.
+  iptables -C FORWARD -i "$AP_IF" -p udp --dport 443 -j REJECT --reject-with icmp-port-unreachable 2>/dev/null || \
+    iptables -I FORWARD 1 -i "$AP_IF" -p udp --dport 443 -j REJECT --reject-with icmp-port-unreachable 2>/dev/null || true
+
+  # 4. Block DNS-over-TLS (TCP 853) so client apps cannot bypass local dnsmasq sinkhole
+  iptables -C FORWARD -i "$AP_IF" -p tcp --dport 853 -j REJECT 2>/dev/null || \
+    iptables -I FORWARD 1 -i "$AP_IF" -p tcp --dport 853 -j REJECT 2>/dev/null || true
 }
 
 remove_iptables_rules() {
   iptables -t nat -D PREROUTING -i "$AP_IF" -p udp --dport 53 -j REDIRECT --to-ports 53 2>/dev/null || true
   iptables -t nat -D PREROUTING -i "$AP_IF" -p tcp --dport 53 -j REDIRECT --to-ports 53 2>/dev/null || true
   iptables -t nat -D PREROUTING -i "$AP_IF" -p tcp --dport 80 -j REDIRECT --to-ports "$PROXY_PORT" 2>/dev/null || true
+  iptables -D FORWARD -i "$AP_IF" -p udp --dport 443 -j REJECT --reject-with icmp-port-unreachable 2>/dev/null || true
+  iptables -D FORWARD -i "$AP_IF" -p tcp --dport 853 -j REJECT 2>/dev/null || true
 }
 
 seed_baseline_blocklist() {
@@ -128,11 +172,25 @@ EOF
 cmd_enable() {
   echo "==> Enabling Hotspot Hub AdBlocker & Proxy Shield..."
 
-  # 1. Ensure dnsmasq configuration
+  # 1. Ensure dnsmasq configuration with Apple Private Relay & DoH suppression
   cat << EOF > "$DNSMASQ_CONF"
 # Hotspot Hub AdBlocker & Shield
 addn-hosts=$HOSTS_FILE
 dhcp-option=252,$WPAD_URL
+
+# Signal Apple devices (iOS/macOS) to disable iCloud Private Relay on this hotspot network
+# (Per official Apple documentation: returning NXDOMAIN forces iOS to use local network DNS)
+server=/mask.icloud.com/
+server=/mask-h2.icloud.com/
+server=/mask.apple-dns.net/
+
+# Sinkhole public DoH endpoints to force client devices to use local dnsmasq
+address=/dns.google/0.0.0.0
+address=/dns.google.com/0.0.0.0
+address=/cloudflare-dns.com/0.0.0.0
+address=/dns.quad9.net/0.0.0.0
+address=/doh.cleanbrowsing.org/0.0.0.0
+address=/dns.adguard.com/0.0.0.0
 EOF
 
   # 2. Ensure blocklist is populated
@@ -252,6 +310,16 @@ cmd_update() {
 0.0.0.0 googleads.g.doubleclick.net
 0.0.0.0 pubads.g.doubleclick.net
 0.0.0.0 securepubads.g.doubleclick.net
+0.0.0.0 pagead2.googlesyndication.com
+0.0.0.0 pagead2.googleadservices.com
+0.0.0.0 adservice.google.com
+0.0.0.0 googleadservices.com
+0.0.0.0 partnerad.l.doubleclick.net
+0.0.0.0 static.doubleclick.net
+0.0.0.0 stats.g.doubleclick.net
+0.0.0.0 www-googletagmanager.l.google.com
+0.0.0.0 yt3.ggpht.com
+0.0.0.0 redirector.googlevideo.com
 0.0.0.0 ads.tiktok.com
 0.0.0.0 analytics.tiktok.com
 0.0.0.0 log.byteoversea.com

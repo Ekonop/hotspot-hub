@@ -65,6 +65,8 @@ sudo install -Dm755 "$ROOT/src/90-hotspot-channelsync" /etc/NetworkManager/dispa
 sudo install -Dm644 "$ROOT/src/hotspot-channelsync.service" /etc/systemd/system/hotspot-channelsync.service
 sudo install -Dm644 "$ROOT/src/99-hotspot.conf" /etc/sysctl.d/99-hotspot.conf
 sudo install -Dm644 "$ROOT/src/99-hotspot-powersave.conf" /etc/NetworkManager/conf.d/99-hotspot-powersave.conf
+sudo install -Dm644 "$ROOT/src/hotspot-adblock-update.service" /etc/systemd/system/hotspot-adblock-update.service
+sudo install -Dm644 "$ROOT/src/hotspot-adblock-update.timer" /etc/systemd/system/hotspot-adblock-update.timer
 
 # RustNet Traffic Inspector bridge (if built)
 if [ -f "$ROOT/services/rustnet-hub/backend/target/release/rustnet-hub-backend" ]; then
@@ -142,6 +144,7 @@ if [ "$NO_ENABLE" = 0 ]; then
   echo "==> Enabling channel-sync service..."
   sudo systemctl daemon-reload
   sudo systemctl enable --now hotspot-channelsync.service
+  sudo systemctl enable --now hotspot-adblock-update.timer 2>/dev/null || true
 fi
 
 if [ "$NO_PROFILE" = 0 ]; then
