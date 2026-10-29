@@ -38,6 +38,19 @@ impl RollingDb {
             [],
         )?;
 
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS adblock_stats (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                ads_restricted INTEGER NOT NULL DEFAULT 0,
+                data_saved_bytes INTEGER NOT NULL DEFAULT 0
+            )",
+            [],
+        )?;
+        let _ = conn.execute(
+            "INSERT OR IGNORE INTO adblock_stats (id, ads_restricted, data_saved_bytes) VALUES (1, 0, 0)",
+            [],
+        );
+
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
         })
@@ -88,5 +101,34 @@ impl RollingDb {
                 [],
             );
         }
+    }
+
+    /// Record an ad/tracker restriction and calculate prevented bandwidth
+    pub fn record_ad_restriction(&self, is_video_ad: bool) -> (u64, u64) {
+        let added_bytes = if is_video_ad { 1_500_000 } else { 150_000 };
+        if let Ok(conn) = self.conn.lock() {
+            let _ = conn.execute(
+                "UPDATE adblock_stats SET ads_restricted = ads_restricted + 1, data_saved_bytes = data_saved_bytes + ?1 WHERE id = 1",
+                params![added_bytes],
+            );
+            if let Ok(mut stmt) = conn.prepare("SELECT ads_restricted, data_saved_bytes FROM adblock_stats WHERE id = 1") {
+                if let Ok(row) = stmt.query_row([], |r| Ok((r.get::<_, i64>(0).unwrap_or(0) as u64, r.get::<_, i64>(1).unwrap_or(0) as u64))) {
+                    return row;
+                }
+            }
+        }
+        (0, 0)
+    }
+
+    /// Retrieve current adblock restrictions count and total data saved in bytes
+    pub fn get_adblock_stats(&self) -> (u64, u64) {
+        if let Ok(conn) = self.conn.lock() {
+            if let Ok(mut stmt) = conn.prepare("SELECT ads_restricted, data_saved_bytes FROM adblock_stats WHERE id = 1") {
+                if let Ok(row) = stmt.query_row([], |r| Ok((r.get::<_, i64>(0).unwrap_or(0) as u64, r.get::<_, i64>(1).unwrap_or(0) as u64))) {
+                    return row;
+                }
+            }
+        }
+        (0, 0)
     }
 }

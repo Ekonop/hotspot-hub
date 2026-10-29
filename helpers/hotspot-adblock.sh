@@ -214,35 +214,86 @@ EOF
 }
 
 cmd_update() {
-  echo "==> Fetching latest StevenBlack unified adblock list..."
-  local tmp_file
-  tmp_file="$(mktemp /tmp/adblock-update.XXXXXX)"
+  echo "==> Fetching latest upstream blocklists (StevenBlack + YouTube Ads + Telemetry)..."
+  local tmp_dir
+  tmp_dir="$(mktemp -d /tmp/adblock-update.XXXXXX)"
+  local tmp_hosts="$tmp_dir/hosts_raw.txt"
+  local tmp_merged="$tmp_dir/merged.txt"
 
-  if curl -sSL --connect-timeout 10 --max-time 30 \
-       "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts" \
-       -o "$tmp_file" && [ -s "$tmp_file" ]; then
-    echo "Processing blocklist..."
-    # Filter 0.0.0.0 entries, ignore localhost/broadcasthost
-    grep "^0\.0\.0\.0 " "$tmp_file" | \
-      grep -v -E " 0\.0\.0\.0$| localhost$| local$| broadcasthost$" > "$HOSTS_FILE"
+  # 1. StevenBlack Unified Hosts (76k+ ad & malware domains)
+  curl -sSL --connect-timeout 10 --max-time 45 \
+    "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts" \
+    -o "$tmp_dir/stevenblack.txt" || true
 
-    # Merge custom list if present
-    if [ -s "$CUSTOM_FILE" ]; then
-      cat "$CUSTOM_FILE" >> "$HOSTS_FILE"
-    fi
+  if [ -s "$tmp_dir/stevenblack.txt" ]; then
+    grep "^0\.0\.0\.0 " "$tmp_dir/stevenblack.txt" | \
+      grep -v -E " 0\.0\.0\.0$| localhost$| local$| broadcasthost$" >> "$tmp_hosts" || true
+  fi
 
-    # Sort and deduplicate
-    sort -u -o "$HOSTS_FILE" "$HOSTS_FILE"
-    rm -f "$tmp_file"
+  # 2. Dedicated YouTube Ads Blacklist (16k+ in-video ad serving hosts & tracking endpoints)
+  curl -sSL --connect-timeout 10 --max-time 45 \
+    "https://raw.githubusercontent.com/kboghdady/youTube_ads_4_pi-hole/master/youtubelist.txt" \
+    -o "$tmp_dir/yt.txt" || true
 
+  if [ -s "$tmp_dir/yt.txt" ]; then
+    sed -e 's/^[[:space:]]*//;s/[[:space:]]*$//' "$tmp_dir/yt.txt" | \
+      grep -v "^#" | grep -v "^$" | \
+      awk '{ if ($1 ~ /^[0-9]/) print $0; else print "0.0.0.0 " $1 }' >> "$tmp_hosts" || true
+  fi
+
+  # 3. High-Priority Popular App & Video Ad Endpoints (YouTube, TikTok, Spotify, Smart TVs)
+  cat << "EOF" >> "$tmp_hosts"
+0.0.0.0 s.youtube.com
+0.0.0.0 video-stats.l.google.com
+0.0.0.0 youtube-ui.l.google.com
+0.0.0.0 ads.youtube.com
+0.0.0.0 ad.youtube.com
+0.0.0.0 manifest.googlevideo.com
+0.0.0.0 googleads.g.doubleclick.net
+0.0.0.0 pubads.g.doubleclick.net
+0.0.0.0 securepubads.g.doubleclick.net
+0.0.0.0 ads.tiktok.com
+0.0.0.0 analytics.tiktok.com
+0.0.0.0 log.byteoversea.com
+0.0.0.0 mon.byteoversea.com
+0.0.0.0 business-api.tiktok.com
+0.0.0.0 spclient.wg.spotify.com/ads
+0.0.0.0 audio-ak-spotify-com.akamaized.net/ads
+0.0.0.0 heads-ak-spotify-com.akamaized.net
+0.0.0.0 countess.twitch.tv
+0.0.0.0 usher.ttvnw.net/ad
+0.0.0.0 ads.rubiconproject.com
+0.0.0.0 c.amazon-adsystem.com
+0.0.0.0 aax.amazon-adsystem.com
+0.0.0.0 samsungcloudsolution.com
+0.0.0.0 samsungadhub.com
+0.0.0.0 ads.roku.com
+0.0.0.0 track.roku.com
+0.0.0.0 lgsmartad.com
+0.0.0.0 unityads.unity3d.com
+0.0.0.0 d.applovin.com
+0.0.0.0 vungle.com
+0.0.0.0 adcolony.com
+0.0.0.0 ironSource.com
+0.0.0.0 inmobi.com
+EOF
+
+  # 4. Merge custom user blocklist
+  if [ -s "$CUSTOM_FILE" ]; then
+    cat "$CUSTOM_FILE" >> "$tmp_hosts"
+  fi
+
+  if [ -s "$tmp_hosts" ]; then
+    sort -u "$tmp_hosts" > "$HOSTS_FILE"
+    rm -rf "$tmp_dir"
     reload_dnsmasq
     local count
     count="$(wc -l < "$HOSTS_FILE" | tr -d ' ')"
     touch "$ENABLED_FLAG"
     echo "Successfully updated blocklist: $count rules active."
   else
-    rm -f "$tmp_file"
-    echo "Download failed or offline; using seed baseline list..."
+    rm -rf "$tmp_dir"
+    echo "Upstream download failed; using seed baseline..."
     seed_baseline_blocklist
     reload_dnsmasq
     local count

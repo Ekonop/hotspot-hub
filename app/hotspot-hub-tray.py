@@ -1628,9 +1628,20 @@ def main(page: ft.Page) -> None:
             ab_enabled = ab.get("enabled", False)
             chk_adblock_tab.value = ab_enabled
             rules_n = ab.get("rules_count", 0)
-            proxy_str = "Privoxy ON (:8118)" if ab.get("proxy_running") else "Proxy OFF"
+            ads_restr = ab.get("ads_restricted", 0)
+            data_saved = ab.get("data_saved_bytes", 0)
+            if data_saved < 1024:
+                saved_str = f"{data_saved} B"
+            elif data_saved < 1024 * 1024:
+                saved_str = f"{data_saved / 1024:.1f} KB"
+            elif data_saved < 1024 * 1024 * 1024:
+                saved_str = f"{data_saved / (1024 * 1024):.1f} MB"
+            else:
+                saved_str = f"{data_saved / (1024 * 1024 * 1024):.2f} GB"
+
+            proxy_str = "Privoxy (:8118)" if ab.get("proxy_running") else "Proxy OFF"
             adblock_status_text.value = (
-                f"{rules_n:,} rules active · {proxy_str} · WPAD active" if ab_enabled else "Shield disabled (direct DNS/HTTP)"
+                f"{rules_n:,} rules · {ads_restr:,} ads restricted ({saved_str} saved) · {proxy_str}" if ab_enabled else "Shield disabled (direct DNS/HTTP)"
             )
 
             bypass = hub.vpn_bypass_on()

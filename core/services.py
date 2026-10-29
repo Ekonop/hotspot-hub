@@ -870,12 +870,12 @@ def warp(action: str) -> tuple[bool, str]:
     """
     if action == "connect":
         if shutil.which("warp-cli"):
-            rc, out = run_rc(["warp-cli", "connect"], timeout=30, max_retries=1)
+            rc, out = run_rc(["warp-cli", "--accept-tos", "connect"], timeout=30, max_retries=1)
             return rc == 0, out or "connected"
         return False, "warp-cli not found"
     elif action == "disconnect":
         if shutil.which("warp-cli"):
-            rc, out = run_rc(["warp-cli", "disconnect"], timeout=30, max_retries=1)
+            rc, out = run_rc(["warp-cli", "--accept-tos", "disconnect"], timeout=30, max_retries=1)
             return rc == 0, out or "disconnected"
         return False, "warp-cli not found"
     return False, f"unknown action: {action}"
@@ -1326,6 +1326,16 @@ ADBLOCK_SCRIPT = "/usr/local/bin/hotspot-adblock.sh"
 def adblock_status() -> dict[str, Any]:
     """Return dictionary of current hybrid adblocker & proxy shield status."""
     try:
+        import urllib.request
+        with urllib.request.urlopen("http://localhost:9090/api/adblock/status", timeout=0.8) as resp:
+            if resp.status == 200:
+                data = json.loads(resp.read().decode())
+                if isinstance(data, dict):
+                    return data
+    except Exception:
+        pass
+
+    try:
         rc, out = priv([ADBLOCK_SCRIPT, "status"])
         if rc == 0 and out:
             data = json.loads(out)
@@ -1336,6 +1346,8 @@ def adblock_status() -> dict[str, Any]:
     return {
         "enabled": False,
         "rules_count": 0,
+        "ads_restricted": 0,
+        "data_saved_bytes": 0,
         "proxy_running": False,
         "proxy_port": 8118,
         "wpad_url": "http://10.42.0.1:9090/wpad.dat",

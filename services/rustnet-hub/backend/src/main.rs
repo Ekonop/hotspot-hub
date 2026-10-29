@@ -43,6 +43,8 @@ pub struct FlowBatch {
     pub iface_bps: u64,
     pub iface_rx_bps: u64,
     pub iface_tx_bps: u64,
+    pub ads_restricted: u64,
+    pub data_saved_bytes: u64,
     pub records: Vec<TrafficRecord>,
 }
 
@@ -294,6 +296,13 @@ async fn run_rustnet_supervisor(
                                         &tags_joined,
                                     );
 
+                                    let dom_lower = record.domain.to_lowercase();
+                                    let is_ad = record.category == "Telemetry & Ads" || dom_lower.contains("doubleclick") || dom_lower.contains("googlesyndication") || dom_lower.contains("googleadservices") || dom_lower.contains("adservice") || dom_lower.contains("criteo") || dom_lower.contains("taboola");
+                                    if is_ad {
+                                        let is_video = dom_lower.contains("googlevideo") || dom_lower.contains("youtube") || dom_lower.contains("tiktok") || dom_lower.contains("unityads") || dom_lower.contains("applovin");
+                                        db.record_ad_restriction(is_video);
+                                    }
+
                                     batch_records.push(record);
                                 }
 
@@ -315,12 +324,15 @@ async fn run_rustnet_supervisor(
                                 let iface_bps = ((iface_rx_rate + iface_tx_rate) * 8.0) as u64;
                                 let iface_rx_bps = (iface_rx_rate * 8.0) as u64;
                                 let iface_tx_bps = (iface_tx_rate * 8.0) as u64;
+                                let (ads_restricted, data_saved_bytes) = db.get_adblock_stats();
 
                                 let batch = FlowBatch {
                                     timestamp: chrono::Utc::now().to_rfc3339(),
                                     iface_bps,
                                     iface_rx_bps,
                                     iface_tx_bps,
+                                    ads_restricted,
+                                    data_saved_bytes,
                                     records: batch_records,
                                 };
 
@@ -407,18 +419,28 @@ async fn wpad_handler() -> impl IntoResponse {
     )
 }
 
-async fn adblock_status() -> Response {
+async fn adblock_status(State(state): State<Arc<AppState>>) -> Response {
     let output = tokio::process::Command::new("/usr/local/bin/hotspot-adblock.sh")
         .arg("status")
         .output()
         .await;
+    let (ads_restricted, data_saved_bytes) = state._db.get_adblock_stats();
     match output {
         Ok(out) => {
             let s = String::from_utf8_lossy(&out.stdout).to_string();
-            let val = serde_json::from_str::<serde_json::Value>(&s).unwrap_or(serde_json::json!({"enabled": false}));
+            let mut val = serde_json::from_str::<serde_json::Value>(&s).unwrap_or(serde_json::json!({"enabled": false}));
+            if let Some(obj) = val.as_object_mut() {
+                obj.insert("ads_restricted".into(), serde_json::json!(ads_restricted));
+                obj.insert("data_saved_bytes".into(), serde_json::json!(data_saved_bytes));
+            }
             Json(val).into_response()
         }
-        Err(_) => Json(serde_json::json!({"enabled": false, "error": "status check failed"})).into_response(),
+        Err(_) => Json(serde_json::json!({
+            "enabled": false,
+            "ads_restricted": ads_restricted,
+            "data_saved_bytes": data_saved_bytes,
+            "error": "status check failed"
+        })).into_response(),
     }
 }
 
@@ -427,7 +449,10 @@ pub struct AdblockToggleReq {
     pub enabled: bool,
 }
 
-async fn adblock_toggle(Json(payload): Json<AdblockToggleReq>) -> Response {
+async fn adblock_toggle(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<AdblockToggleReq>,
+) -> Response {
     let arg = if payload.enabled { "enable" } else { "disable" };
     let _ = tokio::process::Command::new("sudo")
         .arg("-n")
@@ -435,15 +460,15 @@ async fn adblock_toggle(Json(payload): Json<AdblockToggleReq>) -> Response {
         .arg(arg)
         .output()
         .await;
-    adblock_status().await
+    adblock_status(State(state)).await
 }
 
-async fn adblock_update() -> Response {
+async fn adblock_update(State(state): State<Arc<AppState>>) -> Response {
     let _ = tokio::process::Command::new("sudo")
         .arg("-n")
         .arg("/usr/local/bin/hotspot-adblock.sh")
         .arg("update")
         .output()
         .await;
-    adblock_status().await
+    adblock_status(State(state)).await
 }
